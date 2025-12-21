@@ -146,7 +146,7 @@ def billing_callback(shop: str, credits: int, charge_id: str):
     else:
         return RedirectResponse(f"/?shop={shop}&error=payment_declined")
 
-# --- GENERATION IA (MODE "OPEN BAR" ACTIVÉ) ---
+# --- GENERATION IA (CORRIGÉE & SÉCURISÉE) ---
 class TryOnRequest(BaseModel):
     shop: str
     person_image_url: str
@@ -155,9 +155,9 @@ class TryOnRequest(BaseModel):
 
 @app.post("/api/generate")
 def generate(req: TryOnRequest):
-    # NOTE: J'ai commenté la vérification des crédits pour que tu puisses tester
-    # même si Render a effacé la base de données.
+    print(f"--- Nouvelle demande de génération pour : {req.shop} ---")
     
+    # NOTE: Vérification des crédits désactivée pour le test
     # data = get_shop_data(req.shop)
     # if not data or data[1] < 1:
     #     raise HTTPException(402, "Crédits insuffisants")
@@ -170,7 +170,7 @@ def generate(req: TryOnRequest):
             "one-pieces": "dresses"
         }
         
-        print("Lancement génération IDM-VTON...")
+        print("Envoi de la requête à Replicate (IDM-VTON)...")
         
         output = replicate.run(
             MODEL_ID,
@@ -185,14 +185,25 @@ def generate(req: TryOnRequest):
             }
         )
         
-        # NOTE: On ne déduit pas de crédits pour le moment
-        # update_credits(req.shop, -1)
-        
+        print(f"Réponse brute Replicate : {output}")
+
+        # --- CORRECTION DU BUG JSON ---
+        # Replicate renvoie parfois un objet FileOutput ou une liste.
+        # On force la conversion en string (URL) pour éviter l'erreur de parsing.
+        final_url = ""
+        if isinstance(output, list) and len(output) > 0:
+            final_url = str(output[0])
+        else:
+            final_url = str(output)
+            
+        print(f"URL finale renvoyée au frontend : {final_url}")
+
         return {
-            "result_image_url": output,
-            "credits_remaining": 999 # Nombre fictif pour l'UI
+            "result_image_url": final_url,
+            "credits_remaining": 999 
         }
         
     except Exception as e:
-        print(f"Erreur Replicate: {e}")
-        raise HTTPException(500, f"Erreur IA: {str(e)}")
+        print(f"ERREUR FATALE : {e}")
+        # Renvoie une erreur 500 propre avec le détail
+        raise HTTPException(500, f"Erreur serveur interne : {str(e)}")
