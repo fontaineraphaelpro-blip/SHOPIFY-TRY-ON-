@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+python-multipart
+replicate
+cloudinary
+pydantic
+shopifyapi
+requests
+httpx
+python-dotenv
