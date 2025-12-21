@@ -78,7 +78,7 @@ def index(shop: str = None):
 @app.get("/api/get-credits")
 def get_credits_api(shop: str):
     data = get_shop_data(shop)
-    if not data: return {"credits": 0}
+    if not data: return {"credits": 50}
     return {"credits": data[1]}
 
 # --- FACTURATION ---
@@ -165,3 +165,4 @@ def generate(req: TryOnRequest):
     except Exception as e:
         print(f"Erreur Replicate: {e}")
         raise HTTPException(500, f"Erreur IA: {str(e)}")
+
