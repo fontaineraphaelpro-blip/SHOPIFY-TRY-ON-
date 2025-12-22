@@ -1,7 +1,7 @@
 import os
 import shopify
 import requests
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,13 +13,12 @@ SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
 SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
 HOST = os.getenv("HOST") 
 SCOPES = ['read_products', 'write_products']
-# Modèle IA rapide et performant
+API_VERSION = "2025-01" 
 MODEL_ID = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985"
-API_VERSION = "2025-01"
 
 app = FastAPI()
 
-# --- SÉCURITÉ & CORS ---
+# Autorise ta boutique à parler au serveur
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -28,10 +27,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Sert les fichiers CSS/JS à la racine
+# Sert les fichiers (CSS/JS) qui sont à la racine
 app.mount("/static", StaticFiles(directory="."), name="static")
 
+# STOCKAGE EN MÉMOIRE (Pas de base de données)
 shop_sessions = {}
+
+def clean_shop_url(url):
+    if not url: return ""
+    return url.replace("https://", "").replace("http://", "").strip("/")
 
 # --- ROUTES ---
 @app.get("/")
@@ -40,46 +44,53 @@ def index():
 
 @app.get("/login")
 def login(shop: str):
-    if not shop: return HTMLResponse("Shop manquant")
-    shop = shop.replace("https://", "").replace("http://", "").strip("/")
-    auth_url = f"https://{shop}/admin/oauth/authorize?client_id={SHOPIFY_API_KEY}&scope={','.join(SCOPES)}&redirect_uri={HOST}/auth/callback"
+    clean_shop = clean_shop_url(shop)
+    auth_url = f"https://{clean_shop}/admin/oauth/authorize?client_id={SHOPIFY_API_KEY}&scope={','.join(SCOPES)}&redirect_uri={HOST}/auth/callback"
     return RedirectResponse(auth_url)
 
 @app.get("/auth/callback")
 def auth_callback(shop: str, code: str):
-    url = f"https://{shop}/admin/oauth/access_token"
+    clean_shop = clean_shop_url(shop)
+    url = f"https://{clean_shop}/admin/oauth/access_token"
     payload = {"client_id": SHOPIFY_API_KEY, "client_secret": SHOPIFY_API_SECRET, "code": code}
+    
     try:
         res = requests.post(url, json=payload)
         if res.status_code == 200:
             token = res.json().get('access_token')
-            shop_sessions[shop] = token
-            return RedirectResponse(f"https://admin.shopify.com/store/{shop.replace('.myshopify.com','')}/apps/{SHOPIFY_API_KEY}")
+            # ON SAUVEGARDE LE TOKEN EN RAM
+            shop_sessions[clean_shop] = token
+            return RedirectResponse(f"https://admin.shopify.com/store/{clean_shop.replace('.myshopify.com','')}/apps/{SHOPIFY_API_KEY}")
     except: pass
-    return HTMLResponse("<h1>Erreur d'authentification</h1>")
+    return HTMLResponse("Erreur Connexion Shopify")
 
-# --- API ---
+# --- API PAIEMENT & IA ---
 class BuyRequest(BaseModel):
     shop: str
     pack_id: str
 
 @app.post("/api/buy-credits")
 def buy_credits(req: BuyRequest):
-    # Tarifs psychologiques
-    if req.pack_id == 'pack_10': price, name = 4.99, "Pack Découverte (10)"
-    elif req.pack_id == 'pack_30': price, name = 9.99, "Pack Populaire (30)"
-    else: price, name = 19.99, "Pack Business (100)"
+    shop = clean_shop_url(req.shop)
+    
+    # On récupère le token en RAM
+    token = shop_sessions.get(shop)
+    if not token:
+        # Si la RAM est vide (redémarrage), on dit au JS de recharger la page
+        raise HTTPException(status_code=401, detail="Reload needed")
+
+    if req.pack_id == 'pack_10': price, name = 4.99, "10 Crédits"
+    elif req.pack_id == 'pack_30': price, name = 9.99, "30 Crédits"
+    else: price, name = 19.99, "100 Crédits"
 
     try:
-        # On utilise un token temporaire si la session est vide (mode sans DB)
-        token = shop_sessions.get(req.shop, "tmp_token")
         shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
-        session = shopify.Session(req.shop, API_VERSION, token)
+        session = shopify.Session(shop, API_VERSION, token)
         shopify.ShopifyResource.activate_session(session)
         
         charge = shopify.ApplicationCharge.create({
             "name": name, "price": price, "test": True,
-            "return_url": f"{HOST}/billing/callback?shop={req.shop}"
+            "return_url": f"{HOST}/billing/callback?shop={shop}"
         })
         
         if charge.confirmation_url: return {"confirmation_url": charge.confirmation_url}
