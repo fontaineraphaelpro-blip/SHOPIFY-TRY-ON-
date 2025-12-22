@@ -8,7 +8,6 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <style>
-        /* --- CSS --- */
         :root { --primary: #6366f1; --primary-dark: #4338ca; --secondary: #ec4899; --bg: #f8fafc; --text-main: #0f172a; --text-muted: #64748b; --border: #e2e8f0; --success: #10b981; }
         body { font-family: 'Inter', sans-serif; background-color: var(--bg); margin: 0; padding: 40px 20px; color: var(--text-main); }
         .container { max-width: 1100px; margin: 0 auto; }
@@ -19,12 +18,9 @@
         .status-dot { width: 8px; height: 8px; background: #22c55e; border-radius: 50%; }
 
         .dashboard-grid { display: grid; grid-template-columns: 320px 1fr; gap: 30px; margin-bottom: 50px; }
-        
-        /* Carte Crédit */
         .credit-card { background: linear-gradient(145deg, #4f46e5, #3730a3); border-radius: 24px; padding: 30px; color: white; display: flex; flex-direction: column; justify-content: space-between; min-height: 240px; box-shadow: 0 20px 25px -5px rgba(79, 70, 229, 0.4); }
         .credit-amount { font-size: 5rem; font-weight: 800; line-height: 1; margin: 20px 0; }
         
-        /* Packs */
         .packs-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
         .pack-card { background: white; border: 1px solid var(--border); border-radius: 20px; padding: 24px; display: flex; flex-direction: column; align-items: center; text-align: center; cursor: pointer; transition: 0.2s; position: relative; }
         .pack-card:hover { transform: translateY(-5px); border-color: var(--primary); }
@@ -37,7 +33,6 @@
         .btn-outline { border: 2px solid var(--border); background: transparent; }
         .btn-primary { background: var(--primary); color: white; }
 
-        /* Studio */
         .client-section { background: white; border-radius: 24px; padding: 40px; border: 1px solid var(--border); }
         .upload-grid { display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 30px; }
         .preview-area { width: 100%; aspect-ratio: 3/4; background: #f8fafc; border: 2px dashed #cbd5e1; border-radius: 16px; display: flex; align-items: center; justify-content: center; cursor: pointer; position: relative; overflow: hidden; }
@@ -111,32 +106,23 @@
 
     <script>
         const urlParams = new URLSearchParams(window.location.search);
-        let SHOP_URL = urlParams.get('shop');
+        let SHOP_URL = urlParams.get('shop') || sessionStorage.getItem('stylelab_shop');
         if (SHOP_URL) sessionStorage.setItem('stylelab_shop', SHOP_URL);
-        else SHOP_URL = sessionStorage.getItem('stylelab_shop');
 
-        // Initialisation
         document.addEventListener("DOMContentLoaded", function() {
             if (SHOP_URL) fetchCredits();
             else console.error("Shop URL manquant");
         });
 
-        // 1. Récupérer Crédits
         async function fetchCredits() {
             try {
                 const res = await fetch(`/api/get-credits?shop=${SHOP_URL}`);
-                if (res.status === 401) {
-                    // Si session expirée (redémarrage serveur), on recharge la page
-                    // Ce qui déclenchera la redirection /login dans main.py
-                    window.location.reload(); 
-                    return;
-                }
+                if (res.status === 401) { window.location.reload(); return; }
                 const data = await res.json();
                 document.getElementById('adminCredits').innerText = data.credits;
             } catch (e) { console.error(e); }
         }
 
-        // 2. Acheter Pack
         async function buyPack(packId) {
             try {
                 const res = await fetch('/api/buy-credits', {
@@ -150,21 +136,19 @@
             } catch (e) { alert("Erreur: " + e); }
         }
 
-        // 3. Générer Image
         async function startTryOn() {
             const userFile = document.getElementById('userImage').files[0];
             const clothFile = document.getElementById('clothingImage').files[0];
-            
             if (!userFile || !clothFile) return alert("Il manque des photos !");
             
             const btn = document.getElementById('generateButton');
             const loading = document.getElementById('loadingMessage');
-            const resultHolder = document.getElementById('resultPlaceholder');
-            const resultImg = document.getElementById('resultImage');
-
-            btn.disabled = true; loading.style.display = 'block'; resultHolder.style.display = 'none'; resultImg.style.display = 'none';
+            btn.disabled = true; loading.style.display = 'block';
 
             try {
+                const toBase64 = file => new Promise((res, rej) => {
+                    const r = new FileReader(); r.readAsDataURL(file); r.onload=()=>res(r.result); r.onerror=e=>rej(e);
+                });
                 const userBase64 = await toBase64(userFile);
                 const clothBase64 = await toBase64(clothFile);
 
@@ -178,26 +162,20 @@
                         category: document.getElementById('categorySelect').value
                     })
                 });
-
                 const data = await res.json();
                 if (res.ok) {
-                    resultImg.src = data.result_image_url;
-                    resultImg.style.display = 'block';
-                    loading.style.display = 'none';
-                    fetchCredits(); // Mettre à jour le solde
+                    document.getElementById('resultImage').src = data.result_image_url;
+                    document.getElementById('resultImage').style.display = 'block';
+                    document.getElementById('resultPlaceholder').style.display = 'none';
+                    fetchCredits();
                 } else {
-                    alert("Erreur: " + (data.detail || "Inconnue"));
-                    if(res.status === 400) window.location.reload(); // Si token perdu
-                    btn.disabled = false; loading.style.display = 'none'; resultHolder.style.display = 'block';
+                    if(res.status === 400 || res.status === 401) window.location.reload();
+                    else alert("Erreur: " + (data.detail || "Inconnue"));
                 }
-            } catch (e) {
-                console.error(e);
-                alert("Erreur technique");
-                btn.disabled = false; loading.style.display = 'none';
-            }
+            } catch (e) { console.error(e); alert("Erreur technique"); }
+            finally { btn.disabled = false; loading.style.display = 'none'; }
         }
 
-        // Utilitaires
         function previewImage(inputId, imgId, phId) {
             const file = document.getElementById(inputId).files[0];
             if(file) {
@@ -209,14 +187,6 @@
                 };
                 reader.readAsDataURL(file);
             }
-        }
-        function toBase64(file) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.readAsDataURL(file);
-                reader.onload = () => resolve(reader.result);
-                reader.onerror = error => reject(error);
-            });
         }
     </script>
 </body>
