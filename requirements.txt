@@ -1,11 +1,8 @@
 fastapi
 uvicorn
-python-multipart
-replicate
-cloudinary
-pydantic
 shopifyapi
+replicate
 requests
-httpx
-python-dotenv
-psycopg2-binary
+pydantic
+python-multipart
+jinja2
