@@ -5,11 +5,11 @@
     --text-main: #111827;
     --bg-app: #f3f4f6;
     --border: #e2e8f0;
-    --success: #10b981; /* Vert pour les économies */
+    --success: #10b981;
 }
 
 body {
-    font-family: 'Inter', sans-serif;
+    font-family: 'Inter', -apple-system, sans-serif;
     background-color: var(--bg-app);
     color: var(--text-main);
     margin: 0; padding: 20px;
@@ -17,95 +17,140 @@ body {
 }
 body.loaded { opacity: 1; }
 
-/* ... (Garde la partie MODE CLIENT / MOBILE inchangée) ... */
-/* ... Copie-colle ton code CLIENT-MODE ici si tu ne l'as pas ... */
-/* Pour simplifier, je mets juste le reset client ici pour que ça marche */
-body.client-mode { background: transparent !important; padding: 0 !important; margin: 0 !important; overflow-y: auto !important; }
+/* =========================================
+   MODE CLIENT (DESIGN APP "SMOOTH")
+   ========================================= */
+body.client-mode {
+    background: transparent !important;
+    padding: 0 !important; margin: 0 !important;
+    overflow-y: auto !important;
+}
 body.client-mode #admin-dashboard { display: none !important; }
-body.client-mode #studio-interface { max-width: 100%; border: none; padding: 10px; background: #fff; min-height: 100vh; }
-.client-grid { display: flex; flex-direction: column; gap: 15px; }
-.upload-card { background: #f9fafb; border: 2px dashed #d1d5db; border-radius: 16px; height: 160px; position: relative; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-.upload-card img { width: 100%; height: 100%; object-fit: cover; position: absolute; top:0; left:0; display: none; }
-.cta-button { background: #000; color: white; width: 100%; padding: 16px; border: none; border-radius: 50px; font-weight: 700; margin-top: 10px; }
+body.client-mode #studio-interface {
+    max-width: 100%; border: none; padding: 20px;
+    background: #fff; min-height: 100vh;
+}
+
+/* Grille Mobile plus aérée */
+.client-grid { display: flex; flex-direction: column; gap: 20px; }
+
+/* NOUVELLE CARTE UPLOAD (Plus grande, plus belle) */
+.upload-card {
+    background: #ffffff;
+    border: 2px dashed #e5e7eb;
+    border-radius: 24px; /* Angles très ronds */
+    height: 200px; /* Plus haut pour ne pas écraser */
+    position: relative; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); /* Animation fluide */
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02);
+}
+
+.upload-card:hover {
+    border-color: var(--primary);
+    background: #fdfdff;
+    transform: translateY(-3px);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
+}
+
+.upload-card:active { transform: scale(0.98); }
+
+/* Image chargée */
+.upload-card.has-image {
+    border-style: solid; border-color: #000; padding: 0;
+    background: #000; /* Fond noir pour faire ressortir l'image */
+}
+.upload-card img {
+    width: 100%; height: 100%; object-fit: cover;
+    border-radius: 22px; /* Suit la courbe de la carte */
+    display: none;
+}
+
+/* Design de l'icône dans une bulle */
+.icon-wrapper {
+    width: 60px; height: 60px;
+    background: #f3f4f6;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 12px;
+    transition: 0.2s;
+}
+.upload-card:hover .icon-wrapper { background: #eef2ff; color: var(--primary); }
+.upload-icon { font-size: 1.5rem; color: #6b7280; margin: 0; }
+
+/* Textes */
+.upload-text { font-weight: 700; font-size: 1.05rem; color: #1f2937; }
+.upload-sub { font-size: 0.85rem; color: #9ca3af; margin-top: 4px; }
+
+/* Badge Etape */
+.step-badge {
+    position: absolute; top: 15px; left: 15px;
+    background: #000; color: white;
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.85rem; font-weight: 700; z-index: 2;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
+/* Zone Résultat */
+#resZone {
+    background: #f0fdf4; border: 2px solid #bbf7d0;
+    cursor: default;
+}
+
+/* Bouton Action */
+.cta-button {
+    background: #000; color: white; width: 100%; padding: 18px;
+    border: none; border-radius: 50px; font-size: 1.1rem; font-weight: 700;
+    cursor: pointer; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.3);
+    margin-top: 10px; transition: transform 0.2s;
+}
+.cta-button:active { transform: scale(0.97); }
 
 
 /* =========================================
-   MODE ADMIN (DESIGN CONVERSION MAXIMALE)
+   MODE ADMIN (DESIGN PRO CONVERSION - INCHANGÉ)
    ========================================= */
 .container { max-width: 1100px; margin: 0 auto; }
 .admin-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
 .brand { font-size: 1.5rem; font-weight: 800; display: flex; align-items: center; gap: 10px; }
 .brand i { color: var(--primary); }
-
 .dashboard-grid { display: grid; grid-template-columns: 320px 1fr; gap: 30px; margin-bottom: 50px; }
-
-/* Carte Crédits (Look Banque) */
 .credit-card {
-    background: linear-gradient(135deg, #1e1b4b, #312e81); /* Bleu nuit profond */
-    color: white; padding: 30px; border-radius: 24px; text-align: center;
-    box-shadow: 0 20px 40px -10px rgba(49, 46, 129, 0.5);
-    height: 380px; display: flex; flex-direction: column; justify-content: center;
-    position: relative; overflow: hidden;
+    background: linear-gradient(135deg, #1e1b4b, #312e81); color: white; padding: 30px;
+    border-radius: 24px; text-align: center; box-shadow: 0 20px 40px -10px rgba(49, 46, 129, 0.5);
+    height: 380px; display: flex; flex-direction: column; justify-content: center; position: relative; overflow: hidden;
 }
-/* Petit effet de brillance */
-.credit-card::after {
-    content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
-    background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
-}
+.credit-card::after { content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%); }
 .credit-amount { font-size: 5rem; font-weight: 900; margin: 15px 0; line-height: 1; text-shadow: 0 2px 10px rgba(0,0,0,0.3); }
-
-/* PACKS CONTAINER */
 .packs-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
-
-/* STYLE DES CARTES DE PRIX */
 .pack-card {
     background: white; border: 1px solid var(--border); border-radius: 24px;
     padding: 25px; text-align: center; cursor: pointer; transition: 0.3s;
-    display: flex; flex-direction: column; justify-content: space-between; height: 380px;
-    position: relative;
+    display: flex; flex-direction: column; justify-content: space-between; height: 380px; position: relative;
 }
 .pack-card:hover { transform: translateY(-8px); border-color: var(--primary); box-shadow: 0 15px 30px rgba(0,0,0,0.08); }
-
-/* DESIGN CARTE POPULAIRE (Celle qu'on veut vendre) */
 .pack-card.popular {
-    border: 3px solid var(--primary);
-    background: linear-gradient(to bottom, #f5f3ff, #ffffff);
-    transform: scale(1.05); z-index: 10;
-    box-shadow: 0 20px 50px -15px rgba(79, 70, 229, 0.3);
+    border: 3px solid var(--primary); background: linear-gradient(to bottom, #f5f3ff, #ffffff);
+    transform: scale(1.05); z-index: 10; box-shadow: 0 20px 50px -15px rgba(79, 70, 229, 0.3);
 }
 .pack-card.popular:hover { transform: scale(1.08) translateY(-5px); }
-
-/* Badge "Best Seller" */
 .popular-badge {
     position: absolute; top: -15px; left: 50%; transform: translateX(-50%);
     background: linear-gradient(90deg, var(--primary), #ec4899); 
-    color: white; padding: 8px 16px;
-    border-radius: 20px; font-size: 0.75rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px;
+    color: white; padding: 8px 16px; border-radius: 20px; font-size: 0.75rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px;
     box-shadow: 0 4px 10px rgba(79, 70, 229, 0.4);
 }
-
-/* Badge Économie (Le truc qui convertit) */
-.save-badge {
-    background: #dcfce7; color: #15803d;
-    font-size: 0.75rem; font-weight: 700;
-    padding: 4px 10px; border-radius: 8px;
-    display: inline-block; margin-bottom: 5px;
-}
-
-/* Typographie Prix */
+.save-badge { background: #dcfce7; color: #15803d; font-size: 0.75rem; font-weight: 700; padding: 4px 10px; border-radius: 8px; display: inline-block; margin-bottom: 5px; }
 .pack-title { font-size: 1.1rem; font-weight: 700; color: #374151; margin-bottom: 5px; }
 .pack-credits { font-size: 3.5rem; font-weight: 900; color: var(--text-main); line-height: 1; margin: 10px 0; }
 .pack-price { font-size: 1.5rem; font-weight: 700; color: var(--primary); }
 .unit-price { font-size: 0.85rem; color: #6b7280; margin-top: 5px; font-weight: 500; }
-
-/* BOUTONS */
 .pack-btn { width: 100%; padding: 15px; border-radius: 14px; font-weight: 700; cursor: pointer; border: none; font-size: 1rem; margin-top: 15px; transition: 0.2s; }
 .btn-outline { background: white; border: 2px solid #e5e7eb; color: var(--text-main); }
 .btn-outline:hover { border-color: var(--primary); color: var(--primary); background: #eff6ff; }
-.btn-fill { 
-    background: var(--primary); color: white; 
-    box-shadow: 0 8px 20px -5px rgba(79, 70, 229, 0.5);
-}
+.btn-fill { background: var(--primary); color: white; box-shadow: 0 8px 20px -5px rgba(79, 70, 229, 0.5); }
 .btn-fill:hover { background: var(--primary-dark); transform: translateY(-2px); }
 
 /* Utils */
