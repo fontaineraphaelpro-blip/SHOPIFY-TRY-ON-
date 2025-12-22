@@ -1,36 +1,44 @@
 // Récupération des paramètres URL
 const urlParams = new URLSearchParams(window.location.search);
 const SHOP_URL = urlParams.get('shop');
-const APP_MODE = urlParams.get('mode'); // Récupère "client" ou null
+const APP_MODE = urlParams.get('mode'); // "client" ou null (admin)
 
-// --- GESTION DE L'AFFICHAGE CLIENT VS ADMIN ---
 document.addEventListener("DOMContentLoaded", function() {
     
-    // Si on est en mode "Client" (sur la boutique)
+    // --- MODE CLIENT ---
     if (APP_MODE === 'client') {
-        const headerActions = document.querySelector('.header-actions');
-        if (headerActions) {
-            headerActions.style.display = 'none'; // Cache le bouton payer et les crédits
-        }
-        // Change le titre pour faire plus "Service"
-        const logo = document.querySelector('.logo');
-        if (logo) logo.innerHTML = "✨ Cabine d'Essayage";
+        // On cache le panneau admin
+        document.getElementById('adminPanel').style.display = 'none';
+        // On s'assure que le header client est visible
+        document.getElementById('clientHeader').style.display = 'flex';
+        // On adapte le style pour l'intégration "App Block"
+        document.body.style.background = 'transparent';
+        document.body.style.padding = '0';
     } 
-    // Sinon (Admin), on charge les crédits normalement
+    // --- MODE ADMIN (Propriétaire) ---
     else {
+        // On affiche le Dashboard Admin
+        document.getElementById('adminPanel').style.display = 'block';
+        // On cache le petit header client (inutile car on a le dashboard)
+        document.getElementById('clientHeader').style.display = 'none';
+        
+        // On va chercher les crédits pour le dashboard
         fetchCredits();
     }
 });
 
-// --- FONCTIONS EXISTANTES ---
+// --- FONCTIONS ---
 
 async function fetchCredits() {
     if (!SHOP_URL) return;
     try {
         const res = await fetch(`/api/get-credits?shop=${SHOP_URL}`);
         const data = await res.json();
-        const el = document.getElementById('creditsLeft');
-        if (el) el.innerText = data.credits;
+        
+        // Mise à jour du GROS compteur Admin
+        const adminCounter = document.getElementById('adminCredits');
+        if (adminCounter) adminCounter.innerText = data.credits;
+
     } catch (e) {
         console.error("Erreur crédits:", e);
     }
@@ -62,18 +70,15 @@ async function startTryOn() {
         return;
     }
 
-    // Afficher le chargement
     document.getElementById('generateButton').disabled = true;
     document.getElementById('loadingMessage').style.display = 'block';
     document.getElementById('resultImage').style.display = 'none';
     document.getElementById('resultPlaceholder').style.display = 'block';
 
     try {
-        // 1. Convertir les images en Base64 pour l'envoi
         const userBase64 = await toBase64(userFile);
         const clothBase64 = await toBase64(clothFile);
 
-        // 2. Appel API
         const response = await fetch('/api/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -88,20 +93,18 @@ async function startTryOn() {
         const data = await response.json();
 
         if (response.ok) {
-            // Affichage du résultat
             const resultImg = document.getElementById('resultImage');
             resultImg.src = data.result_image_url;
             resultImg.style.display = 'block';
             document.getElementById('resultPlaceholder').style.display = 'none';
             
-            // Bouton de téléchargement
             const dlLink = document.getElementById('downloadLink');
             if(dlLink) {
                 dlLink.href = data.result_image_url;
-                dlLink.style.display = 'block';
+                dlLink.style.display = 'inline-block';
             }
 
-            // Mise à jour des crédits seulement si on est admin
+            // Si on est Admin, on met à jour le compteur en temps réel
             if (APP_MODE !== 'client') {
                  fetchCredits(); 
             }
@@ -111,7 +114,7 @@ async function startTryOn() {
 
     } catch (error) {
         console.error(error);
-        alert("Erreur technique. Vérifiez la console.");
+        alert("Erreur technique.");
     } finally {
         document.getElementById('generateButton').disabled = false;
         document.getElementById('loadingMessage').style.display = 'none';
@@ -127,14 +130,7 @@ function toBase64(file) {
     });
 }
 
-// --- GESTION PAIEMENT (Visible seulement pour Admin) ---
-function openPricing() {
-    document.getElementById('pricingModal').style.display = 'flex';
-}
-function closePricing() {
-    document.getElementById('pricingModal').style.display = 'none';
-}
-
+// Fonction de paiement directe (boutons du dashboard)
 async function buyPack(packId) {
     if (!SHOP_URL) return alert("Erreur de boutique");
     
@@ -148,9 +144,9 @@ async function buyPack(packId) {
         if (data.confirmation_url) {
             window.top.location.href = data.confirmation_url;
         } else {
-            alert("Erreur création paiement");
+            alert("Erreur lors de la création du paiement.");
         }
     } catch (e) {
-        alert("Erreur : " + e);
+        alert("Erreur de connexion : " + e);
     }
 }
