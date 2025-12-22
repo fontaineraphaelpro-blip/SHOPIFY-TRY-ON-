@@ -2,10 +2,10 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>StyleLab</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StyleLab Admin</title>
     <link rel="stylesheet" href="/static/styles.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
@@ -14,50 +14,59 @@
         
         <div id="admin-dashboard">
             <div class="admin-header">
-                <h2 style="margin:0"><i class="fa-solid fa-bolt"></i> StyleLab Admin</h2>
-                <span style="background:#dcfce7; color:#166534; padding:5px 12px; border-radius:20px; font-size:0.8rem; font-weight:bold">Système Actif</span>
+                <div class="brand"><i class="fa-solid fa-bolt"></i> StyleLab Admin</div>
+                <div style="background:#dcfce7; color:#166534; padding:5px 15px; border-radius:20px; font-weight:bold; font-size:0.85rem">Système Actif</div>
             </div>
-            
+
             <div class="dashboard-grid">
-                <div class="card" style="background:#4f46e5; color:white; text-align:center;">
-                    <div style="opacity:0.8; font-weight:600; font-size:0.9rem; text-transform:uppercase;">Crédits Restants</div>
-                    <div style="font-size:4rem; font-weight:800; margin:10px 0;" id="credits">...</div>
-                    <div style="font-size:0.85rem; background:rgba(255,255,255,0.2); display:inline-block; padding:5px 10px; border-radius:10px;">
-                        Prêt à servir vos clients
-                    </div>
+                <div class="credit-card">
+                    <div style="opacity:0.9; font-weight:600; text-transform:uppercase; letter-spacing:1px; font-size:0.9rem">Vos Crédits</div>
+                    <div class="credit-amount" id="credits">...</div>
+                    <div style="font-size:0.9rem; opacity:0.8">Utilisables par vos clients</div>
                 </div>
 
-                <div class="card" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:15px; align-items:center;">
-                    <div style="text-align:center; border:1px solid #eee; padding:15px; border-radius:10px; cursor:pointer;" onclick="buy('pack_10')">
-                        <h3>10</h3><div style="color:#666">4.99€</div><button style="margin-top:10px; width:100%">Acheter</button>
+                <div class="packs-container">
+                    <div class="pack-card" onclick="buy('pack_10')">
+                        <div style="margin-top:10px">
+                            <h2>10</h2>
+                            <div style="color:#6b7280">4.99€</div>
+                        </div>
+                        <button class="pack-btn btn-outline">Recharger</button>
                     </div>
-                    <div style="text-align:center; border:2px solid #4f46e5; background:#f5f3ff; padding:15px; border-radius:10px; cursor:pointer;" onclick="buy('pack_30')">
-                        <h3 style="color:#4f46e5">30</h3><div style="font-weight:bold">9.99€</div><button style="margin-top:10px; width:100%; background:#4f46e5; color:white; border:none; padding:8px; border-radius:5px;">Acheter</button>
+                    
+                    <div class="pack-card popular" onclick="buy('pack_30')">
+                        <div class="popular-badge">BEST SELLER</div>
+                        <div style="margin-top:10px">
+                            <h2 style="color:var(--primary)">30</h2>
+                            <div style="font-weight:bold">9.99€</div>
+                        </div>
+                        <button class="pack-btn btn-fill">Recharger</button>
                     </div>
-                    <div style="text-align:center; border:1px solid #eee; padding:15px; border-radius:10px; cursor:pointer;" onclick="buy('pack_100')">
-                        <h3>100</h3><div style="color:#666">19.99€</div><button style="margin-top:10px; width:100%">Acheter</button>
+                    
+                    <div class="pack-card" onclick="buy('pack_100')">
+                        <div style="margin-top:10px">
+                            <h2>100</h2>
+                            <div style="color:#6b7280">19.99€</div>
+                        </div>
+                        <button class="pack-btn btn-outline">Recharger</button>
                     </div>
                 </div>
             </div>
-            <br>
-            <h3 style="color:#6b7280; font-size:1rem;">Vue Client (Prévisualisation)</h3>
+            
+            <h3 style="color:#6b7280; font-weight:600; margin-top:40px">Prévisualisation Client (Mobile)</h3>
         </div>
 
         <div id="studio-interface">
-            
-            <div class="client-header">
-                <h2 id="client-title" class="hidden">Essayage Virtuel</h2>
-                <p>Voyez ce vêtement sur vous en 30s ✨</p>
+            <div style="text-align:center; margin-bottom:20px">
+                <h2 id="client-title" class="hidden" style="margin:0">Cabine Virtuelle</h2>
             </div>
             
             <div class="client-grid">
-                
                 <div class="upload-card" onclick="document.getElementById('uImg').click()">
                     <div class="step-badge">1</div>
                     <img id="prevU">
                     <i class="fa-solid fa-camera upload-icon"></i>
                     <div class="upload-text" id="txtU">Ajouter votre photo</div>
-                    <div class="upload-sub">Selfie ou photo entière</div>
                 </div>
                 <input type="file" id="uImg" accept="image/*" onchange="preview('uImg','prevU','txtU')">
 
@@ -65,34 +74,22 @@
                     <div class="step-badge">2</div>
                     <img id="prevC">
                     <i class="fa-solid fa-shirt upload-icon"></i>
-                    <div class="upload-text" id="txtC">Photo du vêtement</div>
-                    <div class="upload-sub">Capture d'écran ou fichier</div>
+                    <div class="upload-text" id="txtC">Ajouter le vêtement</div>
                 </div>
                 <input type="file" id="cImg" accept="image/*" onchange="preview('cImg','prevC','txtC')">
 
-                <div class="upload-card result-card" style="cursor:default; display:none;" id="resultZone">
+                <div class="upload-card" id="resZone" style="display:none; cursor:default; height:auto; min-height:250px; background:#eff6ff; border-style:solid; border-color:#93c5fd;">
                     <img id="resImg">
-                    <div id="loader" style="display:none; color:#2563eb;">
-                        <i class="fa-solid fa-spinner fa-spin fa-2x"></i><br><br>
-                        <strong>L'IA travaille...</strong><br>
-                        <small>Cela peut prendre ~20 sec</small>
-                    </div>
+                    <div id="loader" style="color:#2563eb; font-weight:bold"><i class="fa-solid fa-spinner fa-spin"></i> L'IA travaille...</div>
                 </div>
 
                 <button class="cta-button" id="btnGo" onclick="generate()">
                     Essayer Maintenant <i class="fa-solid fa-wand-magic-sparkles"></i>
                 </button>
-
-                <div class="trust-footer">
-                    <div class="trust-item"><i class="fa-solid fa-lock"></i> Privé & Sécurisé</div>
-                    <div class="trust-item"><i class="fa-solid fa-bolt"></i> IA Rapide</div>
-                </div>
-
             </div>
         </div>
 
     </div>
-
     <script src="/static/app.js"></script>
 </body>
 </html>
