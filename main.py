@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import replicate
 
-# CONFIGURATION
+# --- CONFIGURATION ---
 SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
 SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
 HOST = os.getenv("HOST") 
@@ -18,7 +18,7 @@ MODEL_ID = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b4852855943
 
 app = FastAPI()
 
-# CORS
+# --- CORS (Pour que Shopify puisse afficher l'app) ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -27,30 +27,34 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- C'EST ICI QUE CA CHANGE ---
-# On dit : "Quand on demande /static, regarde dans le dossier actuel (.)"
+# --- FICHIERS STATIQUES (C'est ici la modif importante) ---
+# On dit : "Quand on demande /static, cherche dans le dossier actuel (.)"
 app.mount("/static", StaticFiles(directory="."), name="static")
 
-# ROUTES
+# --- ROUTES ---
+
 @app.get("/")
 def index():
+    # On sert simplement le fichier HTML
     return FileResponse('index.html')
 
 @app.get("/login")
 def login(shop: str):
-    # Redirection auth simple
+    # Redirection vers l'auth Shopify
     auth_url = f"https://{shop}/admin/oauth/authorize?client_id={SHOPIFY_API_KEY}&scope={','.join(SCOPES)}&redirect_uri={HOST}/auth/callback"
     return RedirectResponse(auth_url)
 
 @app.get("/auth/callback")
 def auth_callback(shop: str, code: str):
-    # Echange token simplifié
+    # Validation du token (simplifié)
     url = f"https://{shop}/admin/oauth/access_token"
     payload = {"client_id": SHOPIFY_API_KEY, "client_secret": SHOPIFY_API_SECRET, "code": code}
-    requests.post(url, json=payload) # On active juste, on stocke pas pour l'instant pour simplifier
+    requests.post(url, json=payload) 
+    # Redirection vers l'admin Shopify
     return RedirectResponse(f"https://admin.shopify.com/store/{shop.replace('.myshopify.com','')}/apps/{SHOPIFY_API_KEY}")
 
-# API GENERATION
+# --- API ---
+
 class TryOnRequest(BaseModel):
     shop: str
     person_image_url: str
@@ -76,7 +80,11 @@ def generate(req: TryOnRequest):
     except Exception as e:
         return {"error": str(e)}
 
-# API CREDITS (Simulée pour l'instant pour éviter les erreurs)
 @app.get("/api/get-credits")
 def get_credits(shop: str):
-    return {"credits": 120} # Faux chiffre pour l'affichage
+    # Faux crédits pour l'affichage admin
+    return {"credits": 120}
+
+@app.post("/api/buy-credits")
+def buy_credits():
+    return {"message": "Fonctionnalité désactivée pour ce test"}
