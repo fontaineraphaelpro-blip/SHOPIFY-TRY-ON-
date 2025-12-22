@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>StyleLab</title>
+    <title>StyleLab Admin</title>
     <link rel="stylesheet" href="/static/styles.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
@@ -14,50 +14,93 @@
         
         <div id="admin-zone">
             <div class="header">
-                <h2>⚡ Tableau de Bord Admin</h2>
-                <span>Système Actif</span>
+                <div class="brand"><i class="fa-solid fa-wand-magic-sparkles"></i> StyleLab Admin</div>
+                <div class="badge"><i class="fa-solid fa-check"></i> Système Actif</div>
             </div>
 
             <div class="dashboard-grid">
                 <div class="credit-card">
-                    <h3>Vos Crédits</h3>
-                    <div class="credit-amount" id="credits">120</div>
-                    <small>Utilisables par vos clients</small>
+                    <div>
+                        <div class="credit-header">
+                            <div class="credit-label">Solde Disponible</div>
+                            <i class="fa-solid fa-bolt fa-lg"></i>
+                        </div>
+                        <div class="credit-amount" id="credits">120</div>
+                    </div>
+                    <div class="credit-footer">
+                        <i class="fa-solid fa-chart-line"></i> Prêt à convertir vos visiteurs
+                    </div>
                 </div>
-                <div class="packs">
-                    <div class="pack"><h3>10</h3><p>4.99€</p><button onclick="buy('pack_10')">Acheter</button></div>
-                    <div class="pack" style="border: 2px solid #4f46e5"><h3>30</h3><p>9.99€</p><button onclick="buy('pack_30')">Acheter</button></div>
-                    <div class="pack"><h3>100</h3><p>19.99€</p><button onclick="buy('pack_100')">Acheter</button></div>
+
+                <div class="packs-container">
+                    <div class="pack-card" onclick="buy('pack_10')">
+                        <div class="pack-header">
+                            <h3 class="pack-title">Découverte</h3>
+                            <div class="pack-credits-large">10</div>
+                        </div>
+                        <div class="pack-pricing">
+                            <span class="pack-price">4.99€</span>
+                        </div>
+                        <button class="pack-btn btn-outline">Choisir</button>
+                    </div>
+                    
+                    <div class="pack-card popular" onclick="buy('pack_30')">
+                        <div class="popular-badge"><i class="fa-solid fa-fire"></i> Best Seller</div>
+                        <div class="pack-header">
+                            <h3 class="pack-title">Accélérateur</h3>
+                            <div class="pack-credits-large">30</div>
+                        </div>
+                        <div class="price-comparison">✅ Économisez 34%</div>
+                        <div class="pack-pricing">
+                            <span class="pack-price">9.99€</span>
+                        </div>
+                        <button class="pack-btn btn-fill">Choisir ce pack</button>
+                    </div>
+                    
+                    <div class="pack-card" onclick="buy('pack_100')">
+                        <div class="pack-header">
+                            <h3 class="pack-title">Pro</h3>
+                            <div class="pack-credits-large">100</div>
+                        </div>
+                        <div class="price-comparison">⭐ Meilleur Prix</div>
+                        <div class="pack-pricing">
+                            <span class="pack-price">19.99€</span>
+                        </div>
+                        <button class="pack-btn btn-outline">Choisir</button>
+                    </div>
                 </div>
             </div>
+            
+            <h3 style="margin-bottom:20px; color:#64748b;">Studio de Test</h3>
         </div>
 
         <div id="studio-zone" class="studio">
-            <h3>Cabine d'Essayage</h3>
+            <h2 id="client-title" style="display:none; text-align:center;">Cabine d'Essayage Virtuelle</h2>
+            
             <div class="upload-grid">
                 <div>
-                    <label>Votre Photo</label>
-                    <div class="preview" onclick="document.getElementById('uImg').click()">
+                    <label style="font-weight:700;">1. Modèle</label>
+                    <div class="preview-box" onclick="document.getElementById('uImg').click()">
                         <img id="prevU">
-                        <div id="phU"><i class="fa-solid fa-camera"></i><br>Cliquez pour ajouter</div>
+                        <div class="placeholder" id="phU"><i class="fa-solid fa-user"></i>Ajouter photo</div>
                     </div>
-                    <input type="file" id="uImg" onchange="preview(this, 'prevU', 'phU')">
+                    <input type="file" id="uImg" onchange="preview('uImg','prevU','phU')">
                 </div>
                 <div>
-                    <label>Vêtement</label>
-                    <div class="preview" onclick="document.getElementById('cImg').click()">
+                    <label style="font-weight:700;">2. Vêtement</label>
+                    <div class="preview-box" onclick="document.getElementById('cImg').click()">
                         <img id="prevC">
-                        <div id="phC"><i class="fa-solid fa-shirt"></i><br>Cliquez pour ajouter</div>
+                        <div class="placeholder" id="phC"><i class="fa-solid fa-shirt"></i>Ajouter vêtement</div>
                     </div>
-                    <input type="file" id="cImg" onchange="preview(this, 'prevC', 'phC')">
+                    <input type="file" id="cImg" onchange="preview('cImg','prevC','phC')">
                 </div>
                 <div>
-                    <label>Résultat</label>
-                    <div class="preview" style="background:#f0fdf4; cursor: default;">
+                    <label style="font-weight:700;">3. Résultat</label>
+                    <div class="preview-box" style="background:#f0fdf4; cursor:default;">
                         <img id="resImg">
-                        <div id="phRes" style="color:#10b981"><i class="fa-solid fa-wand-magic-sparkles"></i><br>Résultat ici</div>
+                        <div class="placeholder" id="phRes" style="color:#10b981"><i class="fa-solid fa-wand-magic-sparkles"></i>Résultat ici</div>
                     </div>
-                    <button id="btnGo" class="btn-go" onclick="generate()">Générer</button>
+                    <button class="generate-btn" onclick="generate()" id="btnGo">Générer l'essayage</button>
                 </div>
             </div>
         </div>
