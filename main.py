@@ -50,10 +50,8 @@ def init_db():
 
 init_db()
 
-# NETTOYAGE URL (FONCTION VITALE)
 def clean_shop_url(url):
     if not url: return ""
-    # On enlève tout ce qui est inutile pour avoir juste "boutique.myshopify.com"
     return url.replace("https://", "").replace("http://", "").strip("/")
 
 # --- ROUTES ---
@@ -63,15 +61,12 @@ def index(shop: str = None):
     if not shop: return "Shop manquant", 400
     
     clean_shop = clean_shop_url(shop)
-    
-    # Vérification DB
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("SELECT access_token FROM shops WHERE shop_url = %s", (clean_shop,))
     data = cur.fetchone()
     conn.close()
     
-    # Si pas de token, on force le login sans demander
     if not data:
         return RedirectResponse(f"/login?shop={clean_shop}")
 
@@ -80,10 +75,15 @@ def index(shop: str = None):
 @app.get("/login")
 def login(shop: str):
     clean_shop = clean_shop_url(shop)
-    shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
-    permission_url = shopify.Session(clean_shop, API_VERSION).create_permission_url(SCOPES, f"{HOST}/auth/callback")
     
-    # Redirection JS pour sortir de l'iframe si besoin
+    # 1. SETUP GLOBAL
+    shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
+    
+    # 2. DEMANDE D'ACCÈS "OFFLINE" (IMPORTANT POUR ÉVITER L'EXPIRATION)
+    # L'access_mode value="offline" est crucial
+    session = shopify.Session(clean_shop, API_VERSION)
+    permission_url = session.create_permission_url(SCOPES, f"{HOST}/auth/callback", value="offline")
+    
     return HTMLResponse(content=f"<script>window.top.location.href='{permission_url}'</script>")
 
 @app.get("/auth/callback")
@@ -95,42 +95,21 @@ def auth_callback(request: Request):
     try:
         shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
         session = shopify.Session(clean_shop, API_VERSION)
-        token = session.request_token(params) # Le paramètre params contient le HMAC et le code
+        token = session.request_token(params)
         
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # 1. ON SUPPRIME TOUT CE QUI EXISTE POUR CE SHOP (NETTOYAGE)
+        # NETTOYAGE ET INSERTION
         cur.execute("DELETE FROM shops WHERE shop_url = %s", (clean_shop,))
-        
-        # 2. ON INSÈRE LE NOUVEAU TOKEN TOUT NEUF
         cur.execute("INSERT INTO shops (shop_url, access_token, credits) VALUES (%s, %s, 50)", (clean_shop, token))
-        
         conn.commit()
         conn.close()
         
-        # Redirection vers l'Admin
         return RedirectResponse(f"https://admin.shopify.com/store/{clean_shop.replace('.myshopify.com','')}/apps/{SHOPIFY_API_KEY}")
         
     except Exception as e:
         return JSONResponse({"error": f"Erreur installation : {str(e)}"}, status_code=500)
-
-# --- ROUTE DEBUG (POUR VOIR CE QUI SE PASSE) ---
-@app.get("/debug")
-def debug_db(shop: str):
-    clean_shop = clean_shop_url(shop)
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM shops WHERE shop_url = %s", (clean_shop,))
-    data = cur.fetchone()
-    conn.close()
-    
-    if data:
-        # On cache le token pour sécu, on montre juste le début
-        token_preview = data[1][:10] + "..." if data[1] else "None"
-        return {"shop": data[0], "token_preview": token_preview, "credits": data[2], "status": "EN BASE"}
-    else:
-        return {"shop": clean_shop, "status": "INCONNU - PAS EN BASE"}
 
 # --- API PAIEMENT ---
 
@@ -149,16 +128,19 @@ def buy_credits(req: BuyRequest):
     conn.close()
     
     if not data:
-        raise HTTPException(401, "Shop introuvable en base. Allez sur /login?shop=...")
+        raise HTTPException(401, "Shop introuvable.")
         
     token = data[0]
 
-    # Définition du pack
     if req.pack_id == 'pack_10': price, credits, name = 4.99, 10, "Pack 10"
     elif req.pack_id == 'pack_30': price, credits, name = 9.99, 30, "Pack 30"
     else: price, credits, name = 19.99, 100, "Pack 100"
 
     try:
+        # --- FIX ULTRA IMPORTANT : ON RECHARGE LES CLÉS API ICI ---
+        # C'est ça qui manquait. Si le worker a redémarré, il ne connaissait plus tes clés.
+        shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
+        
         session = shopify.Session(clean_shop, API_VERSION, token)
         shopify.ShopifyResource.activate_session(session)
         
@@ -170,7 +152,7 @@ def buy_credits(req: BuyRequest):
         })
         return {"confirmation_url": charge.confirmation_url}
     except Exception as e:
-        print(f"ERREUR PAIEMENT 401: Token utilisé: {token[:5]}...")
+        print(f"ERREUR PAIEMENT: {e}")
         raise HTTPException(500, f"Erreur Shopify: {str(e)}")
 
 @app.get("/billing/callback")
@@ -182,9 +164,12 @@ def billing_callback(shop: str, credits: int, charge_id: str):
     cur.execute("SELECT access_token FROM shops WHERE shop_url = %s", (clean_shop,))
     data = cur.fetchone()
     
-    if not data: return "Erreur critique : Shop introuvable au retour du paiement"
+    if not data: return "Erreur critique : Shop introuvable"
     
     try:
+        # ICI AUSSI ON RECHARGE LES CLÉS
+        shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
+        
         session = shopify.Session(clean_shop, API_VERSION, data[0])
         shopify.ShopifyResource.activate_session(session)
         
@@ -192,7 +177,6 @@ def billing_callback(shop: str, credits: int, charge_id: str):
         if charge.status in ['accepted', 'active']:
             if charge.status == 'accepted': charge.activate()
             
-            # Ajout crédits
             cur.execute("UPDATE shops SET credits = credits + %s WHERE shop_url = %s", (int(credits), clean_shop))
             conn.commit()
             conn.close()
@@ -205,8 +189,7 @@ def billing_callback(shop: str, credits: int, charge_id: str):
         return f"Erreur callback: {e}"
 
 # --- API GENERATE ---
-# (Ajoute tes classes TryOnRequest ici et la route generate habituelle, elle n'est pas la cause du bug)
-# Je te remets la structure minimale pour que ça compile
+
 class TryOnRequest(BaseModel):
     shop: str
     person_image_url: str
