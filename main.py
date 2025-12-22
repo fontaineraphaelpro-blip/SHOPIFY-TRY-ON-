@@ -1,6 +1,6 @@
 import os
 import shopify
-import httpx
+import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -8,16 +8,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import replicate
 
-# CONFIG
+# --- CONFIGURATION ---
 SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
 SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
 HOST = os.getenv("HOST") 
 SCOPES = ['read_products', 'write_products']
-API_VERSION = "2024-01" 
+API_VERSION = "2025-01" 
 MODEL_ID = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985"
 
 app = FastAPI()
 
+# Autorise ta boutique à parler au serveur
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -26,80 +27,88 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Sert les fichiers (CSS/JS) qui sont à la racine
 app.mount("/static", StaticFiles(directory="."), name="static")
 
+# STOCKAGE EN MÉMOIRE (Pas de base de données)
 shop_sessions = {}
 
 def clean_shop_url(url):
     if not url: return ""
     return url.replace("https://", "").replace("http://", "").strip("/")
 
-# ROUTES
+# --- ROUTES ---
 @app.get("/")
 def index():
     return FileResponse('index.html')
 
 @app.get("/login")
 def login(shop: str):
-    shop = clean_shop_url(shop)
-    auth_url = f"https://{shop}/admin/oauth/authorize?client_id={SHOPIFY_API_KEY}&scope={','.join(SCOPES)}&redirect_uri={HOST}/auth/callback"
+    clean_shop = clean_shop_url(shop)
+    auth_url = f"https://{clean_shop}/admin/oauth/authorize?client_id={SHOPIFY_API_KEY}&scope={','.join(SCOPES)}&redirect_uri={HOST}/auth/callback"
     return RedirectResponse(auth_url)
 
 @app.get("/auth/callback")
-async def auth_callback(shop: str, code: str):
-    shop = clean_shop_url(shop)
-    url = f"https://{shop}/admin/oauth/access_token"
+def auth_callback(shop: str, code: str):
+    clean_shop = clean_shop_url(shop)
+    url = f"https://{clean_shop}/admin/oauth/access_token"
     payload = {"client_id": SHOPIFY_API_KEY, "client_secret": SHOPIFY_API_SECRET, "code": code}
     
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(url, json=payload)
-        
-    if resp.status_code == 200:
-        token = resp.json().get('access_token')
-        shop_sessions[shop] = token
-        return RedirectResponse(f"https://admin.shopify.com/store/{shop.replace('.myshopify.com','')}/apps/{SHOPIFY_API_KEY}")
-    return HTMLResponse("Erreur Connexion")
+    try:
+        res = requests.post(url, json=payload)
+        if res.status_code == 200:
+            token = res.json().get('access_token')
+            # ON SAUVEGARDE LE TOKEN EN RAM
+            shop_sessions[clean_shop] = token
+            return RedirectResponse(f"https://admin.shopify.com/store/{clean_shop.replace('.myshopify.com','')}/apps/{SHOPIFY_API_KEY}")
+    except: pass
+    return HTMLResponse("Erreur Connexion Shopify")
 
-# API
+# --- API PAIEMENT & IA ---
 class BuyRequest(BaseModel):
     shop: str
     pack_id: str
 
 @app.post("/api/buy-credits")
-async def buy_credits(req: BuyRequest):
+def buy_credits(req: BuyRequest):
     shop = clean_shop_url(req.shop)
-    token = shop_sessions.get(shop)
     
+    # On récupère le token en RAM
+    token = shop_sessions.get(shop)
     if not token:
+        # Si la RAM est vide (redémarrage), on dit au JS de recharger la page
         raise HTTPException(status_code=401, detail="Reload needed")
 
     if req.pack_id == 'pack_10': price, name = 4.99, "10 Crédits"
     elif req.pack_id == 'pack_30': price, name = 9.99, "30 Crédits"
     else: price, name = 19.99, "100 Crédits"
 
-    url = f"https://{shop}/admin/api/{API_VERSION}/application_charges.json"
-    headers = {"X-Shopify-Access-Token": token, "Content-Type": "application/json"}
-    payload = {
-        "application_charge": {
+    try:
+        shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
+        session = shopify.Session(shop, API_VERSION, token)
+        shopify.ShopifyResource.activate_session(session)
+        
+        charge = shopify.ApplicationCharge.create({
             "name": name, "price": price, "test": True,
             "return_url": f"{HOST}/billing/callback?shop={shop}"
-        }
-    }
-
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(url, json=payload, headers=headers)
-
-    if resp.status_code == 201:
-        return {"confirmation_url": resp.json()['application_charge']['confirmation_url']}
-    
-    if resp.status_code == 401:
-        raise HTTPException(status_code=401, detail="Token invalid")
+        })
         
-    return {"error": "Erreur Shopify"}
+        if charge.confirmation_url: return {"confirmation_url": charge.confirmation_url}
+        return {"error": "Erreur Shopify"}
+    except Exception as e:
+        return {"error": str(e)}
 
+# --- C'EST ICI QUE J'AI CORRIGÉ LE RETOUR ---
 @app.get("/billing/callback")
 def billing_callback(shop: str):
-    return HTMLResponse("<script>window.top.location.href='/';</script>")
+    # 1. On nettoie le nom du shop pour l'URL admin
+    shop_name = clean_shop_url(shop).replace(".myshopify.com", "")
+    
+    # 2. On construit le lien direct vers ton application DANS Shopify Admin
+    admin_url = f"https://admin.shopify.com/store/{shop_name}/apps/{SHOPIFY_API_KEY}"
+    
+    # 3. On redirige la fenêtre principale (top window) vers ce lien
+    return HTMLResponse(f"<script>window.top.location.href='{admin_url}';</script>")
 
 class TryOnRequest(BaseModel):
     shop: str
@@ -125,12 +134,6 @@ def generate(req: TryOnRequest):
     except Exception as e:
         return {"error": str(e)}
 
-# ICI LA CORRECTION : On vérifie le token dès l'affichage des crédits
 @app.get("/api/get-credits")
 def get_credits(shop: str):
-    shop = clean_shop_url(shop)
-    # Si le serveur ne connait pas ce shop, on envoie une erreur 401
-    if shop not in shop_sessions:
-        raise HTTPException(status_code=401, detail="Session perdue")
-        
     return {"credits": 120}
