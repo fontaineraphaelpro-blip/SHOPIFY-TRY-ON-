@@ -1,10 +1,10 @@
 /* --- VARIABLES & BASE --- */
 :root {
-    --primary: #6366f1;       /* Indigo vibrant */
+    --primary: #6366f1;
     --primary-dark: #4338ca;
-    --secondary: #ec4899;     /* Rose accent */
-    --bg: #f8fafc;            /* Gris très clair */
-    --text: #0f172a;          /* Noir doux */
+    --secondary: #ec4899;
+    --bg: #f8fafc;
+    --text: #0f172a;
     --text-muted: #64748b;
     --border: #e2e8f0;
     --success: #10b981;
@@ -16,86 +16,85 @@ body {
     color: var(--text);
     margin: 0;
     padding: 40px;
-    visibility: hidden; /* Caché jusqu'au chargement JS */
+    visibility: hidden;
 }
 
 body.loaded { visibility: visible; }
 
-/* --- MODE CLIENT (Pour cacher l'admin sur la boutique) --- */
-body.client-mode {
-    background: transparent !important;
-    padding: 0 !important;
-    overflow-y: auto !important;
-}
+/* --- MODE CLIENT (Caché) --- */
+body.client-mode { background: transparent !important; padding: 0 !important; overflow-y: auto !important; }
 body.client-mode #admin-zone { display: none !important; }
-body.client-mode #studio-zone {
-    box-shadow: none; border: none; border-radius: 0; padding: 20px;
-    background: white; max-width: 100%;
-}
+body.client-mode #studio-zone { box-shadow: none; border: none; border-radius: 0; padding: 20px; background: white; max-width: 100%; }
 
-/* --- DESIGN ADMIN --- */
-.container { max-width: 1000px; margin: 0 auto; }
-
-/* HEADER */
+/* --- ADMIN --- */
+.container { max-width: 1100px; margin: 0 auto; }
 .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; }
-.brand { font-size: 1.5rem; font-weight: 800; color: var(--text); display: flex; align-items: center; gap: 10px; }
+.brand { font-size: 1.7rem; font-weight: 800; color: var(--text); display: flex; align-items: center; gap: 10px; }
 .brand i { color: var(--primary); }
-.badge { background: #dcfce7; color: #15803d; padding: 6px 12px; border-radius: 20px; font-weight: 600; font-size: 0.85rem; border: 1px solid #bbf7d0; }
+.badge { background: #dcfce7; color: #15803d; padding: 8px 16px; border-radius: 30px; font-weight: 700; font-size: 0.85rem; border: 1px solid #bbf7d0; }
 
-/* GRILLE DASHBOARD */
-.dashboard-grid { display: grid; grid-template-columns: 320px 1fr; gap: 30px; margin-bottom: 50px; }
+.dashboard-grid { display: grid; grid-template-columns: 380px 1fr; gap: 30px; margin-bottom: 60px; }
 
-/* CARTE CRÉDITS */
+/* --- CARTE CRÉDITS (Vendeur) --- */
 .credit-card {
-    background: linear-gradient(135deg, #4f46e5, #3730a3);
-    color: white; padding: 30px; border-radius: 24px;
-    box-shadow: 0 20px 25px -5px rgba(79, 70, 229, 0.4);
-    display: flex; flex-direction: column; justify-content: space-between; min-height: 200px;
+    background: linear-gradient(135deg, #1e293b, #0f172a);
+    color: white; padding: 35px; border-radius: 28px;
+    box-shadow: 0 20px 50px -10px rgba(15, 23, 42, 0.4);
+    display: flex; flex-direction: column; justify-content: space-between; min-height: 280px;
+    position: relative; overflow: hidden;
 }
-.credit-amount { font-size: 5rem; font-weight: 800; line-height: 1; margin: 15px 0; }
-.credit-label { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.8; }
+.credit-card::before {
+    content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+    background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, rgba(0,0,0,0) 70%); pointer-events: none;
+}
+.credit-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.credit-label { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; opacity: 0.9; }
+.credit-amount { font-size: 5rem; font-weight: 900; line-height: 1; background: linear-gradient(to right, #fff, #a5b4fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.credit-footer { font-size: 0.95rem; font-weight: 500; display: flex; align-items: center; gap: 10px; background: rgba(99, 102, 241, 0.2); padding: 12px 20px; border-radius: 15px; margin-top: 20px; }
 
-/* PACKS (Améliorés) */
-.packs-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }
+/* --- PACKS (Comparaison) --- */
+.packs-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; align-items: center; }
+
 .pack-card {
-    background: white; border: 1px solid var(--border); border-radius: 20px;
-    padding: 20px; text-align: center; cursor: pointer; transition: 0.2s;
-    position: relative; display: flex; flex-direction: column; justify-content: space-between;
+    background: white; border: 2px solid var(--border); border-radius: 24px;
+    padding: 30px; text-align: center; cursor: pointer; transition: 0.3s;
+    position: relative; display: flex; flex-direction: column; justify-content: space-between; height: 380px;
 }
-.pack-card:hover { transform: translateY(-5px); border-color: var(--primary); box-shadow: 0 10px 20px rgba(0,0,0,0.05); }
+.pack-card:hover { transform: translateY(-8px); border-color: var(--primary); box-shadow: 0 20px 40px -10px rgba(99, 102, 241, 0.15); }
+
+.pack-title { font-size: 1.4rem; font-weight: 800; margin: 0 0 10px 0; }
+.pack-credits-large { font-size: 3rem; font-weight: 900; color: var(--primary-dark); line-height: 1; }
+.pack-pricing { margin: 20px 0; }
+.pack-price { font-size: 1.8rem; font-weight: 800; }
+.price-comparison {
+    background: #f0fdf4; color: #166534; padding: 5px 10px; border-radius: 20px;
+    font-size: 0.8rem; font-weight: 700; display: inline-block; margin-bottom: 15px; border: 1px solid #bbf7d0;
+}
 
 /* Pack Populaire */
 .pack-card.popular {
-    border: 2px solid var(--primary); background: #fdfdff; transform: scale(1.05); z-index: 2;
-    box-shadow: 0 15px 30px rgba(99, 102, 241, 0.15);
+    border: 3px solid var(--primary); background: linear-gradient(to bottom, #fdfdff, #ffffff);
+    transform: scale(1.05); z-index: 10; height: 420px;
+    box-shadow: 0 30px 60px -15px rgba(99, 102, 241, 0.25);
 }
-.popular-tag {
-    position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
-    background: var(--primary); color: white; padding: 4px 12px; border-radius: 12px; font-size: 0.7rem; font-weight: 700;
+.pack-card.popular:hover { transform: scale(1.08) translateY(-8px); }
+.popular-badge {
+    position: absolute; top: -15px; left: 50%; transform: translateX(-50%);
+    background: linear-gradient(135deg, var(--primary), var(--secondary)); color: white;
+    padding: 8px 20px; border-radius: 30px; font-size: 0.8rem; font-weight: 800; text-transform: uppercase;
+    box-shadow: 0 5px 15px -5px rgba(99, 102, 241, 0.5);
 }
 
-.pack-price { color: var(--text-muted); margin-bottom: 10px; font-size: 0.9rem; }
-
-/* BOUTONS D'ACHAT (Customisés) */
-.pack-btn {
-    width: 100%; padding: 10px; border-radius: 10px; border: none; font-weight: 600; cursor: pointer; margin-top: auto;
-}
+/* Boutons */
+.pack-btn { width: 100%; padding: 15px; border-radius: 12px; border: none; font-weight: 700; cursor: pointer; margin-top: auto; font-size: 1rem; }
 .btn-outline { background: transparent; border: 2px solid var(--border); color: var(--text); }
 .btn-outline:hover { border-color: var(--primary); color: var(--primary); background: #eef2ff; }
-
-.btn-fill { background: var(--primary); color: white; box-shadow: 0 4px 10px rgba(99, 102, 241, 0.3); }
-.btn-fill:hover { background: var(--primary-dark); }
-
+.btn-fill { background: var(--primary); color: white; box-shadow: 0 10px 20px -5px rgba(99, 102, 241, 0.4); }
+.btn-fill:hover { background: var(--primary-dark); transform: translateY(-2px); }
 
 /* --- STUDIO --- */
-.studio {
-    background: white; padding: 40px; border-radius: 24px;
-    border: 1px solid var(--border); box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02);
-}
-.studio h2 { margin-top: 0; }
+.studio { background: white; padding: 40px; border-radius: 24px; border: 1px solid var(--border); }
 .upload-grid { display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 30px; margin-top: 20px; }
-
-/* ZONES D'UPLOAD (C'est ici qu'on gère l'apparence) */
 .preview-box {
     width: 100%; aspect-ratio: 3/4; background: #f8fafc; border: 2px dashed #cbd5e1;
     border-radius: 16px; display: flex; align-items: center; justify-content: center;
@@ -106,23 +105,20 @@ body.client-mode #studio-zone {
 .placeholder { text-align: center; color: var(--text-muted); pointer-events: none; }
 .placeholder i { font-size: 2rem; margin-bottom: 10px; display: block; color: #94a3b8; }
 
-/* BOUTON GENERER */
 .generate-btn {
     background: #10b981; color: white; border: none; padding: 15px; width: 100%;
     border-radius: 50px; font-weight: bold; font-size: 1.1rem; margin-top: 20px;
     cursor: pointer; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3); transition: 0.2s;
 }
 .generate-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(16, 185, 129, 0.4); }
-.generate-btn:disabled { background: #cbd5e1; cursor: not-allowed; box-shadow: none; }
+.generate-btn:disabled { background: #cbd5e1; cursor: not-allowed; }
 
-/* --- CORRECTION CRITIQUE (Ce qui enlève les boutons moches) --- */
-input[type="file"] {
-    display: none !important; /* Cache le bouton 'Parcourir' système */
-}
+/* FIX INPUTS */
+input[type="file"] { display: none !important; }
 
 /* RESPONSIVE */
-@media (max-width: 768px) {
-    .dashboard-grid, .upload-grid { grid-template-columns: 1fr; }
+@media (max-width: 1024px) {
+    .dashboard-grid { grid-template-columns: 1fr; }
+    .packs-container { grid-template-columns: 1fr; max-width: 400px; margin: 0 auto; }
     .pack-card.popular { transform: scale(1); }
-    body.client-mode { padding: 0; }
 }
