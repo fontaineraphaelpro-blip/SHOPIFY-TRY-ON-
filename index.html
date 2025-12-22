@@ -3,104 +3,104 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>StyleLab Admin</title>
+    <title>StyleLab Pro</title>
     <link rel="stylesheet" href="/static/styles.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
 
     <div class="container">
         
-        <div id="admin-zone">
+        <div id="admin-dashboard">
             <div class="header">
-                <div class="brand"><i class="fa-solid fa-wand-magic-sparkles"></i> StyleLab Admin</div>
-                <div class="badge"><i class="fa-solid fa-check"></i> Système Actif</div>
+                <div class="brand">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i>
+                    <span>StyleLab Admin</span>
+                </div>
+                <div class="status-badge"><div class="dot"></div> Système Actif</div>
             </div>
 
-            <div class="dashboard-grid">
-                <div class="credit-card">
-                    <div>
-                        <div class="credit-header">
-                            <div class="credit-label">Solde Disponible</div>
-                            <i class="fa-solid fa-bolt fa-lg"></i>
-                        </div>
-                        <div class="credit-amount" id="credits">120</div>
-                    </div>
-                    <div class="credit-footer">
-                        <i class="fa-solid fa-chart-line"></i> Prêt à convertir vos visiteurs
+            <div class="grid-layout">
+                <div class="balance-card">
+                    <div class="balance-label">Crédits Disponibles</div>
+                    <div class="balance-amount" id="credits">...</div>
+                    <div class="balance-sub">
+                        <i class="fa-solid fa-check-circle"></i> Prêt à convertir
                     </div>
                 </div>
 
-                <div class="packs-container">
-                    <div class="pack-card" onclick="buy('pack_10')">
-                        <div class="pack-header">
-                            <h3 class="pack-title">Découverte</h3>
-                            <div class="pack-credits-large">10</div>
-                        </div>
-                        <div class="pack-pricing">
-                            <span class="pack-price">4.99€</span>
-                        </div>
-                        <button class="pack-btn btn-outline">Choisir</button>
+                <div class="pricing-grid">
+                    <div class="plan-card">
+                        <div class="plan-name">Starter</div>
+                        <div class="plan-credits">10</div>
+                        <div class="plan-price">4.99€</div>
+                        <button class="plan-btn btn-secondary" onclick="buy('pack_10')">Recharger</button>
                     </div>
-                    
-                    <div class="pack-card popular" onclick="buy('pack_30')">
-                        <div class="popular-badge"><i class="fa-solid fa-fire"></i> Best Seller</div>
-                        <div class="pack-header">
-                            <h3 class="pack-title">Accélérateur</h3>
-                            <div class="pack-credits-large">30</div>
-                        </div>
-                        <div class="price-comparison">✅ Économisez 34%</div>
-                        <div class="pack-pricing">
-                            <span class="pack-price">9.99€</span>
-                        </div>
-                        <button class="pack-btn btn-fill">Choisir ce pack</button>
+
+                    <div class="plan-card popular">
+                        <div class="best-seller-badge">Recommandé</div>
+                        <div class="plan-name">Business</div>
+                        <div class="plan-credits" style="color:var(--primary)">30</div>
+                        <div class="plan-price">9.99€</div>
+                        <button class="plan-btn btn-primary-fill" onclick="buy('pack_30')">Choisir ce pack</button>
                     </div>
-                    
-                    <div class="pack-card" onclick="buy('pack_100')">
-                        <div class="pack-header">
-                            <h3 class="pack-title">Pro</h3>
-                            <div class="pack-credits-large">100</div>
-                        </div>
-                        <div class="price-comparison">⭐ Meilleur Prix</div>
-                        <div class="pack-pricing">
-                            <span class="pack-price">19.99€</span>
-                        </div>
-                        <button class="pack-btn btn-outline">Choisir</button>
+
+                    <div class="plan-card">
+                        <div class="plan-name">Enterprise</div>
+                        <div class="plan-credits">100</div>
+                        <div class="plan-price">19.99€</div>
+                        <button class="plan-btn btn-secondary" onclick="buy('pack_100')">Recharger</button>
                     </div>
                 </div>
             </div>
-            
-            <h3 style="margin-bottom:20px; color:#64748b;">Studio de Test</h3>
+
+            <div style="margin-bottom: 20px; font-weight: 700; color: #4b5563;">
+                <i class="fa-solid fa-flask"></i> Zone de Test & Aperçu
+            </div>
         </div>
 
-        <div id="studio-zone" class="studio">
-            <h2 id="client-title" style="display:none; text-align:center;">Cabine d'Essayage Virtuelle</h2>
+        <div id="studio-interface" class="studio-container">
+            <div class="studio-header">
+                <h2 id="client-title" style="display:none; text-align:center;">Cabine d'Essayage Virtuelle</h2>
+            </div>
             
-            <div class="upload-grid">
+            <div class="workflow-grid">
                 <div>
-                    <label style="font-weight:700;">1. Modèle</label>
-                    <div class="preview-box" onclick="document.getElementById('uImg').click()">
+                    <label style="font-weight:700; display:block; margin-bottom:10px;">1. Votre Photo</label>
+                    <div class="upload-zone" onclick="document.getElementById('uImg').click()">
                         <img id="prevU">
-                        <div class="placeholder" id="phU"><i class="fa-solid fa-user"></i>Ajouter photo</div>
+                        <i class="fa-solid fa-camera zone-icon"></i>
+                        <span class="zone-text" id="txtU">Importer une photo</span>
+                        <span class="zone-sub">JPG, PNG</span>
                     </div>
-                    <input type="file" id="uImg" onchange="preview('uImg','prevU','phU')">
+                    <input type="file" id="uImg" accept="image/*" onchange="preview('uImg','prevU','txtU')">
                 </div>
+
                 <div>
-                    <label style="font-weight:700;">2. Vêtement</label>
-                    <div class="preview-box" onclick="document.getElementById('cImg').click()">
+                    <label style="font-weight:700; display:block; margin-bottom:10px;">2. Vêtement</label>
+                    <div class="upload-zone" onclick="document.getElementById('cImg').click()">
                         <img id="prevC">
-                        <div class="placeholder" id="phC"><i class="fa-solid fa-shirt"></i>Ajouter vêtement</div>
+                        <i class="fa-solid fa-shirt zone-icon"></i>
+                        <span class="zone-text" id="txtC">Importer le vêtement</span>
+                        <span class="zone-sub">Détouré de préférence</span>
                     </div>
-                    <input type="file" id="cImg" onchange="preview('cImg','prevC','phC')">
+                    <input type="file" id="cImg" accept="image/*" onchange="preview('cImg','prevC','txtC')">
                 </div>
+
                 <div>
-                    <label style="font-weight:700;">3. Résultat</label>
-                    <div class="preview-box" style="background:#f0fdf4; cursor:default;">
+                    <label style="font-weight:700; display:block; margin-bottom:10px;">3. Résultat IA</label>
+                    <div class="upload-zone result-zone">
                         <img id="resImg">
-                        <div class="placeholder" id="phRes" style="color:#10b981"><i class="fa-solid fa-wand-magic-sparkles"></i>Résultat ici</div>
+                        <i class="fa-solid fa-wand-magic-sparkles zone-icon" style="color:#10b981"></i>
+                        <span class="zone-text" id="txtRes" style="color:#047857">L'IA va générer ici</span>
+                        <div id="loader" style="display:none; color:#047857; font-weight:bold; margin-top:10px;">
+                            <i class="fa-solid fa-circle-notch fa-spin"></i> Traitement...
+                        </div>
                     </div>
-                    <button class="generate-btn" onclick="generate()" id="btnGo">Générer l'essayage</button>
+                    <button class="action-btn" id="btnGo" onclick="generate()">
+                        <i class="fa-solid fa-bolt"></i> Générer l'essayage
+                    </button>
                 </div>
             </div>
         </div>
