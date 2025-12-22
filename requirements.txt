@@ -7,4 +7,5 @@ pydantic
 shopifyapi
 requests
 httpx
+psycopg2-binary
 python-dotenv
