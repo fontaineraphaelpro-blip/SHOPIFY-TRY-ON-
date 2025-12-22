@@ -1,85 +1,55 @@
 /* VARIABLES */
-:root {
-    --primary: #6366f1;
-    --bg: #f8fafc;
-    --text: #0f172a;
-    --border: #e2e8f0;
-}
+:root { --primary: #6366f1; --bg: #f8fafc; --text: #0f172a; }
 
-/* BASE */
 body {
-    font-family: 'Inter', sans-serif;
+    font-family: sans-serif;
     background: var(--bg);
     color: var(--text);
-    margin: 0;
-    padding: 40px;
-    display: none; /* Caché par défaut pour éviter le flash */
+    margin: 0; padding: 40px;
 }
 
-/* --- MODE CLIENT (Ce que voit le client sur la boutique) --- */
+/* --- LE MODE CLIENT (Cacher l'admin) --- */
 body.client-mode {
-    background: transparent; /* Fond transparent */
-    padding: 0;
-    overflow: hidden;
+    background: transparent !important;
+    padding: 0 !important;
+    overflow: hidden !important;
 }
-body.client-mode .admin-only {
-    display: none !important; /* Cache tout l'admin */
+
+/* Quand on est en mode client, on cache CA */
+body.client-mode #admin-zone {
+    display: none !important;
 }
-body.client-mode .container {
-    max-width: 100%;
-    margin: 0;
-}
-body.client-mode .studio {
+
+/* Quand on est en mode client, on stylise le studio comme ça */
+body.client-mode #studio-zone {
     border: none;
-    padding: 20px;
-    background: white; /* Fond blanc juste pour le studio */
-    border-radius: 0;
+    box-shadow: none;
+    padding: 10px;
+    background: white;
 }
 
-/* --- MODE ADMIN (Ce que tu vois) --- */
+/* --- DESIGN ADMIN --- */
 .container { max-width: 1000px; margin: 0 auto; }
+.header { display: flex; justify-content: space-between; margin-bottom: 30px; }
+.dashboard-grid { display: grid; grid-template-columns: 300px 1fr; gap: 20px; margin-bottom: 40px; }
 
-/* HEADER */
-.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; }
-.brand { font-size: 1.5rem; font-weight: 800; color: var(--primary); }
-
-/* GRILLE DASHBOARD */
-.dashboard-grid { display: grid; grid-template-columns: 320px 1fr; gap: 30px; margin-bottom: 50px; }
-
-/* CARTE CRÉDITS */
 .credit-card {
-    background: linear-gradient(135deg, #4f46e5, #3730a3);
-    color: white; padding: 30px; border-radius: 20px;
+    background: #4f46e5; color: white; padding: 30px; border-radius: 15px;
 }
-.credit-amount { font-size: 5rem; font-weight: 800; margin: 20px 0; line-height: 1; }
-
-/* PACKS */
-.packs-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
-.pack-card {
-    background: white; border: 1px solid var(--border); padding: 20px;
-    border-radius: 20px; text-align: center; cursor: pointer; transition: 0.2s;
+.packs { display: flex; gap: 10px; }
+.pack {
+    background: white; border: 1px solid #ddd; padding: 15px; border-radius: 10px; flex: 1; text-align: center;
 }
-.pack-card:hover { border-color: var(--primary); transform: translateY(-3px); }
-.pack-card.popular { border: 2px solid var(--primary); background: #fdfdff; }
-.pack-btn {
-    width: 100%; padding: 10px; border-radius: 8px; border: none;
-    font-weight: 600; cursor: pointer; margin-top: 10px;
-    background: var(--primary); color: white;
-}
-.pack-btn.outline { background: transparent; border: 2px solid #e2e8f0; color: var(--text); }
 
 /* STUDIO */
-.studio { background: white; padding: 40px; border-radius: 20px; border: 1px solid var(--border); }
-.upload-grid { display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 20px; }
+.studio { background: white; padding: 30px; border-radius: 20px; border: 1px solid #ddd; }
+.upload-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
 .preview {
-    aspect-ratio: 3/4; background: #f1f5f9; border: 2px dashed #cbd5e1;
-    border-radius: 12px; display: flex; align-items: center; justify-content: center;
-    cursor: pointer; overflow: hidden; position: relative;
+    height: 300px; background: #f1f5f9; border: 2px dashed #ccc;
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
 .preview img { width: 100%; height: 100%; object-fit: cover; display: none; }
-.btn-go {
-    background: #10b981; color: white; border: none; padding: 15px;
-    width: 100%; border-radius: 50px; font-weight: bold; font-size: 16px;
-    margin-top: 20px; cursor: pointer;
+button {
+    background: #10b981; color: white; border: none; padding: 15px; width: 100%;
+    border-radius: 5px; font-weight: bold; cursor: pointer; margin-top: 10px;
 }
-.hidden { display: none; }
