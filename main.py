@@ -1,6 +1,6 @@
 import os
 import shopify
-import sqlite3
+import psycopg2
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -11,6 +11,7 @@ import replicate
 SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
 SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
 HOST = os.getenv("HOST") 
+DATABASE_URL = os.getenv("DATABASE_URL") # Nouvelle variable Render
 SCOPES = ['write_script_tags', 'read_products']
 
 # Ton modèle IDM-VTON
@@ -18,43 +19,58 @@ MODEL_ID = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b4852855943
 
 app = FastAPI()
 
-# Servir les fichiers statiques (CSS, JS, Images)
+# Servir les fichiers statiques
 app.mount("/static", StaticFiles(directory="."), name="static")
 
-# --- BASE DE DONNÉES (SQLite) ---
-def init_db():
-    conn = sqlite3.connect('shops.db')
-    c = conn.cursor()
-    # On crée une table pour stocker les infos des boutiques
-    c.execute('''CREATE TABLE IF NOT EXISTS shops
-                 (shop_url TEXT PRIMARY KEY, access_token TEXT, credits INTEGER)''')
-    conn.commit()
-    conn.close()
+# --- GESTION BASE DE DONNÉES (POSTGRESQL) ---
+def get_db_connection():
+    conn = psycopg2.connect(DATABASE_URL)
+    return conn
 
+def init_db():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        # Création de la table si elle n'existe pas
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS shops (
+                shop_url VARCHAR(255) PRIMARY KEY,
+                access_token TEXT,
+                credits INTEGER DEFAULT 50
+            );
+        ''')
+        conn.commit()
+        cur.close()
+        conn.close()
+        print("Base de données initialisée avec succès.")
+    except Exception as e:
+        print(f"Erreur DB Init: {e}")
+
+# On lance l'initialisation au démarrage
 init_db()
 
 def get_shop_data(shop_url):
-    conn = sqlite3.connect('shops.db')
-    c = conn.cursor()
-    c.execute("SELECT access_token, credits FROM shops WHERE shop_url=?", (shop_url,))
-    data = c.fetchone()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT access_token, credits FROM shops WHERE shop_url = %s", (shop_url,))
+    data = cur.fetchone()
+    cur.close()
     conn.close()
     return data
 
 def update_credits(shop_url, amount):
-    conn = sqlite3.connect('shops.db')
-    c = conn.cursor()
-    # On ajoute (ou retire si amount est négatif) des crédits
-    c.execute("UPDATE shops SET credits = credits + ? WHERE shop_url=?", (amount, shop_url))
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("UPDATE shops SET credits = credits + %s WHERE shop_url = %s", (amount, shop_url))
     conn.commit()
+    cur.close()
     conn.close()
 
-# --- ROUTES SHOPIFY (AUTH) ---
+# --- ROUTES SHOPIFY ---
 
 @app.get("/login")
 def login(shop: str):
-    if not shop:
-        return "Paramètre shop manquant", 400
+    if not shop: return "Shop manquant", 400
     shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
     permission_url = shopify.Session(shop.strip(), "2024-01").create_permission_url(SCOPES, f"{HOST}/auth/callback")
     return RedirectResponse(permission_url)
@@ -66,22 +82,25 @@ def auth_callback(shop: str, code: str):
     try:
         access_token = session.request_token(dict(code=code))
         
-        # Sauvegarde en DB
-        conn = sqlite3.connect('shops.db')
-        c = conn.cursor()
-        # On insère le shop avec 50 crédits offerts pour le test
-        c.execute("INSERT OR IGNORE INTO shops (shop_url, access_token, credits) VALUES (?, ?, ?)", (shop, access_token, 50))
-        # Mise à jour du token si le shop existe déjà
-        c.execute("UPDATE shops SET access_token=? WHERE shop_url=?", (access_token, shop))
+        conn = get_db_connection()
+        cur = conn.cursor()
+        # "Upsert" : Insère ou met à jour si existe déjà
+        cur.execute("""
+            INSERT INTO shops (shop_url, access_token, credits) 
+            VALUES (%s, %s, 50)
+            ON CONFLICT (shop_url) 
+            DO UPDATE SET access_token = EXCLUDED.access_token;
+        """, (shop, access_token))
         conn.commit()
+        cur.close()
         conn.close()
         
-        # Redirection vers l'interface de l'app
         return RedirectResponse(f"/?shop={shop}")
     except Exception as e:
-        return f"Erreur d'installation : {str(e)}", 500
+        return f"Erreur installation: {e}", 500
 
-# --- ROUTE PRINCIPALE (UI) ---
+# --- UI & API ---
+
 @app.get("/")
 def index(shop: str = None):
     return FileResponse('index.html')
@@ -89,12 +108,11 @@ def index(shop: str = None):
 @app.get("/api/get-credits")
 def get_credits_api(shop: str):
     data = get_shop_data(shop)
-    if not data:
-        # Si la DB est vide (Render restart), on renvoie 0 mais l'IA marchera quand même
-        return {"credits": 0}
+    # Si pas de data, on renvoie 0 (mais ça ne devrait plus arriver avec Postgres !)
+    if not data: return {"credits": 0}
     return {"credits": data[1]}
 
-# --- FACTURATION (BILLING API) ---
+# --- PAIEMENT ---
 class BuyRequest(BaseModel):
     shop: str
     pack_id: str
@@ -102,19 +120,13 @@ class BuyRequest(BaseModel):
 @app.post("/api/buy-credits")
 def buy_credits(req: BuyRequest):
     data = get_shop_data(req.shop)
-    if not data:
-        # Si la DB est vide, on force une erreur explicite
-        raise HTTPException(401, "Session expirée (Render). Veuillez réinstaller l'app pour tester le paiement.")
+    if not data: raise HTTPException(401, "Shop introuvable en base.")
     
     token = data[0]
     
-    # Prix et Crédits
-    if req.pack_id == 'pack_10':
-        price, credits, name = 4.99, 10, "Pack Découverte (10 Crédits)"
-    elif req.pack_id == 'pack_30':
-        price, credits, name = 9.99, 30, "Pack Créateur (30 Crédits)"
-    else:
-        price, credits, name = 19.99, 100, "Pack Agence (100 Crédits)"
+    if req.pack_id == 'pack_10': price, credits, name = 4.99, 10, "Pack 10 Crédits"
+    elif req.pack_id == 'pack_30': price, credits, name = 9.99, 30, "Pack 30 Crédits"
+    else: price, credits, name = 19.99, 100, "Pack 100 Crédits"
 
     session = shopify.Session(req.shop, "2024-01", token)
     shopify.ShopifyResource.activate_session(session)
@@ -125,14 +137,12 @@ def buy_credits(req: BuyRequest):
         "return_url": f"{HOST}/billing/callback?shop={req.shop}&credits={credits}",
         "test": True 
     })
-    
     return {"confirmation_url": charge.confirmation_url}
 
 @app.get("/billing/callback")
 def billing_callback(shop: str, credits: int, charge_id: str):
     data = get_shop_data(shop)
-    if not data:
-         return RedirectResponse(f"/?shop={shop}&error=session_expired")
+    if not data: return RedirectResponse(f"/?shop={shop}&error=db_error")
 
     token = data[0]
     session = shopify.Session(shop, "2024-01", token)
@@ -142,11 +152,11 @@ def billing_callback(shop: str, credits: int, charge_id: str):
     if charge.status == 'accepted':
         charge.activate()
         update_credits(shop, int(credits))
-        return RedirectResponse(f"/?shop={shop}&success=true&added={credits}")
+        return RedirectResponse(f"/?shop={shop}&success=true")
     else:
-        return RedirectResponse(f"/?shop={shop}&error=payment_declined")
+        return RedirectResponse(f"/?shop={shop}&error=declined")
 
-# --- GENERATION IA (CORRIGÉE & SÉCURISÉE) ---
+# --- GENERATION IA ---
 class TryOnRequest(BaseModel):
     shop: str
     person_image_url: str
@@ -155,22 +165,21 @@ class TryOnRequest(BaseModel):
 
 @app.post("/api/generate")
 def generate(req: TryOnRequest):
-    print(f"--- Nouvelle demande de génération pour : {req.shop} ---")
+    print(f"Demande IA pour : {req.shop}")
     
-    # NOTE: Vérification des crédits désactivée pour le test
-    # data = get_shop_data(req.shop)
-    # if not data or data[1] < 1:
-    #     raise HTTPException(402, "Crédits insuffisants")
+    # 1. Vérification des Crédits (REMISE EN PLACE !)
+    data = get_shop_data(req.shop)
+    if not data:
+        raise HTTPException(401, "Boutique non trouvée. Veuillez réinstaller l'app.")
+    
+    credits_dispo = data[1]
+    
+    # Sécurité : On bloque si pas assez de crédits
+    if credits_dispo < 1:
+        raise HTTPException(402, "Crédits insuffisants. Rechargez votre compte.")
 
     try:
-        # Mapping des catégories pour IDM-VTON
-        category_map = {
-            "tops": "upper_body",
-            "bottoms": "lower_body", 
-            "one-pieces": "dresses"
-        }
-        
-        print("Envoi de la requête à Replicate (IDM-VTON)...")
+        category_map = {"tops": "upper_body", "bottoms": "lower_body", "one-pieces": "dresses"}
         
         output = replicate.run(
             MODEL_ID,
@@ -179,31 +188,21 @@ def generate(req: TryOnRequest):
                 "garm_img": req.clothing_image_url,
                 "garment_des": req.category, 
                 "category": category_map.get(req.category, "upper_body"),
-                "crop": False,
-                "seed": 42,
-                "steps": 30
+                "crop": False, "seed": 42, "steps": 30
             }
         )
         
-        print(f"Réponse brute Replicate : {output}")
-
-        # --- CORRECTION DU BUG JSON ---
-        # Replicate renvoie parfois un objet FileOutput ou une liste.
-        # On force la conversion en string (URL) pour éviter l'erreur de parsing.
-        final_url = ""
-        if isinstance(output, list) and len(output) > 0:
-            final_url = str(output[0])
-        else:
-            final_url = str(output)
-            
-        print(f"URL finale renvoyée au frontend : {final_url}")
-
+        # 2. Conversion sécurisée de la réponse
+        final_url = str(output[0]) if isinstance(output, list) else str(output)
+        
+        # 3. Débit du crédit (IMPORTANT)
+        update_credits(req.shop, -1)
+        
         return {
             "result_image_url": final_url,
-            "credits_remaining": 999 
+            "credits_remaining": credits_dispo - 1
         }
         
     except Exception as e:
-        print(f"ERREUR FATALE : {e}")
-        # Renvoie une erreur 500 propre avec le détail
-        raise HTTPException(500, f"Erreur serveur interne : {str(e)}")
+        print(f"Erreur IA: {e}")
+        raise HTTPException(500, f"Erreur génération: {str(e)}")
