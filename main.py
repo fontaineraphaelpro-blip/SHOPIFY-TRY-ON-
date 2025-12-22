@@ -1,9 +1,10 @@
 import os
 import shopify
 import requests
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware # <--- AJOUT 1 : Pour le client
 from pydantic import BaseModel
 import replicate
 
@@ -12,20 +13,133 @@ SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
 SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
 HOST = os.getenv("HOST") 
 
-# Droits nécessaires (Lecture produits + Écriture crédits)
-SCOPES = ['read_products', 'write_products']
+# On ajoute 'write_script_tags' pour pouvoir mettre le bouton automatiquement
+SCOPES = ['write_script_tags', 'read_products', 'write_products']
 API_VERSION = "2025-01" 
 MODEL_ID = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985"
 
 app = FastAPI()
 
-# Pour servir le CSS/JS de l'admin si besoin, ou juste index.html
+# --- AJOUT 2 : SÉCURITÉ CORS (Obligatoire pour le bouton client) ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.mount("/static", StaticFiles(directory="."), name="static")
 
-# Mémoire vive (RAM) pour les tokens
 shop_sessions = {}
 
-# --- UTILITAIRES ---
+# --- CODE JAVASCRIPT DU WIDGET (Stocké ici pour ne pas avoir de fichier en plus) ---
+WIDGET_JS = """
+(function() {
+    const API_URL = "REPLACE_HOST";
+    if (!window.location.pathname.includes('/products/')) return;
+    
+    // CSS
+    const s = document.createElement('style');
+    s.innerHTML = `
+        .sl-btn { position: fixed; bottom: 20px; right: 20px; background: #6366f1; color: white; padding: 15px 25px; border-radius: 50px; cursor: pointer; z-index: 99999; font-family: sans-serif; font-weight: bold; box-shadow: 0 10px 25px rgba(0,0,0,0.2); transition: transform 0.2s; display: flex; gap: 10px; align-items: center; }
+        .sl-btn:hover { transform: scale(1.05); }
+        .sl-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 999999; justify-content: center; align-items: center; }
+        .sl-content { background: white; padding: 30px; border-radius: 20px; width: 90%; max-width: 400px; text-align: center; position: relative; font-family: sans-serif; }
+        .sl-close { position: absolute; top: 10px; right: 20px; font-size: 28px; cursor: pointer; }
+        .sl-upload { border: 2px dashed #ccc; padding: 20px; border-radius: 10px; margin: 20px 0; cursor: pointer; }
+        .sl-go { background: #10b981; color: white; border: none; padding: 12px 30px; border-radius: 50px; font-weight: bold; cursor: pointer; width: 100%; font-size: 16px; }
+        .sl-img { width: 100%; display: none; border-radius: 10px; margin-bottom: 15px; }
+    `;
+    document.head.appendChild(s);
+
+    // HTML
+    const btn = document.createElement('div');
+    btn.className = 'sl-btn';
+    btn.innerHTML = '<span>✨ Essayer</span>';
+    btn.onclick = () => document.querySelector('.sl-modal').style.display = 'flex';
+    document.body.appendChild(btn);
+
+    const modal = document.createElement('div');
+    modal.className = 'sl-modal';
+    modal.innerHTML = `
+        <div class="sl-content">
+            <span class="sl-close" onclick="this.closest('.sl-modal').style.display='none'">&times;</span>
+            <h2 style="margin:0 0 10px 0;">Cabine Virtuelle</h2>
+            <div class="sl-upload" onclick="document.getElementById('sl-in').click()">
+                <div id="sl-txt">📸 Ajouter votre photo</div>
+                <img id="sl-prev" class="sl-img">
+            </div>
+            <input type="file" id="sl-in" accept="image/*" style="display:none">
+            <img id="sl-res" class="sl-img" style="border:2px solid #10b981">
+            <button id="sl-go" class="sl-go">Générer l'essayage</button>
+            <div id="sl-load" style="display:none; margin-top:10px; color:#6366f1; font-weight:bold;">L'IA travaille...</div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    // LOGIC
+    document.getElementById('sl-in').onchange = e => {
+        if(e.target.files[0]) {
+            const r = new FileReader();
+            r.onload = ev => {
+                document.getElementById('sl-prev').src = ev.target.result;
+                document.getElementById('sl-prev').style.display = 'block';
+                document.getElementById('sl-txt').style.display = 'none';
+            };
+            r.readAsDataURL(e.target.files[0]);
+        }
+    };
+
+    document.getElementById('sl-go').onclick = async function() {
+        const file = document.getElementById('sl-in').files[0];
+        if(!file) return alert("Photo manquante !");
+        
+        let prodImg = "";
+        const meta = document.querySelector('meta[property="og:image"]');
+        if(meta) prodImg = meta.content;
+        else { const i = document.querySelector('.product__media img'); if(i) prodImg = i.src; }
+        
+        if(!prodImg) return alert("Image produit introuvable");
+
+        this.disabled = true; this.style.display = 'none';
+        document.getElementById('sl-load').style.display = 'block';
+
+        const toBase64 = f => new Promise(r => { const fr=new FileReader(); fr.onload=()=>r(fr.result); fr.readAsDataURL(f); });
+        
+        // Petit hack pour convertir URL produit en base64 via fetch si possible
+        const urlTo64 = async u => { try { const r=await fetch(u); const b=await r.blob(); return await toBase64(b); } catch(e){ return u; } };
+
+        try {
+            const u64 = await toBase64(file);
+            const p64 = await urlTo64(prodImg);
+            
+            const req = await fetch(API_URL + '/api/generate', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    shop: Shopify.shop,
+                    person_image_url: u64,
+                    clothing_image_url: p64,
+                    category: 'upper_body'
+                })
+            });
+            const data = await req.json();
+            if(req.ok) {
+                document.getElementById('sl-res').src = data.result_image_url;
+                document.getElementById('sl-res').style.display = 'block';
+                document.querySelector('.sl-upload').style.display = 'none';
+                document.getElementById('sl-load').innerText = "✅ Terminé !";
+            } else {
+                alert("Erreur: " + (data.detail || "Erreur serveur"));
+                this.disabled = false; this.style.display = 'block';
+            }
+        } catch(e) { console.error(e); alert("Erreur technique"); this.disabled = false; this.style.display = 'block'; }
+    };
+})();
+"""
+
+# --- UTILITAIRES (Inchangés) ---
 def clean_shop_url(url):
     if not url: return ""
     return url.replace("https://", "").replace("http://", "").strip("/")
@@ -39,9 +153,9 @@ def get_shopify_credits(shop_url, token):
         for m in metafields:
             if m.namespace == "stylelab" and m.key == "credits":
                 return int(m.value)
-        return 3 # 3 crédits offerts par défaut
+        return 3 
     except Exception as e:
-        print(f"Erreur lecture crédits: {e}")
+        print(f"Erreur credits: {e}")
         return 0
 
 def update_shopify_credits(shop_url, token, new_amount):
@@ -49,15 +163,12 @@ def update_shopify_credits(shop_url, token, new_amount):
         session = shopify.Session(shop_url, API_VERSION, token)
         shopify.ShopifyResource.activate_session(session)
         current_shop = shopify.Shop.current()
-        
-        # Recherche du metafield existant
         metafields = current_shop.metafields()
         target = None
         for m in metafields:
             if m.namespace == "stylelab" and m.key == "credits":
                 target = m
                 break
-        
         if target:
             target.value = new_amount
             target.save()
@@ -66,7 +177,21 @@ def update_shopify_credits(shop_url, token, new_amount):
                 "namespace": "stylelab", "key": "credits", "value": new_amount, "type": "integer"
             }))
     except Exception as e:
-        print(f"Erreur sauvegarde crédits: {e}")
+        print(f"Erreur save credits: {e}")
+
+# --- AJOUT 3 : INJECTION DU SCRIPT (Pour mettre le bouton sur la boutique) ---
+def inject_script_tag(shop_url, token):
+    try:
+        session = shopify.Session(shop_url, API_VERSION, token)
+        shopify.ShopifyResource.activate_session(session)
+        existing = shopify.ScriptTag.find()
+        # Le fichier JS virtuel servi par FastAPI
+        src = f"{HOST}/widget.js"
+        if not any(s.src == src for s in existing):
+            shopify.ScriptTag.create({"event": "onload", "src": src})
+            print(f"✅ Widget injecté sur {shop_url}")
+    except Exception as e:
+        print(f"⚠️ Erreur injection script: {e}")
 
 # --- ROUTES ---
 
@@ -74,12 +199,16 @@ def update_shopify_credits(shop_url, token, new_amount):
 def index(shop: str = None):
     if not shop: return HTMLResponse("<h1>Paramètre shop manquant</h1>")
     clean_shop = clean_shop_url(shop)
-    
-    # Si le serveur a redémarré et perdu la mémoire, on relance le login
     if clean_shop not in shop_sessions:
         return RedirectResponse(f"/login?shop={clean_shop}")
-
     return FileResponse('index.html')
+
+# --- AJOUT 4 : ROUTE POUR SERVIR LE WIDGET JS ---
+@app.get("/widget.js")
+def get_widget_js():
+    # On met la vraie URL du serveur dans le JS avant de l'envoyer
+    js = WIDGET_JS.replace("REPLACE_HOST", HOST)
+    return Response(content=js, media_type="application/javascript")
 
 @app.get("/login")
 def login(shop: str):
@@ -87,8 +216,6 @@ def login(shop: str):
     shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
     session = shopify.Session(clean_shop, API_VERSION)
     permission_url = session.create_permission_url(SCOPES, f"{HOST}/auth/callback")
-    
-    # Correction de syntaxe critique (le 'f' avant les guillemets)
     return HTMLResponse(content=f"<script>window.top.location.href='{permission_url}'</script>")
 
 @app.get("/auth/callback")
@@ -99,7 +226,6 @@ def auth_callback(request: Request):
     clean_shop = clean_shop_url(shop)
     
     try:
-        # Échange manuel du token (plus robuste)
         access_token_url = f"https://{clean_shop}/admin/oauth/access_token"
         payload = { "client_id": SHOPIFY_API_KEY, "client_secret": SHOPIFY_API_SECRET, "code": code }
         response = requests.post(access_token_url, json=payload)
@@ -108,9 +234,11 @@ def auth_callback(request: Request):
             token = response.json().get('access_token')
             shop_sessions[clean_shop] = token
             
-            # Init Crédits si nécessaire
             curr = get_shopify_credits(clean_shop, token)
             if curr == 0: update_shopify_credits(clean_shop, token, 3)
+            
+            # C'est ici qu'on met le bouton sur la boutique automatiquement
+            inject_script_tag(clean_shop, token)
             
             return RedirectResponse(f"https://admin.shopify.com/store/{clean_shop.replace('.myshopify.com','')}/apps/{SHOPIFY_API_KEY}")
         else:
@@ -124,7 +252,6 @@ def auth_callback(request: Request):
 def get_credits_api(shop: str):
     clean_shop = clean_shop_url(shop)
     token = shop_sessions.get(clean_shop)
-    # Si session perdue, on renvoie 401 pour que le frontend recharge la page
     if not token: raise HTTPException(status_code=401, detail="Reload needed")
     return {"credits": get_shopify_credits(clean_shop, token)}
 
@@ -143,11 +270,9 @@ def buy_credits(req: BuyRequest):
     else: price, amount, name = 19.99, 100, "100 Crédits"
 
     try:
-        # Reconnexion explicite pour éviter les erreurs de session
         shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
         session = shopify.Session(clean_shop, API_VERSION, token)
         shopify.ShopifyResource.activate_session(session)
-        
         charge = shopify.ApplicationCharge.create({
             "name": name, "price": price, "test": True,
             "return_url": f"{HOST}/billing/callback?shop={clean_shop}&amt={amount}"
@@ -166,7 +291,6 @@ def billing_callback(shop: str, amt: int, charge_id: str):
         shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
         session = shopify.Session(clean_shop, API_VERSION, token)
         shopify.ShopifyResource.activate_session(session)
-        
         charge = shopify.ApplicationCharge.find(charge_id)
         if charge.status in ['accepted', 'active']:
             if charge.status == 'accepted': charge.activate()
@@ -187,7 +311,10 @@ class TryOnRequest(BaseModel):
 def generate(req: TryOnRequest):
     clean_shop = clean_shop_url(req.shop)
     token = shop_sessions.get(clean_shop)
-    if not token: raise HTTPException(401, "Reload needed")
+    
+    # Si le serveur a redémarré, le client ne peut plus générer (sécurité)
+    if not token: 
+        raise HTTPException(400, "Maintenance : Veuillez ouvrir l'app Admin pour réactiver le serveur.")
 
     current = get_shopify_credits(clean_shop, token)
     if current < 1: raise HTTPException(402, "Crédits insuffisants")
