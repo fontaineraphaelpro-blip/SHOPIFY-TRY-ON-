@@ -1,25 +1,22 @@
 document.addEventListener("DOMContentLoaded", function() {
     
-    // 1. DÉTECTION DU MODE
     const params = new URLSearchParams(window.location.search);
     const mode = params.get('mode'); 
     const shop = params.get('shop') || sessionStorage.getItem('shop');
 
     if(shop) sessionStorage.setItem('shop', shop);
 
-    // On rend le body visible maintenant que le JS commence
     document.body.classList.add('loaded');
 
     if (mode === 'client') {
-        // C'EST LE CLIENT : On active le mode "Clean"
         document.body.classList.add('client-mode');
         document.getElementById('client-title').style.display = 'block';
     } else {
-        // C'EST L'ADMIN : On charge les crédits
         if(shop) fetchCredits(shop);
     }
 
-    // 2. PRÉVISUALISATION
+    // --- FONCTIONS ---
+
     window.preview = function(inputId, imgId, phId) {
         const file = document.getElementById(inputId).files[0];
         if (file) {
@@ -33,7 +30,6 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
 
-    // 3. GÉNÉRATION
     window.generate = async function() {
         const u = document.getElementById('uImg').files[0];
         const c = document.getElementById('cImg').files[0];
@@ -73,16 +69,18 @@ document.addEventListener("DOMContentLoaded", function() {
                 resImg.src = data.result_image_url;
                 resImg.style.display = 'block';
                 load.style.display = 'none';
-                if(mode !== 'client') fetchCredits(shop); // Admin only
+                if(mode !== 'client') fetchCredits(shop);
             } else {
                 alert("Erreur: " + JSON.stringify(data));
                 btn.disabled = false;
                 load.style.display = 'none';
+                ph.style.display = 'block';
             }
         } catch(e) {
             alert("Erreur technique");
             btn.disabled = false;
             load.style.display = 'none';
+            ph.style.display = 'block';
         } finally {
             btn.disabled = false;
         }
@@ -92,7 +90,21 @@ document.addEventListener("DOMContentLoaded", function() {
         try {
             const res = await fetch(`/api/get-credits?shop=${s}`);
             const data = await res.json();
-            document.getElementById('credits').innerText = data.credits;
+            const credits = data.credits;
+            document.getElementById('credits').innerText = credits;
+            
+            // --- NOUVEAU : Mise à jour de la barre de progression ---
+            // On fixe un objectif arbitraire de 100 crédits pour l'exemple visuel
+            let percentage = (credits / 100) * 100;
+            if (percentage > 100) percentage = 100; // Plafonne à 100%
+            // On s'assure qu'on voit toujours un petit bout de la barre si > 0
+            if (credits > 0 && percentage < 5) percentage = 5; 
+            
+            const progressBar = document.getElementById('credit-progress');
+            if(progressBar) {
+                 progressBar.style.width = percentage + '%';
+            }
+
         } catch(e) { console.error(e); }
     }
 
