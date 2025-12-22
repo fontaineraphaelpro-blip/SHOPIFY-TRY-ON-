@@ -67,9 +67,18 @@ document.addEventListener("DOMContentLoaded", function() {
         finally { btn.disabled = false; btn.innerHTML = 'Essayer Maintenant ✨'; }
     };
 
+    // --- ICI LA MAGIE : On vérifie la connexion dès le chargement ---
     async function fetchCredits(s) {
         try {
             const res = await fetch(`/api/get-credits?shop=${s}`);
+            
+            // Si le serveur a oublié (401), on recharge la page MAINTENANT
+            if (res.status === 401) {
+                console.log("Auto-réparation de la session...");
+                window.top.location.href = `/login?shop=${s}`;
+                return;
+            }
+
             const data = await res.json();
             document.getElementById('credits').innerText = data.credits;
         } catch(e) {}
@@ -79,27 +88,24 @@ document.addEventListener("DOMContentLoaded", function() {
     window.buy = async function(packId) {
         if(!shop) return;
         
-        // On désactive juste pour pas double-cliquer
         const btn = event.currentTarget.querySelector('button') || event.target;
-        btn.innerText = "Chargement...";
+        btn.innerText = "Redirection...";
         btn.disabled = true;
 
         try {
-            // Appel serveur (Ultra rapide grâce à httpx en python)
             const res = await fetch('/api/buy-credits', {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ shop: shop, pack_id: packId })
             });
 
-            // Si session perdue, on reload direct
+            // Si jamais la session a sauté entre temps
             if(res.status === 401) {
-                window.top.location.href = `https://shopify-try-on.onrender.com/login?shop=${shop}`;
+                window.top.location.href = `/login?shop=${shop}`;
                 return;
             }
 
             const data = await res.json();
             
-            // REDIRECTION IMMEDIATE
             if(data.confirmation_url) {
                 window.top.location.href = data.confirmation_url;
             } else {
