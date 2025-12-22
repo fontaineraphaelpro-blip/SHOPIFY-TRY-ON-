@@ -6,21 +6,22 @@ body {
     background: var(--bg);
     color: var(--text);
     margin: 0; padding: 40px;
+    display: none; /* Caché au début pour éviter le flash */
 }
 
-/* --- LE MODE CLIENT (Cacher l'admin) --- */
+/* --- MODE CLIENT (CACHER L'ADMIN) --- */
 body.client-mode {
     background: transparent !important;
     padding: 0 !important;
     overflow: hidden !important;
 }
 
-/* Quand on est en mode client, on cache CA */
+/* Si on est en mode client, on supprime totalement la zone admin */
 body.client-mode #admin-zone {
     display: none !important;
 }
 
-/* Quand on est en mode client, on stylise le studio comme ça */
+/* Si on est en mode client, le studio devient minimaliste */
 body.client-mode #studio-zone {
     border: none;
     box-shadow: none;
