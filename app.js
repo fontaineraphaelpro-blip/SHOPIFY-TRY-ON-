@@ -7,7 +7,6 @@ document.addEventListener("DOMContentLoaded", function() {
     if(shop) sessionStorage.setItem('shop', shop);
     document.body.classList.add('loaded');
 
-    // LOGIQUE D'AFFICHAGE
     if (mode === 'client') {
         document.body.classList.add('client-mode');
         document.getElementById('client-title').style.display = 'block';
@@ -15,52 +14,36 @@ document.addEventListener("DOMContentLoaded", function() {
         if(shop) fetchCredits(shop);
     }
 
-    // FONCTION PREVIEW (Cache les icônes quand l'image est là)
+    // UPLOAD
     window.preview = function(inputId, imgId, txtId) {
         const file = document.getElementById(inputId).files[0];
         if (file) {
-            const reader = new FileReader();
-            reader.onload = e => {
+            const r = new FileReader();
+            r.onload = e => {
                 const img = document.getElementById(imgId);
                 img.src = e.target.result;
                 img.style.display = 'block';
-                
-                // Ajoute une classe pour dire qu'il y a une image (bordure solide)
                 img.parentElement.classList.add('has-image');
-                
-                // Cache le texte et l'icône
-                const card = img.parentElement;
-                card.querySelectorAll('.upload-icon, .upload-text, .upload-sub').forEach(el => el.style.display = 'none');
+                img.parentElement.querySelectorAll('i, .upload-text').forEach(el => el.style.display = 'none');
             };
-            reader.readAsDataURL(file);
+            r.readAsDataURL(file);
         }
     };
 
-    // GENERATION IA
+    // GENERATE
     window.generate = async function() {
         const u = document.getElementById('uImg').files[0];
         const c = document.getElementById('cImg').files[0];
-        
-        if (!u || !c) return alert("Veuillez ajouter votre photo et celle du vêtement.");
+        if (!u || !c) return alert("Veuillez mettre les 2 photos.");
 
         const btn = document.getElementById('btnGo');
-        const resultZone = document.getElementById('resultZone');
+        const resZone = document.getElementById('resZone');
         const loader = document.getElementById('loader');
-        const resImg = document.getElementById('resImg');
         
-        // UI LOADING
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Création en cours...';
-        
-        // Affiche la zone de résultat et le loader
-        resultZone.style.display = 'flex';
-        loader.style.display = 'block';
-        resImg.style.display = 'none';
+        btn.disabled = true; btn.innerHTML = 'Traitement...';
+        resZone.style.display = 'flex'; 
 
-        // Scroll vers le bas pour voir le loader sur mobile
-        resultZone.scrollIntoView({ behavior: 'smooth' });
-
-        const toBase64 = f => new Promise(r => { const rd = new FileReader(); rd.readAsDataURL(f); rd.onload=()=>r(rd.result); });
+        const to64 = f => new Promise(r => { const rd = new FileReader(); rd.readAsDataURL(f); rd.onload=()=>r(rd.result); });
 
         try {
             const res = await fetch('/api/generate', {
@@ -70,22 +53,13 @@ document.addEventListener("DOMContentLoaded", function() {
             const data = await res.json();
             
             if(data.result_image_url) {
-                resImg.src = data.result_image_url;
-                resImg.style.display = 'block';
+                document.getElementById('resImg').src = data.result_image_url;
+                document.getElementById('resImg').style.display = 'block';
                 loader.style.display = 'none';
-                
                 if(mode !== 'client') fetchCredits(shop);
-            } else {
-                alert("Oups, l'IA a eu un petit souci. Réessayez !");
-                resultZone.style.display = 'none'; // Cache si erreur
-            }
-        } catch(e) { 
-            alert("Erreur de connexion."); 
-            resultZone.style.display = 'none';
-        } finally { 
-            btn.disabled = false; 
-            btn.innerHTML = 'Essayer Maintenant <i class="fa-solid fa-wand-magic-sparkles"></i>';
-        }
+            } else alert("Erreur IA");
+        } catch(e) { alert("Erreur technique"); resZone.style.display = 'none'; }
+        finally { btn.disabled = false; btn.innerHTML = 'Essayer Maintenant ✨'; }
     };
 
     async function fetchCredits(s) {
@@ -96,11 +70,15 @@ document.addEventListener("DOMContentLoaded", function() {
         } catch(e) {}
     }
 
-    // ACHAT (Ancienne méthode simple)
+    // --- CORRECTION DU BUG DE PAIEMENT ---
     window.buy = async function(packId) {
-        if(!shop) return alert("Boutique non détectée");
-        const btn = event.currentTarget.querySelector('button') || event.target;
+        if(!shop) return alert("Erreur : Boutique non détectée. Rechargez la page.");
+        
+        // On cible le bouton quel que soit l'endroit du clic
+        const card = event.currentTarget; 
+        const btn = card.querySelector('button') || event.target;
         const oldText = btn.innerText;
+        
         btn.innerText = "...";
         btn.disabled = true;
 
@@ -109,12 +87,25 @@ document.addEventListener("DOMContentLoaded", function() {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ shop: shop, pack_id: packId })
             });
+            
+            // Si le serveur dit "401" (Session perdue), on redirige vers le login
+            if (res.status === 401) {
+                console.log("Session expirée, reconnexion...");
+                window.top.location.href = `https://shopify-try-on.onrender.com/login?shop=${shop}`;
+                return;
+            }
+
             const data = await res.json();
-            if(data.confirmation_url) window.top.location.href = data.confirmation_url;
-            else alert("Erreur : " + (data.error || "Inconnue"));
+            if(data.confirmation_url) {
+                window.top.location.href = data.confirmation_url;
+            } else {
+                // Affiche l'erreur réelle (detail ou error)
+                alert("Erreur Paiement : " + (data.detail || data.error || "Inconnue"));
+                btn.innerText = oldText;
+                btn.disabled = false;
+            }
         } catch(e) {
             alert("Erreur réseau");
-        } finally {
             btn.innerText = oldText;
             btn.disabled = false;
         }
