@@ -1,6 +1,6 @@
 import os
 import shopify
-import httpx # Le secret de la vitesse
+import httpx # LE TURBO
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -13,7 +13,7 @@ SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
 SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
 HOST = os.getenv("HOST") 
 SCOPES = ['read_products', 'write_products']
-API_VERSION = "2024-01" # Version stable
+API_VERSION = "2024-01" 
 MODEL_ID = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985"
 
 app = FastAPI()
@@ -34,25 +34,24 @@ def clean_shop_url(url):
     if not url: return ""
     return url.replace("https://", "").replace("http://", "").strip("/")
 
-# --- ROUTES ---
+# ROUTES
 @app.get("/")
 def index():
     return FileResponse('index.html')
 
 @app.get("/login")
 def login(shop: str):
-    if not shop: return HTMLResponse("Shop manquant")
     shop = clean_shop_url(shop)
     auth_url = f"https://{shop}/admin/oauth/authorize?client_id={SHOPIFY_API_KEY}&scope={','.join(SCOPES)}&redirect_uri={HOST}/auth/callback"
     return RedirectResponse(auth_url)
 
-# OPTIMISATION 1 : AUTHENTIFICATION ASYNC (Règle le bug des 30s à l'installation)
 @app.get("/auth/callback")
 async def auth_callback(shop: str, code: str):
     shop = clean_shop_url(shop)
     url = f"https://{shop}/admin/oauth/access_token"
     payload = {"client_id": SHOPIFY_API_KEY, "client_secret": SHOPIFY_API_SECRET, "code": code}
     
+    # Auth rapide
     async with httpx.AsyncClient() as client:
         resp = await client.post(url, json=payload)
         
@@ -60,29 +59,28 @@ async def auth_callback(shop: str, code: str):
         token = resp.json().get('access_token')
         shop_sessions[shop] = token
         return RedirectResponse(f"https://admin.shopify.com/store/{shop.replace('.myshopify.com','')}/apps/{SHOPIFY_API_KEY}")
-    
     return HTMLResponse("Erreur Connexion")
 
-# --- API ---
+# API
 class BuyRequest(BaseModel):
     shop: str
     pack_id: str
 
-# OPTIMISATION 2 : PAIEMENT ASYNC (Règle la lenteur des boutons)
+# PAIEMENT INSTANTANÉ (ASYNC)
 @app.post("/api/buy-credits")
 async def buy_credits(req: BuyRequest):
     shop = clean_shop_url(req.shop)
     token = shop_sessions.get(shop)
     
     if not token:
-        # Si pas de token, on renvoie l'ordre de recharger
+        # Code spécial pour dire au JS de recharger la page
         raise HTTPException(status_code=401, detail="Reload needed")
 
     if req.pack_id == 'pack_10': price, name = 4.99, "10 Crédits"
     elif req.pack_id == 'pack_30': price, name = 9.99, "30 Crédits"
     else: price, name = 19.99, "100 Crédits"
 
-    # Construction manuelle de la requête Shopify (Beaucoup plus rapide que la lib officielle)
+    # Requête directe ultra-rapide vers Shopify
     url = f"https://{shop}/admin/api/{API_VERSION}/application_charges.json"
     headers = {"X-Shopify-Access-Token": token, "Content-Type": "application/json"}
     payload = {
@@ -101,11 +99,10 @@ async def buy_credits(req: BuyRequest):
         data = resp.json()
         return {"confirmation_url": data['application_charge']['confirmation_url']}
     
-    # Si erreur 401 (Token invalide côté Shopify)
     if resp.status_code == 401:
         raise HTTPException(status_code=401, detail="Token invalid")
         
-    return {"error": "Erreur Shopify", "details": resp.text}
+    return {"error": "Erreur Shopify"}
 
 @app.get("/billing/callback")
 def billing_callback(shop: str):
@@ -119,7 +116,6 @@ class TryOnRequest(BaseModel):
 
 @app.post("/api/generate")
 def generate(req: TryOnRequest):
-    # L'IA est déjà rapide, on ne touche pas
     try:
         output = replicate.run(
             MODEL_ID,
