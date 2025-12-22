@@ -6,23 +6,28 @@ from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import replicate
-from urllib.parse import quote
 
-# --- CONFIGURATION ---
+# --- CONFIG ---
 SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
 SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
 HOST = os.getenv("HOST") 
-# Astuce : On force le format postgresql:// pour éviter les bugs Render
 raw_db_url = os.getenv("DATABASE_URL")
 DATABASE_URL = raw_db_url.replace("postgres://", "postgresql://") if raw_db_url else None
-
 SCOPES = ['write_script_tags', 'read_products']
 MODEL_ID = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985"
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="."), name="static")
 
-# --- GESTION DB ---
+# --- MIDDLEWARE POUR AUTORISER L'IFRAME SHOPIFY ---
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    # C'est LA ligne qui permet à l'app de s'afficher DANS Shopify admin
+    response.headers["Content-Security-Policy"] = "frame-ancestors https://admin.shopify.com https://*.myshopify.com;"
+    return response
+
+# --- DB ---
 def get_db_connection():
     return psycopg2.connect(DATABASE_URL)
 
@@ -38,9 +43,8 @@ def init_db():
             );
         ''')
         conn.commit()
-        cur.close()
         conn.close()
-        print("✅ DB Connectée.")
+        print("✅ DB OK")
     except Exception as e:
         print(f"❌ Erreur DB: {e}")
 
@@ -52,113 +56,122 @@ def get_shop_data(shop_url):
         cur = conn.cursor()
         cur.execute("SELECT access_token, credits FROM shops WHERE shop_url = %s", (shop_url,))
         data = cur.fetchone()
-        cur.close()
         conn.close()
         return data
     except:
         return None
 
 def update_credits(shop_url, amount):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("UPDATE shops SET credits = credits + %s WHERE shop_url = %s", (amount, shop_url))
-    conn.commit()
-    conn.close()
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("UPDATE shops SET credits = credits + %s WHERE shop_url = %s", (amount, shop_url))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Erreur update crédits: {e}")
 
-# --- INTELLIGENCE DE REDIRECTION (LE FIX FIABLE) ---
-# Si l'installation échoue dans l'iframe, ce script JS force la fenêtre à se recharger en top-level
-def escape_iframe(redirect_url):
-    return HTMLResponse(content=f"""
-        <script>
-            window.top.location.href = "{redirect_url}";
-        </script>
-    """)
-
-# --- ROUTES PRINCIPALES ---
+# --- ROUTES ---
 
 @app.get("/")
 def index(shop: str = None):
-    # 1. Si pas de paramètre shop, erreur
-    if not shop: return "Paramètre ?shop= manquant", 400
+    if not shop: return "Erreur: Paramètre shop manquant", 400
     
-    # 2. VÉRIFICATION AUTO-RÉPARATION
-    # On regarde si le shop est dans la DB
+    # Auto-repair : Si le shop n'est pas en base, on lance l'install
     data = get_shop_data(shop)
-    
     if not data:
-        # 🚨 LE SHOP N'EST PAS ENREGISTRÉ -> ON LANCE L'INSTALLATION AUTO
-        print(f"⚠️ Shop inconnu ({shop}). Lancement auto-installation...")
+        print(f"⚠️ Shop inconnu {shop}, redirection install...")
         return RedirectResponse(f"/login?shop={shop}")
 
-    # 3. Si tout est bon, on affiche l'app
     return FileResponse('index.html')
 
 @app.get("/login")
 def login(shop: str):
-    if not shop: return "Shop manquant", 400
     shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
+    permission_url = shopify.Session(shop.strip(), "2024-01").create_permission_url(SCOPES, f"{HOST}/auth/callback")
     
-    # URL de callback
-    redirect_uri = f"{HOST}/auth/callback"
-    permission_url = shopify.Session(shop.strip(), "2024-01").create_permission_url(SCOPES, redirect_uri)
-    
-    # On utilise le script JS pour sortir de l'iframe si besoin (sécurité Shopify)
-    return escape_iframe(permission_url)
+    # Sortie de l'iframe pour l'auth (Sécurité Shopify)
+    return HTMLResponse(content=f"<script>window.top.location.href='{permission_url}'</script>")
 
 @app.get("/auth/callback")
 def auth_callback(shop: str, code: str):
     shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
     session = shopify.Session(shop, "2024-01")
     try:
-        access_token = session.request_token(dict(code=code))
+        token = session.request_token(dict(code=code))
         
-        # SAUVEGARDE EN BÉTON ARMÉ
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("""
             INSERT INTO shops (shop_url, access_token, credits) 
             VALUES (%s, %s, 50)
-            ON CONFLICT (shop_url) 
-            DO UPDATE SET access_token = EXCLUDED.access_token;
-        """, (shop, access_token))
+            ON CONFLICT (shop_url) DO UPDATE SET access_token = EXCLUDED.access_token;
+        """, (shop, token))
         conn.commit()
         conn.close()
         
-        # Redirection finale vers l'app
+        # Retour à l'admin Shopify
         return RedirectResponse(f"https://admin.shopify.com/store/{shop.replace('.myshopify.com','')}/apps/{SHOPIFY_API_KEY}")
-        
     except Exception as e:
-        return f"Erreur fatale installation: {e}", 500
+        return f"Erreur install: {e}", 500
 
-# --- API (PAIEMENT & IA) ---
+# --- API ---
+class BuyRequest(BaseModel):
+    shop: str
+    pack_id: str
+
+@app.post("/api/buy-credits")
+def buy_credits(req: BuyRequest):
+    data = get_shop_data(req.shop)
+    if not data: raise HTTPException(401, "Shop introuvable")
+    
+    token = data[0]
+    if req.pack_id == 'pack_10': price, credits, name = 4.99, 10, "Pack 10"
+    elif req.pack_id == 'pack_30': price, credits, name = 9.99, 30, "Pack 30"
+    else: price, credits, name = 19.99, 100, "Pack 100"
+
+    session = shopify.Session(req.shop, "2024-01", token)
+    shopify.ShopifyResource.activate_session(session)
+    charge = shopify.ApplicationCharge.create({
+        "name": name, "price": price, "test": True,
+        "return_url": f"{HOST}/billing/callback?shop={req.shop}&credits={credits}"
+    })
+    return {"confirmation_url": charge.confirmation_url}
+
+@app.get("/billing/callback")
+def billing_callback(shop: str, credits: int, charge_id: str):
+    session = shopify.Session(shop, "2024-01", get_shop_data(shop)[0])
+    shopify.ShopifyResource.activate_session(session)
+    charge = shopify.ApplicationCharge.find(charge_id)
+    if charge.status == 'accepted':
+        charge.activate()
+        update_credits(shop, int(credits))
+        return RedirectResponse(f"/?shop={shop}")
+    return RedirectResponse(f"/?shop={shop}&error=failed")
 
 @app.get("/api/get-credits")
 def get_credits_api(shop: str):
     data = get_shop_data(shop)
-    if not data: return {"credits": 0} # Pas d'erreur, juste 0
-    return {"credits": data[1]}
+    return {"credits": data[1] if data else 0}
 
-@app.post("/api/buy-credits")
-def buy_credits(req: BuyRequest): # Assure-toi d'avoir importé BuyRequest (code précédent)
-    # ... (Garde ton code de paiement ici, il était bon)
-    # Si tu as besoin je te le remets complet
-    pass 
-    # NOTE: J'ai abrégé ici pour la lisibilité, garde ton bloc PAIEMENT d'avant
-    # Mais AJOUTE cette ligne au début :
-    data = get_shop_data(req.shop)
-    if not data: raise HTTPException(401, "Shop non trouvé - Rafraichissez la page")
-    # ... suite du code
-
-# (Garde tes routes /api/generate et classes Pydantic comme avant)
-# AJOUTE JUSTE CE BLOC à la fin pour que ça compile :
-class BuyRequest(BaseModel):
-    shop: str
-    pack_id: str
-    
 class TryOnRequest(BaseModel):
     shop: str
     person_image_url: str
     clothing_image_url: str
     category: str
 
-# ... (Copie-colle tes fonctions generate et buy_credits complètes ici)
+@app.post("/api/generate")
+def generate(req: TryOnRequest):
+    data = get_shop_data(req.shop)
+    if not data: raise HTTPException(401, "Shop introuvable")
+    if data[1] < 1: raise HTTPException(402, "Pas assez de crédits")
+
+    category_map = {"tops": "upper_body", "bottoms": "lower_body", "one-pieces": "dresses"}
+    output = replicate.run(MODEL_ID, input={
+        "human_img": req.person_image_url, "garm_img": req.clothing_image_url,
+        "garment_des": req.category, "category": category_map.get(req.category, "upper_body"),
+        "crop": False, "seed": 42, "steps": 30
+    })
+    
+    update_credits(req.shop, -1)
+    return {"result_image_url": str(output), "credits_remaining": data[1] - 1}
