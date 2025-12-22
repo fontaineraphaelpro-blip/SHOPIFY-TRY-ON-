@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>StyleLab AI - Admin</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <title>StyleLab</title>
     <link rel="stylesheet" href="/static/styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
 
@@ -14,116 +14,50 @@
         
         <div id="admin-zone">
             <div class="header">
-                <div class="brand"><i class="fa-solid fa-wand-magic-sparkles"></i> StyleLab Admin</div>
-                <div class="badge"><div class="badge-dot"></div> Système Actif & Prêt</div>
+                <h2>⚡ Tableau de Bord Admin</h2>
+                <span>Système Actif</span>
             </div>
 
             <div class="dashboard-grid">
                 <div class="credit-card">
-                    <div>
-                        <div class="credit-header">
-                            <div class="credit-label">Solde Disponible</div>
-                            <div class="credit-icon"><i class="fa-solid fa-bolt"></i></div>
-                        </div>
-                        <div class="credit-main">
-                            <div class="credit-amount" id="credits">...</div>
-                            <div class="credit-unit">essayages</div>
-                        </div>
-                        
-                        <div class="progress-container">
-                            <div class="progress-labels">
-                                <span>Niveau actuel</span>
-                                <span>Objectif : 100+ ventes</span>
-                            </div>
-                            <div class="progress-bar-bg">
-                                <div class="progress-bar-fill" id="credit-progress" style="width: 10%;"></div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="credit-footer">
-                        <i class="fa-solid fa-chart-line"></i> Boostez vos conversions dès maintenant !
-                    </div>
+                    <h3>Vos Crédits</h3>
+                    <div class="credit-amount" id="credits">120</div>
+                    <small>Utilisables par vos clients</small>
                 </div>
-
-                <div class="packs-container">
-                    <div class="pack-card" onclick="buy('pack_10')">
-                        <div class="pack-header">
-                            <h3 class="pack-title">Découverte</h3>
-                            <div class="pack-credits-large">10</div>
-                        </div>
-                        <div class="price-comparison expensive">≈ 0.50€ / essayage</div>
-                        <div class="pack-pricing">
-                            <span class="pack-price">4.99€</span> <span class="pack-price-unit">HT</span>
-                        </div>
-                        <button class="pack-btn btn-outline">Tester l'outil</button>
-                    </div>
-                    
-                    <div class="pack-card popular" onclick="buy('pack_30')">
-                        <div class="popular-badge"><i class="fa-solid fa-fire"></i> OFFRE POPULAIRE</div>
-                        <div class="pack-header">
-                            <h3 class="pack-title">Accélérateur</h3>
-                            <div class="pack-credits-large">30</div>
-                        </div>
-                        <div class="price-comparison">✅ ≈ 0.33€ / essayage (Économisez 34%)</div>
-                        <div class="pack-pricing">
-                            <span class="pack-price">9.99€</span> <span class="pack-price-unit">HT</span>
-                        </div>
-                        <button class="pack-btn btn-fill">Profiter de l'offre 🔥</button>
-                    </div>
-                    
-                    <div class="pack-card" onclick="buy('pack_100')">
-                        <div class="pack-header">
-                            <h3 class="pack-title">Performance</h3>
-                            <div class="pack-credits-large">100</div>
-                        </div>
-                        <div class="price-comparison">⭐ ≈ 0.20€ / essayage (Meilleur Prix)</div>
-                        <div class="pack-pricing">
-                            <span class="pack-price">19.99€</span> <span class="pack-price-unit">HT</span>
-                        </div>
-                        <button class="pack-btn btn-outline">Passer au niveau Pro</button>
-                    </div>
+                <div class="packs">
+                    <div class="pack"><h3>10</h3><p>4.99€</p><button onclick="buy('pack_10')">Acheter</button></div>
+                    <div class="pack" style="border: 2px solid #4f46e5"><h3>30</h3><p>9.99€</p><button onclick="buy('pack_30')">Acheter</button></div>
+                    <div class="pack"><h3>100</h3><p>19.99€</p><button onclick="buy('pack_100')">Acheter</button></div>
                 </div>
             </div>
-            
-            <h3 style="margin-bottom:20px; color:#64748b; font-weight:700;">Studio de Création (Vue Propriétaire)</h3>
         </div>
 
         <div id="studio-zone" class="studio">
-            <h2 id="client-title" style="display:none; text-align:center; margin-bottom:30px; font-weight:800;">Cabine d'Essayage Virtuelle</h2>
-            
+            <h3>Cabine d'Essayage</h3>
             <div class="upload-grid">
                 <div>
-                    <label style="font-weight:700; margin-bottom:10px; display:block;">1. Photo du modèle</label>
-                    <div class="preview-box" onclick="document.getElementById('uImg').click()">
+                    <label>Votre Photo</label>
+                    <div class="preview" onclick="document.getElementById('uImg').click()">
                         <img id="prevU">
-                        <div class="placeholder" id="phU">
-                            <i class="fa-solid fa-user"></i>Importer une photo
-                        </div>
+                        <div id="phU"><i class="fa-solid fa-camera"></i><br>Cliquez pour ajouter</div>
                     </div>
-                    <input type="file" id="uImg" accept="image/*" onchange="preview('uImg','prevU','phU')">
+                    <input type="file" id="uImg" onchange="preview(this, 'prevU', 'phU')">
                 </div>
-
                 <div>
-                    <label style="font-weight:700; margin-bottom:10px; display:block;">2. Photo du vêtement</label>
-                    <div class="preview-box" onclick="document.getElementById('cImg').click()">
+                    <label>Vêtement</label>
+                    <div class="preview" onclick="document.getElementById('cImg').click()">
                         <img id="prevC">
-                        <div class="placeholder" id="phC">
-                            <i class="fa-solid fa-shirt"></i>Importer le produit
-                        </div>
+                        <div id="phC"><i class="fa-solid fa-shirt"></i><br>Cliquez pour ajouter</div>
                     </div>
-                    <input type="file" id="cImg" accept="image/*" onchange="preview('cImg','prevC','phC')">
+                    <input type="file" id="cImg" onchange="preview(this, 'prevC', 'phC')">
                 </div>
-
                 <div>
-                    <label style="font-weight:700; margin-bottom:10px; display:block;">3. Résultat IA</label>
-                    <div class="preview-box" style="background:#f0fdf4; border-color:#10b981; cursor:default;">
+                    <label>Résultat</label>
+                    <div class="preview" style="background:#f0fdf4; cursor: default;">
                         <img id="resImg">
-                        <div class="placeholder" id="phRes" style="color:#10b981;">
-                            <i class="fa-solid fa-wand-magic-sparkles"></i>Le résultat apparaîtra ici
-                        </div>
-                        <div id="loading" style="display:none; color:#10b981; font-weight:bold;">Création de la magie...</div>
+                        <div id="phRes" style="color:#10b981"><i class="fa-solid fa-wand-magic-sparkles"></i><br>Résultat ici</div>
                     </div>
-                    <button class="generate-btn" onclick="generate()" id="btnGo">Générer l'essayage ✨</button>
+                    <button id="btnGo" class="btn-go" onclick="generate()">Générer</button>
                 </div>
             </div>
         </div>
