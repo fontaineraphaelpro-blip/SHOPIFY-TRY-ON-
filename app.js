@@ -14,7 +14,7 @@ document.addEventListener("DOMContentLoaded", function() {
         if(shop) fetchCredits(shop);
     }
 
-    // --- UPLOAD ---
+    // UPLOAD
     window.preview = function(inputId, imgId, txtId) {
         const file = document.getElementById(inputId).files[0];
         if (file) {
@@ -23,48 +23,48 @@ document.addEventListener("DOMContentLoaded", function() {
                 const img = document.getElementById(imgId);
                 img.src = e.target.result;
                 img.style.display = 'block';
-                // Cache les textes
-                const zone = img.parentElement;
-                const texts = zone.querySelectorAll('span, i');
-                texts.forEach(el => el.style.display = 'none');
+                if(img.parentElement) {
+                    img.parentElement.classList.add('has-image');
+                    img.parentElement.querySelectorAll('span, i, div').forEach(el => {
+                        if(el !== img) el.style.display = 'none';
+                    });
+                }
             };
             reader.readAsDataURL(file);
         }
     };
 
-    // --- GENERATION ---
+    // GENERATION
     window.generate = async function() {
         const u = document.getElementById('uImg').files[0];
         const c = document.getElementById('cImg').files[0];
-        if (!u || !c) return alert("Veuillez mettre les 2 photos.");
+        if (!u || !c) return alert("Photos manquantes");
 
         const btn = document.getElementById('btnGo');
+        const resZone = document.getElementById('resZone');
         const loader = document.getElementById('loader');
         
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Traitement...';
+        btn.disabled = true; btn.innerHTML = 'Traitement...';
+        if(resZone) resZone.style.display = 'flex'; 
         if(loader) loader.style.display = 'block';
 
-        const toBase64 = f => new Promise(r => { const rd = new FileReader(); rd.readAsDataURL(f); rd.onload=()=>r(rd.result); });
+        const to64 = f => new Promise(r => { const rd = new FileReader(); rd.readAsDataURL(f); rd.onload=()=>r(rd.result); });
 
         try {
             const res = await fetch('/api/generate', {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ shop: shop || "demo", person_image_url: await toBase64(u), clothing_image_url: await toBase64(c), category: "upper_body" })
+                body: JSON.stringify({ shop: shop || "demo", person_image_url: await to64(u), clothing_image_url: await to64(c), category: "upper_body" })
             });
             const data = await res.json();
             
             if(data.result_image_url) {
-                const resImg = document.getElementById('resImg');
-                resImg.src = data.result_image_url;
-                resImg.style.display = 'block';
+                document.getElementById('resImg').src = data.result_image_url;
+                document.getElementById('resImg').style.display = 'block';
                 if(loader) loader.style.display = 'none';
                 if(mode !== 'client') fetchCredits(shop);
-            } else {
-                alert("Erreur IA");
-            }
-        } catch(e) { alert("Erreur technique"); } 
-        finally { btn.disabled = false; btn.innerHTML = 'Générer l\'essayage'; }
+            } else alert("Erreur IA");
+        } catch(e) { alert("Erreur"); }
+        finally { btn.disabled = false; btn.innerHTML = 'Essayer Maintenant ✨'; }
     };
 
     async function fetchCredits(s) {
@@ -75,35 +75,40 @@ document.addEventListener("DOMContentLoaded", function() {
         } catch(e) {}
     }
 
-    // --- ACHAT (AVEC RECONNEXION AUTO) ---
+    // ACHAT INSTANTANÉ
     window.buy = async function(packId) {
-        if(!shop) return alert("Shop non détecté");
+        if(!shop) return;
         
-        const btn = event.currentTarget;
-        const oldText = btn.innerText;
-        btn.innerText = "...";
+        // On désactive juste pour pas double-cliquer
+        const btn = event.currentTarget.querySelector('button') || event.target;
+        btn.innerText = "Chargement...";
         btn.disabled = true;
 
         try {
+            // Appel serveur (Ultra rapide grâce à httpx en python)
             const res = await fetch('/api/buy-credits', {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ shop: shop, pack_id: packId })
             });
 
-            // SI LE TOKEN EST PERDU (401), ON RECONNECTE AUTO
-            if (res.status === 401) {
-                console.log("Token perdu, reconnexion...");
+            // Si session perdue, on reload direct
+            if(res.status === 401) {
                 window.top.location.href = `https://shopify-try-on.onrender.com/login?shop=${shop}`;
                 return;
             }
 
             const data = await res.json();
-            if(data.confirmation_url) window.top.location.href = data.confirmation_url;
-            else alert("Erreur: " + (data.error || "Inconnue"));
+            
+            // REDIRECTION IMMEDIATE
+            if(data.confirmation_url) {
+                window.top.location.href = data.confirmation_url;
+            } else {
+                alert("Erreur: " + (data.error || "Inconnue"));
+                btn.innerText = "Réessayer";
+                btn.disabled = false;
+            }
         } catch(e) {
-            alert("Erreur connexion");
-        } finally {
-            btn.innerText = oldText;
+            alert("Erreur réseau");
             btn.disabled = false;
         }
     }
