@@ -2,162 +2,379 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>StyleLab AI - Dashboard</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StyleLab AI - Dashboard Propriétaire</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
     <style>
-        :root { --primary: #6366f1; --bg: #f8fafc; --text: #0f172a; }
-        body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); padding: 40px; }
-        .container { max-width: 1100px; margin: 0 auto; }
-        .header { display: flex; justify-content: space-between; margin-bottom: 40px; align-items: center; }
-        .brand { font-size: 1.5rem; font-weight: 800; color: var(--primary); }
-        
-        .dashboard-grid { display: grid; grid-template-columns: 320px 1fr; gap: 30px; margin-bottom: 50px; }
-        .credit-card { background: linear-gradient(135deg, #4f46e5, #3730a3); color: white; padding: 30px; border-radius: 20px; box-shadow: 0 10px 30px rgba(79,70,229,0.3); }
-        .credit-amount { font-size: 5rem; font-weight: 800; line-height: 1; margin: 20px 0; }
-        
-        .packs-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
-        .pack-card { background: white; border: 1px solid #e2e8f0; padding: 25px; border-radius: 20px; text-align: center; cursor: pointer; transition: 0.2s; position: relative; }
-        .pack-card:hover { transform: translateY(-5px); border-color: var(--primary); }
-        .pack-card.popular { border: 2px solid var(--primary); background: #fdfdff; transform: scale(1.05); z-index: 2; box-shadow: 0 15px 30px rgba(99,102,241,0.15); }
-        .pack-card.popular:hover { transform: scale(1.05) translateY(-5px); }
-        .badge { position: absolute; top: -12px; left: 50%; transform: translateX(-50%); background: var(--primary); color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; }
-        
-        .pack-price { color: #64748b; margin-bottom: 15px; }
-        .pack-btn { width: 100%; padding: 10px; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; }
-        .btn-outline { border: 2px solid #e2e8f0; background: transparent; }
-        .btn-primary { background: var(--primary); color: white; }
+        :root {
+            --primary: #6366f1;
+            --bg: #f8fafc;
+            --text: #0f172a;
+            --border: #e2e8f0;
+        }
 
-        .studio { background: white; padding: 40px; border-radius: 20px; border: 1px solid #e2e8f0; }
-        .upload-grid { display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 30px; }
-        .preview { width: 100%; aspect-ratio: 3/4; background: #f1f5f9; border: 2px dashed #cbd5e1; border-radius: 15px; display: flex; align-items: center; justify-content: center; cursor: pointer; overflow: hidden; position: relative; }
-        .preview img { width: 100%; height: 100%; object-fit: cover; display: none; }
-        .btn-go { background: #10b981; color: white; border: none; padding: 15px; width: 100%; border-radius: 50px; font-weight: bold; font-size: 16px; margin-top: 20px; cursor: pointer; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 40px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        /* HEADER */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 40px;
+        }
+        .brand {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .badge {
+            background: #dcfce7;
+            color: #166534;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+            border: 1px solid #bbf7d0;
+        }
+
+        /* GRID DASHBOARD */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            gap: 30px;
+            margin-bottom: 50px;
+        }
+
+        /* CARTE CREDITS */
+        .credit-card {
+            background: linear-gradient(135deg, #4f46e5, #3730a3);
+            color: white;
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(79, 70, 229, 0.3);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        .credit-title {
+            font-size: 0.9rem;
+            opacity: 0.9;
+            font-weight: 600;
+            letter-spacing: 1px;
+        }
+        .credit-amount {
+            font-size: 4.5rem;
+            font-weight: 800;
+            line-height: 1;
+            margin: 20px 0;
+        }
+        .credit-info {
+            font-size: 0.9rem;
+            opacity: 0.8;
+            background: rgba(255,255,255,0.1);
+            padding: 8px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        /* PACKS */
+        .packs-container {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+        }
+        .pack-card {
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 25px;
+            text-align: center;
+            cursor: pointer;
+            transition: 0.2s;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        .pack-card:hover {
+            transform: translateY(-5px);
+            border-color: var(--primary);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.05);
+        }
+        
+        .pack-card.popular {
+            border: 2px solid var(--primary);
+            background: #fdfdff;
+            transform: scale(1.05);
+            z-index: 2;
+            box-shadow: 0 15px 30px rgba(99, 102, 241, 0.15);
+        }
+        .pack-card.popular:hover {
+            transform: scale(1.05) translateY(-5px);
+        }
+        
+        .best-seller {
+            position: absolute;
+            top: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--primary);
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+            padding: 4px 12px;
+            border-radius: 12px;
+        }
+
+        .pack-val { font-size: 2.5rem; font-weight: 800; color: var(--text); }
+        .pack-price { color: #64748b; margin-bottom: 15px; }
+        .btn-pack {
+            width: 100%; padding: 10px; border-radius: 8px; border: none; font-weight: 600; cursor: pointer;
+        }
+        .btn-outline { background: transparent; border: 2px solid var(--border); color: var(--text); }
+        .btn-fill { background: var(--primary); color: white; }
+
+        /* STUDIO */
+        .studio-section {
+            background: white;
+            padding: 40px;
+            border-radius: 24px;
+            border: 1px solid var(--border);
+        }
+        .upload-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1.2fr;
+            gap: 30px;
+            margin-top: 20px;
+        }
+        .preview-box {
+            width: 100%;
+            aspect-ratio: 3/4;
+            background: #f1f5f9;
+            border: 2px dashed #cbd5e1;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            overflow: hidden;
+            position: relative;
+        }
+        .preview-box:hover { border-color: var(--primary); background: #eef2ff; }
+        .preview-box img { width: 100%; height: 100%; object-fit: cover; display: none; }
+        .btn-generate {
+            background: #10b981; color: white; border: none; padding: 15px; width: 100%;
+            border-radius: 50px; font-weight: bold; font-size: 1.1rem; margin-top: 20px; cursor: pointer;
+        }
+        .btn-generate:disabled { background: #cbd5e1; cursor: not-allowed; }
+        
         input[type="file"] { display: none; }
     </style>
 </head>
 <body>
+
     <div class="container">
         <div class="header">
-            <div class="brand"><i class="fa-solid fa-bolt"></i> StyleLab Admin</div>
-            <div style="background:#dcfce7; color:#166534; padding:5px 15px; border-radius:20px; font-weight:bold; font-size:14px;">● Système Actif</div>
+            <div class="brand">
+                <i class="fa-solid fa-wand-magic-sparkles"></i> StyleLab Admin
+            </div>
+            <div class="badge">● Système en ligne</div>
         </div>
 
         <div class="dashboard-grid">
+            
             <div class="credit-card">
-                <div style="opacity:0.8; font-weight:600;">VOS CRÉDITS</div>
+                <div class="credit-title">SOLDE RESTANT</div>
                 <div class="credit-amount" id="credits">...</div>
-                <div style="font-size:14px; opacity:0.8;">Utilisés par vos clients</div>
+                <div class="credit-info">
+                    <i class="fa-solid fa-users"></i> Utilisable par vos clients
+                </div>
             </div>
+
             <div class="packs-container">
-                <div class="pack-card" onclick="buy('pack_10')">
-                    <h2>10</h2><div class="pack-price">4.99€</div><button class="pack-btn btn-outline">Recharger</button>
+                <div class="pack-card" onclick="buyPack('pack_10')">
+                    <div class="pack-val">10</div>
+                    <div class="pack-price">4.99€</div>
+                    <button class="btn-pack btn-outline">Recharger</button>
                 </div>
-                <div class="pack-card popular" onclick="buy('pack_30')">
-                    <div class="badge">BEST SELLER</div>
-                    <h2>30</h2><div class="pack-price">9.99€</div><button class="pack-btn btn-primary">Recharger</button>
+
+                <div class="pack-card popular" onclick="buyPack('pack_30')">
+                    <div class="best-seller">MEILLEURE OFFRE</div>
+                    <div class="pack-val">30</div>
+                    <div class="pack-price">9.99€</div>
+                    <button class="btn-pack btn-fill">Recharger</button>
                 </div>
-                <div class="pack-card" onclick="buy('pack_100')">
-                    <h2>100</h2><div class="pack-price">19.99€</div><button class="pack-btn btn-outline">Recharger</button>
+
+                <div class="pack-card" onclick="buyPack('pack_100')">
+                    <div class="pack-val">100</div>
+                    <div class="pack-price">19.99€</div>
+                    <button class="btn-pack btn-outline">Recharger</button>
                 </div>
             </div>
         </div>
 
-        <div class="studio">
-            <h2>Studio de Test (Admin)</h2>
+        <div class="studio-section">
+            <h2 style="margin-top:0;">Studio de Test (Vue Propriétaire)</h2>
+            <p style="color:#64748b;">Testez l'IA ici avant de la proposer à vos clients.</p>
+            
             <div class="upload-grid">
                 <div>
-                    <label>1. Modèle</label>
-                    <div class="preview" onclick="document.getElementById('uImg').click()">
-                        <img id="prevU"><div id="phU" style="color:#94a3b8">Ajouter photo</div>
+                    <label><b>1. Photo Modèle</b></label>
+                    <div class="preview-box" onclick="document.getElementById('uImg').click()">
+                        <img id="prevU">
+                        <div id="phU" style="color:#94a3b8; text-align:center;">
+                            <i class="fa-solid fa-user fa-2x"></i><br>Ajouter photo
+                        </div>
                     </div>
                     <input type="file" id="uImg" accept="image/*" onchange="preview('uImg','prevU','phU')">
                 </div>
+
                 <div>
-                    <label>2. Vêtement</label>
-                    <div class="preview" onclick="document.getElementById('cImg').click()">
-                        <img id="prevC"><div id="phC" style="color:#94a3b8">Ajouter vêtement</div>
+                    <label><b>2. Vêtement</b></label>
+                    <div class="preview-box" onclick="document.getElementById('cImg').click()">
+                        <img id="prevC">
+                        <div id="phC" style="color:#94a3b8; text-align:center;">
+                            <i class="fa-solid fa-shirt fa-2x"></i><br>Ajouter vêtement
+                        </div>
                     </div>
                     <input type="file" id="cImg" accept="image/*" onchange="preview('cImg','prevC','phC')">
                 </div>
+
                 <div>
-                    <label>3. Résultat</label>
-                    <div class="preview" style="background:#f0fdf4; border-color:#10b981;">
-                        <img id="resImg"><div id="loading" style="display:none; color:#10b981; font-weight:bold;">Génération...</div>
+                    <label><b>3. Résultat IA</b></label>
+                    <div class="preview-box" style="background:#f0fdf4; border-color:#10b981; cursor:default;">
+                        <img id="resImg">
+                        <div id="loading" style="display:none; color:#10b981; font-weight:bold;">
+                            Génération en cours...
+                        </div>
+                        <div id="phRes" style="color:#10b981; opacity:0.5;">
+                            <i class="fa-solid fa-wand-magic-sparkles fa-2x"></i>
+                        </div>
                     </div>
-                    <button class="btn-go" onclick="generate()" id="btnGo">Tester (-1 crédit)</button>
+                    <button id="btnGo" class="btn-generate" onclick="generate()">Générer (-1 crédit)</button>
                 </div>
             </div>
         </div>
     </div>
 
     <script>
+        // Récupération du shop dans l'URL (envoyé par Shopify)
         const params = new URLSearchParams(window.location.search);
         let SHOP = params.get('shop') || sessionStorage.getItem('shop');
         if(SHOP) sessionStorage.setItem('shop', SHOP);
 
+        // Au chargement, on récupère les crédits
         document.addEventListener("DOMContentLoaded", () => {
             if(SHOP) fetchCredits();
+            else console.error("URL Shop manquante");
         });
 
+        // 1. Lire les crédits
         async function fetchCredits() {
             try {
                 const res = await fetch(`/api/get-credits?shop=${SHOP}`);
-                if(res.status === 401) window.location.reload();
+                if(res.status === 401) { window.location.reload(); return; }
                 const data = await res.json();
                 document.getElementById('credits').innerText = data.credits;
             } catch(e) { console.error(e); }
         }
 
-        async function buy(packId) {
+        // 2. Acheter des crédits
+        async function buyPack(packId) {
             try {
                 const res = await fetch('/api/buy-credits', {
-                    method: 'POST', headers: {'Content-Type':'application/json'},
-                    body: JSON.stringify({shop: SHOP, pack_id: packId})
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ shop: SHOP, pack_id: packId })
                 });
                 const data = await res.json();
-                if(data.confirmation_url) window.top.location.href = data.confirmation_url;
-            } catch(e) { alert("Erreur paiement"); }
+                if(data.confirmation_url) {
+                    window.top.location.href = data.confirmation_url;
+                } else {
+                    alert("Erreur: " + JSON.stringify(data));
+                }
+            } catch(e) { alert("Erreur connexion: " + e); }
         }
 
+        // 3. Générer Image (Test Admin)
         async function generate() {
             const u = document.getElementById('uImg').files[0];
             const c = document.getElementById('cImg').files[0];
-            if(!u || !c) return alert("Photos manquantes");
             
-            document.getElementById('btnGo').disabled = true;
-            document.getElementById('loading').style.display = 'block';
+            if(!u || !c) return alert("Veuillez mettre les 2 photos.");
 
+            const btn = document.getElementById('btnGo');
+            const load = document.getElementById('loading');
+            const ph = document.getElementById('phRes');
+            const img = document.getElementById('resImg');
+
+            btn.disabled = true;
+            load.style.display = 'block';
+            ph.style.display = 'none';
+            img.style.display = 'none';
+
+            // Fonction Helper Base64
             const to64 = f => new Promise(r => { const fr=new FileReader(); fr.onload=()=>r(fr.result); fr.readAsDataURL(f); });
-            
+
             try {
                 const res = await fetch('/api/generate', {
-                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
                     body: JSON.stringify({
-                        shop: SHOP, person_image_url: await to64(u), clothing_image_url: await to64(c), category: 'upper_body'
+                        shop: SHOP,
+                        person_image_url: await to64(u),
+                        clothing_image_url: await to64(c),
+                        category: "upper_body"
                     })
                 });
                 const data = await res.json();
+
                 if(res.ok) {
-                    document.getElementById('resImg').src = data.result_image_url;
-                    document.getElementById('resImg').style.display = 'block';
-                    fetchCredits();
-                } else alert("Erreur: " + data.detail);
-            } catch(e) { alert("Erreur technique"); }
-            finally { 
-                document.getElementById('btnGo').disabled = false; 
-                document.getElementById('loading').style.display = 'none'; 
+                    img.src = data.result_image_url;
+                    img.style.display = 'block';
+                    load.style.display = 'none';
+                    fetchCredits(); // Mise à jour du solde
+                } else {
+                    alert("Erreur: " + (data.detail || "Inconnue"));
+                    load.style.display = 'none';
+                    ph.style.display = 'block';
+                }
+            } catch(e) {
+                console.error(e);
+                alert("Erreur technique");
+                load.style.display = 'none';
+                ph.style.display = 'block';
+            } finally {
+                btn.disabled = false;
             }
         }
 
-        function preview(i, p, ph) {
-            const f = document.getElementById(i).files[0];
+        // Preview images locales
+        function preview(idInput, idImg, idPh) {
+            const f = document.getElementById(idInput).files[0];
             if(f) {
                 const r = new FileReader();
                 r.onload = e => {
-                    document.getElementById(p).src = e.target.result;
-                    document.getElementById(p).style.display = 'block';
-                    document.getElementById(ph).style.display = 'none';
+                    document.getElementById(idImg).src = e.target.result;
+                    document.getElementById(idImg).style.display = 'block';
+                    document.getElementById(idPh).style.display = 'none';
                 };
                 r.readAsDataURL(f);
             }
