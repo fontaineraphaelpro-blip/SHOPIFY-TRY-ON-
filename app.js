@@ -14,36 +14,38 @@ document.addEventListener("DOMContentLoaded", function() {
         if(shop) fetchCredits(shop);
     }
 
-    // UPLOAD
+    // --- UPLOAD ---
     window.preview = function(inputId, imgId, txtId) {
         const file = document.getElementById(inputId).files[0];
         if (file) {
-            const r = new FileReader();
-            r.onload = e => {
+            const reader = new FileReader();
+            reader.onload = e => {
                 const img = document.getElementById(imgId);
                 img.src = e.target.result;
                 img.style.display = 'block';
-                img.parentElement.classList.add('has-image');
-                img.parentElement.querySelectorAll('i, .upload-text').forEach(el => el.style.display = 'none');
+                // Cache les textes
+                const zone = img.parentElement;
+                const texts = zone.querySelectorAll('span, i');
+                texts.forEach(el => el.style.display = 'none');
             };
-            r.readAsDataURL(file);
+            reader.readAsDataURL(file);
         }
     };
 
-    // GENERATE
+    // --- GENERATION ---
     window.generate = async function() {
         const u = document.getElementById('uImg').files[0];
         const c = document.getElementById('cImg').files[0];
         if (!u || !c) return alert("Veuillez mettre les 2 photos.");
 
         const btn = document.getElementById('btnGo');
-        const resZone = document.getElementById('resZone');
         const loader = document.getElementById('loader');
         
-        btn.disabled = true; btn.innerHTML = 'Traitement...';
-        resZone.style.display = 'flex'; 
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Traitement...';
+        if(loader) loader.style.display = 'block';
 
-        const to64 = f => new Promise(r => { const rd = new FileReader(); rd.readAsDataURL(f); rd.onload=()=>r(rd.result); });
+        const toBase64 = f => new Promise(r => { const rd = new FileReader(); rd.readAsDataURL(f); rd.onload=()=>r(rd.result); });
 
         try {
             const res = await fetch('/api/generate', {
@@ -53,13 +55,16 @@ document.addEventListener("DOMContentLoaded", function() {
             const data = await res.json();
             
             if(data.result_image_url) {
-                document.getElementById('resImg').src = data.result_image_url;
-                document.getElementById('resImg').style.display = 'block';
-                loader.style.display = 'none';
+                const resImg = document.getElementById('resImg');
+                resImg.src = data.result_image_url;
+                resImg.style.display = 'block';
+                if(loader) loader.style.display = 'none';
                 if(mode !== 'client') fetchCredits(shop);
-            } else alert("Erreur IA");
-        } catch(e) { alert("Erreur technique"); resZone.style.display = 'none'; }
-        finally { btn.disabled = false; btn.innerHTML = 'Essayer Maintenant ✨'; }
+            } else {
+                alert("Erreur IA");
+            }
+        } catch(e) { alert("Erreur technique"); } 
+        finally { btn.disabled = false; btn.innerHTML = 'Générer l\'essayage'; }
     };
 
     async function fetchCredits(s) {
@@ -70,15 +75,12 @@ document.addEventListener("DOMContentLoaded", function() {
         } catch(e) {}
     }
 
-    // --- CORRECTION DU BUG DE PAIEMENT ---
+    // --- ACHAT (AVEC RECONNEXION AUTO) ---
     window.buy = async function(packId) {
-        if(!shop) return alert("Erreur : Boutique non détectée. Rechargez la page.");
+        if(!shop) return alert("Shop non détecté");
         
-        // On cible le bouton quel que soit l'endroit du clic
-        const card = event.currentTarget; 
-        const btn = card.querySelector('button') || event.target;
+        const btn = event.currentTarget;
         const oldText = btn.innerText;
-        
         btn.innerText = "...";
         btn.disabled = true;
 
@@ -87,25 +89,20 @@ document.addEventListener("DOMContentLoaded", function() {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ shop: shop, pack_id: packId })
             });
-            
-            // Si le serveur dit "401" (Session perdue), on redirige vers le login
+
+            // SI LE TOKEN EST PERDU (401), ON RECONNECTE AUTO
             if (res.status === 401) {
-                console.log("Session expirée, reconnexion...");
+                console.log("Token perdu, reconnexion...");
                 window.top.location.href = `https://shopify-try-on.onrender.com/login?shop=${shop}`;
                 return;
             }
 
             const data = await res.json();
-            if(data.confirmation_url) {
-                window.top.location.href = data.confirmation_url;
-            } else {
-                // Affiche l'erreur réelle (detail ou error)
-                alert("Erreur Paiement : " + (data.detail || data.error || "Inconnue"));
-                btn.innerText = oldText;
-                btn.disabled = false;
-            }
+            if(data.confirmation_url) window.top.location.href = data.confirmation_url;
+            else alert("Erreur: " + (data.error || "Inconnue"));
         } catch(e) {
-            alert("Erreur réseau");
+            alert("Erreur connexion");
+        } finally {
             btn.innerText = oldText;
             btn.disabled = false;
         }
