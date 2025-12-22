@@ -7,6 +7,7 @@ document.addEventListener("DOMContentLoaded", function() {
     if(shop) sessionStorage.setItem('shop', shop);
     document.body.classList.add('loaded');
 
+    // LOGIQUE D'AFFICHAGE
     if (mode === 'client') {
         document.body.classList.add('client-mode');
         document.getElementById('client-title').style.display = 'block';
@@ -14,7 +15,7 @@ document.addEventListener("DOMContentLoaded", function() {
         if(shop) fetchCredits(shop);
     }
 
-    // UPLOAD
+    // FONCTION PREVIEW (Cache les icônes quand l'image est là)
     window.preview = function(inputId, imgId, txtId) {
         const file = document.getElementById(inputId).files[0];
         if (file) {
@@ -23,25 +24,41 @@ document.addEventListener("DOMContentLoaded", function() {
                 const img = document.getElementById(imgId);
                 img.src = e.target.result;
                 img.style.display = 'block';
-                const zone = img.parentElement;
-                zone.querySelectorAll('span, i').forEach(el => el.style.display = 'none');
+                
+                // Ajoute une classe pour dire qu'il y a une image (bordure solide)
+                img.parentElement.classList.add('has-image');
+                
+                // Cache le texte et l'icône
+                const card = img.parentElement;
+                card.querySelectorAll('.upload-icon, .upload-text, .upload-sub').forEach(el => el.style.display = 'none');
             };
             reader.readAsDataURL(file);
         }
     };
 
-    // GENERATION
+    // GENERATION IA
     window.generate = async function() {
         const u = document.getElementById('uImg').files[0];
         const c = document.getElementById('cImg').files[0];
-        if (!u || !c) return alert("Veuillez mettre les 2 photos.");
+        
+        if (!u || !c) return alert("Veuillez ajouter votre photo et celle du vêtement.");
 
         const btn = document.getElementById('btnGo');
+        const resultZone = document.getElementById('resultZone');
         const loader = document.getElementById('loader');
+        const resImg = document.getElementById('resImg');
         
+        // UI LOADING
         btn.disabled = true;
-        btn.innerHTML = 'Traitement...';
-        if(loader) loader.style.display = 'block';
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Création en cours...';
+        
+        // Affiche la zone de résultat et le loader
+        resultZone.style.display = 'flex';
+        loader.style.display = 'block';
+        resImg.style.display = 'none';
+
+        // Scroll vers le bas pour voir le loader sur mobile
+        resultZone.scrollIntoView({ behavior: 'smooth' });
 
         const toBase64 = f => new Promise(r => { const rd = new FileReader(); rd.readAsDataURL(f); rd.onload=()=>r(rd.result); });
 
@@ -53,16 +70,22 @@ document.addEventListener("DOMContentLoaded", function() {
             const data = await res.json();
             
             if(data.result_image_url) {
-                const resImg = document.getElementById('resImg');
                 resImg.src = data.result_image_url;
                 resImg.style.display = 'block';
-                if(loader) loader.style.display = 'none';
+                loader.style.display = 'none';
+                
                 if(mode !== 'client') fetchCredits(shop);
             } else {
-                alert("Erreur IA");
+                alert("Oups, l'IA a eu un petit souci. Réessayez !");
+                resultZone.style.display = 'none'; // Cache si erreur
             }
-        } catch(e) { alert("Erreur technique"); } 
-        finally { btn.disabled = false; btn.innerHTML = 'Générer l\'essayage'; }
+        } catch(e) { 
+            alert("Erreur de connexion."); 
+            resultZone.style.display = 'none';
+        } finally { 
+            btn.disabled = false; 
+            btn.innerHTML = 'Essayer Maintenant <i class="fa-solid fa-wand-magic-sparkles"></i>';
+        }
     };
 
     async function fetchCredits(s) {
@@ -73,16 +96,12 @@ document.addEventListener("DOMContentLoaded", function() {
         } catch(e) {}
     }
 
-    // ACHAT RAPIDE
+    // ACHAT (Ancienne méthode simple)
     window.buy = async function(packId) {
-        if(!shop) return alert("Shop non détecté");
-        
+        if(!shop) return alert("Boutique non détectée");
         const btn = event.currentTarget.querySelector('button') || event.target;
         const oldText = btn.innerText;
-        
-        // Feedback immédiat
         btn.innerText = "...";
-        btn.style.opacity = "0.7";
         btn.disabled = true;
 
         try {
@@ -90,26 +109,13 @@ document.addEventListener("DOMContentLoaded", function() {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ shop: shop, pack_id: packId })
             });
-
-            // GESTION ERREUR 401 (RECONNEXION)
-            if (res.status === 401) {
-                window.top.location.href = `https://shopify-try-on.onrender.com/login?shop=${shop}`;
-                return;
-            }
-
             const data = await res.json();
-            if(data.confirmation_url) {
-                window.top.location.href = data.confirmation_url;
-            } else {
-                alert("Erreur: " + (data.error || "Inconnue"));
-                btn.innerText = oldText;
-                btn.style.opacity = "1";
-                btn.disabled = false;
-            }
+            if(data.confirmation_url) window.top.location.href = data.confirmation_url;
+            else alert("Erreur : " + (data.error || "Inconnue"));
         } catch(e) {
-            alert("Erreur connexion");
+            alert("Erreur réseau");
+        } finally {
             btn.innerText = oldText;
-            btn.style.opacity = "1";
             btn.disabled = false;
         }
     }
