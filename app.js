@@ -1,51 +1,58 @@
 document.addEventListener("DOMContentLoaded", function() {
     
-    // 1. DETECTION : EST-CE LE CLIENT ?
+    // 1. DÉTECTION DU MODE
     const params = new URLSearchParams(window.location.search);
-    const mode = params.get('mode'); // Récupère ?mode=client
-    const shop = params.get('shop');
+    const mode = params.get('mode'); 
+    const shop = params.get('shop') || sessionStorage.getItem('shop');
 
-    // On affiche le corps de la page maintenant que le JS est chargé
-    document.body.style.display = 'block';
+    if(shop) sessionStorage.setItem('shop', shop);
+
+    // On rend le body visible maintenant que le JS commence
+    document.body.classList.add('loaded');
 
     if (mode === 'client') {
-        // C'est le client : on ajoute la classe qui déclenche le CSS "Cache-Cache"
+        // C'EST LE CLIENT : On active le mode "Clean"
         document.body.classList.add('client-mode');
-        console.log("Mode Client Activé");
+        document.getElementById('client-title').style.display = 'block';
     } else {
-        // C'est l'admin : on charge les crédits
+        // C'EST L'ADMIN : On charge les crédits
         if(shop) fetchCredits(shop);
     }
 
-    // 2. PREVISUALISATION IMAGES
-    window.preview = function(input, imgId) {
-        const file = input.files[0];
+    // 2. PRÉVISUALISATION
+    window.preview = function(inputId, imgId, phId) {
+        const file = document.getElementById(inputId).files[0];
         if (file) {
             const reader = new FileReader();
             reader.onload = e => {
-                const img = document.getElementById(imgId);
-                img.src = e.target.result;
-                img.style.display = 'block';
+                document.getElementById(imgId).src = e.target.result;
+                document.getElementById(imgId).style.display = 'block';
+                document.getElementById(phId).style.display = 'none';
             };
             reader.readAsDataURL(file);
         }
-    };
+    }
 
-    // 3. GENERATION IA
+    // 3. GÉNÉRATION
     window.generate = async function() {
         const u = document.getElementById('uImg').files[0];
         const c = document.getElementById('cImg').files[0];
         
-        if (!u || !c) return alert("Ajoutez les 2 photos !");
+        if (!u || !c) return alert("Veuillez ajouter les 2 photos !");
 
-        const btn = document.querySelector('button');
+        const btn = document.getElementById('btnGo');
+        const load = document.getElementById('loading');
+        const ph = document.getElementById('phRes');
+        const resImg = document.getElementById('resImg');
+
         btn.disabled = true;
-        btn.innerText = "Génération...";
+        load.style.display = 'block';
+        ph.style.display = 'none';
+        resImg.style.display = 'none';
 
-        // Helper pour convertir en base64
-        const toBase64 = file => new Promise(r => {
+        const toBase64 = f => new Promise(r => {
             const reader = new FileReader();
-            reader.readAsDataURL(file);
+            reader.readAsDataURL(f);
             reader.onload = () => r(reader.result);
         });
 
@@ -63,29 +70,40 @@ document.addEventListener("DOMContentLoaded", function() {
             const data = await res.json();
             
             if(data.result_image_url) {
-                const resImg = document.getElementById('resImg');
                 resImg.src = data.result_image_url;
                 resImg.style.display = 'block';
+                load.style.display = 'none';
+                if(mode !== 'client') fetchCredits(shop); // Admin only
             } else {
                 alert("Erreur: " + JSON.stringify(data));
+                btn.disabled = false;
+                load.style.display = 'none';
             }
         } catch(e) {
             alert("Erreur technique");
+            btn.disabled = false;
+            load.style.display = 'none';
         } finally {
             btn.disabled = false;
-            btn.innerText = "Générer";
         }
     };
 
-    async function fetchCredits(shop) {
+    async function fetchCredits(s) {
         try {
-            const res = await fetch(`/api/get-credits?shop=${shop}`);
+            const res = await fetch(`/api/get-credits?shop=${s}`);
             const data = await res.json();
             document.getElementById('credits').innerText = data.credits;
         } catch(e) { console.error(e); }
     }
-    
-    window.buy = function() {
-        alert("Paiement désactivé pour ce test");
+
+    window.buy = async function(packId) {
+        try {
+            const res = await fetch('/api/buy-credits', {
+                method: 'POST', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({shop: shop, pack_id: packId})
+            });
+            const data = await res.json();
+            if(data.confirmation_url) window.top.location.href = data.confirmation_url;
+        } catch(e) { alert("Erreur paiement"); }
     }
 });
