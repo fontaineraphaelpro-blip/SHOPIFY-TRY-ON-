@@ -169,7 +169,7 @@
                     document.getElementById('resultPlaceholder').style.display = 'none';
                     fetchCredits();
                 } else {
-                    if(res.status === 400 || res.status === 401) window.location.reload();
+                    if(res.status === 401) window.location.reload();
                     else alert("Erreur: " + (data.detail || "Inconnue"));
                 }
             } catch (e) { console.error(e); alert("Erreur technique"); }
