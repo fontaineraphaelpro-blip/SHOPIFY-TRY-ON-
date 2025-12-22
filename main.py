@@ -1,6 +1,6 @@
 import os
 import shopify
-import httpx # LE TURBO
+import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -51,7 +51,6 @@ async def auth_callback(shop: str, code: str):
     url = f"https://{shop}/admin/oauth/access_token"
     payload = {"client_id": SHOPIFY_API_KEY, "client_secret": SHOPIFY_API_SECRET, "code": code}
     
-    # Auth rapide
     async with httpx.AsyncClient() as client:
         resp = await client.post(url, json=payload)
         
@@ -66,28 +65,23 @@ class BuyRequest(BaseModel):
     shop: str
     pack_id: str
 
-# PAIEMENT INSTANTANÉ (ASYNC)
 @app.post("/api/buy-credits")
 async def buy_credits(req: BuyRequest):
     shop = clean_shop_url(req.shop)
     token = shop_sessions.get(shop)
     
     if not token:
-        # Code spécial pour dire au JS de recharger la page
         raise HTTPException(status_code=401, detail="Reload needed")
 
     if req.pack_id == 'pack_10': price, name = 4.99, "10 Crédits"
     elif req.pack_id == 'pack_30': price, name = 9.99, "30 Crédits"
     else: price, name = 19.99, "100 Crédits"
 
-    # Requête directe ultra-rapide vers Shopify
     url = f"https://{shop}/admin/api/{API_VERSION}/application_charges.json"
     headers = {"X-Shopify-Access-Token": token, "Content-Type": "application/json"}
     payload = {
         "application_charge": {
-            "name": name,
-            "price": price,
-            "test": True,
+            "name": name, "price": price, "test": True,
             "return_url": f"{HOST}/billing/callback?shop={shop}"
         }
     }
@@ -96,8 +90,7 @@ async def buy_credits(req: BuyRequest):
         resp = await client.post(url, json=payload, headers=headers)
 
     if resp.status_code == 201:
-        data = resp.json()
-        return {"confirmation_url": data['application_charge']['confirmation_url']}
+        return {"confirmation_url": resp.json()['application_charge']['confirmation_url']}
     
     if resp.status_code == 401:
         raise HTTPException(status_code=401, detail="Token invalid")
@@ -132,6 +125,12 @@ def generate(req: TryOnRequest):
     except Exception as e:
         return {"error": str(e)}
 
+# ICI LA CORRECTION : On vérifie le token dès l'affichage des crédits
 @app.get("/api/get-credits")
 def get_credits(shop: str):
+    shop = clean_shop_url(shop)
+    # Si le serveur ne connait pas ce shop, on envoie une erreur 401
+    if shop not in shop_sessions:
+        raise HTTPException(status_code=401, detail="Session perdue")
+        
     return {"credits": 120}
