@@ -1,394 +1,260 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>StyleLab AI - Dashboard</title>
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
-    <style>
-        :root {
-            --primary: #6366f1;       /* Indigo vibrant */
-            --primary-dark: #4338ca;  /* Indigo sombre */
-            --secondary: #ec4899;     /* Rose accent */
-            --bg: #f8fafc;            /* Fond très clair */
-            --card-bg: #ffffff;
-            --text-main: #0f172a;     /* Texte sombre */
-            --text-muted: #64748b;    /* Texte gris */
-            --border: #e2e8f0;        /* Bordures subtiles */
-            --success: #10b981;
-        }
+import os
+import shopify
+import requests
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+import replicate
 
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: var(--bg);
-            margin: 0;
-            padding: 40px 20px;
-            color: var(--text-main);
-            -webkit-font-smoothing: antialiased;
-        }
+# --- CONFIGURATION ---
+SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
+SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
+HOST = os.getenv("HOST") 
 
-        .container {
-            max-width: 1100px;
-            margin: 0 auto;
-        }
+# On demande les droits pour écrire les scripts (widget) et les metafields (crédits)
+SCOPES = ['write_script_tags', 'read_products', 'write_products']
+API_VERSION = "2025-01" 
+MODEL_ID = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985"
 
-        /* --- HEADER --- */
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 40px;
-        }
-        .brand {
-            font-size: 1.5rem;
-            font-weight: 800;
-            color: var(--text-main);
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            letter-spacing: -0.5px;
-        }
-        .brand i { 
-            background: linear-gradient(135deg, var(--primary), var(--secondary));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        .status-badge {
-            background: #dcfce7;
-            color: #15803d;
-            padding: 6px 16px;
-            border-radius: 99px;
-            font-size: 0.85rem;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            border: 1px solid #bbf7d0;
-        }
-        .status-dot {
-            width: 8px; height: 8px; background: #22c55e; border-radius: 50%;
-            box-shadow: 0 0 0 2px #dcfce7;
-        }
+app = FastAPI()
 
-        /* --- DASHBOARD GRID (Crédits + Packs) --- */
-        .dashboard-grid {
-            display: grid;
-            grid-template-columns: 320px 1fr;
-            gap: 30px;
-            margin-bottom: 50px;
-            align-items: stretch;
-        }
+# --- CORS (CRUCIAL POUR LE WIDGET CLIENT) ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # Autorise toutes les boutiques à appeler l'API
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-        /* CARTE CRÉDIT (Gauche) */
-        .credit-card {
-            background: linear-gradient(145deg, #4f46e5, #3730a3);
-            border-radius: 24px;
-            padding: 30px;
-            color: white;
-            position: relative;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            min-height: 240px;
-            box-shadow: 0 20px 25px -5px rgba(79, 70, 229, 0.4);
-        }
-        .credit-card::before {
-            content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
-            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 60%);
-            transform: rotate(30deg);
-        }
-        .credit-header {
-            display: flex; justify-content: space-between; align-items: flex-start;
-        }
-        .credit-label {
-            font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1.5px; opacity: 0.8; font-weight: 600;
-        }
-        .chip-icon { opacity: 0.7; font-size: 1.5rem; }
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# --- MÉMOIRE VIVE (REM PLACE DB) ---
+# Stocke les tokens tant que le serveur tourne
+shop_sessions = {}
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = "frame-ancestors https://admin.shopify.com https://*.myshopify.com;"
+    return response
+
+# --- UTILITAIRES ---
+def clean_shop_url(url):
+    if not url: return ""
+    return url.replace("https://", "").replace("http://", "").strip("/")
+
+def get_shopify_credits(shop_url, token):
+    try:
+        session = shopify.Session(shop_url, API_VERSION, token)
+        shopify.ShopifyResource.activate_session(session)
+        current_shop = shopify.Shop.current()
+        metafields = current_shop.metafields()
+        for m in metafields:
+            if m.namespace == "stylelab" and m.key == "credits":
+                return int(m.value)
+        return 3 # 3 crédits gratuits par défaut
+    except Exception as e:
+        print(f"Erreur lecture crédits: {e}")
+        return 0
+
+def update_shopify_credits(shop_url, token, new_amount):
+    try:
+        session = shopify.Session(shop_url, API_VERSION, token)
+        shopify.ShopifyResource.activate_session(session)
+        current_shop = shopify.Shop.current()
         
-        .credit-amount {
-            font-size: 5rem; font-weight: 800; line-height: 1; letter-spacing: -2px;
-            text-shadow: 0 2px 10px rgba(0,0,0,0.2); margin: 20px 0;
-        }
+        # Recherche du metafield existant
+        metafields = current_shop.metafields()
+        target_metafield = None
+        for m in metafields:
+            if m.namespace == "stylelab" and m.key == "credits":
+                target_metafield = m
+                break
         
-        .credit-footer {
-            display: flex; align-items: center; gap: 10px; font-size: 0.9rem;
-            background: rgba(255,255,255,0.15); padding: 8px 16px; border-radius: 12px;
-            width: fit-content; backdrop-filter: blur(4px);
-        }
+        if target_metafield:
+            target_metafield.value = new_amount
+            target_metafield.save()
+        else:
+            current_shop.add_metafield(shopify.Metafield({
+                "namespace": "stylelab", "key": "credits", "value": new_amount, "type": "integer"
+            }))
+    except Exception as e:
+        print(f"Erreur sauvegarde crédits: {e}")
 
-        /* PACKS CONTAINER (Droite) */
-        .packs-container {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 20px;
-        }
-
-        .pack-card {
-            background: white;
-            border: 1px solid var(--border);
-            border-radius: 20px;
-            padding: 24px;
-            position: relative;
-            cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            text-align: center;
-        }
-
-        .pack-card:hover {
-            transform: translateY(-8px);
-            box-shadow: 0 15px 30px -5px rgba(0, 0, 0, 0.08);
-            border-color: var(--primary);
-        }
-
-        /* PACK POPULAIRE (Milieu) */
-        .pack-card.popular {
-            border: 2px solid var(--primary);
-            background: linear-gradient(to bottom, #fdfdff, #ffffff);
-            transform: scale(1.05);
-            z-index: 2;
-            box-shadow: 0 15px 35px -5px rgba(99, 102, 241, 0.2);
-        }
-        .pack-card.popular:hover {
-            transform: scale(1.05) translateY(-8px);
-        }
-
-        .badge-popular {
-            position: absolute; top: -14px;
-            background: linear-gradient(90deg, var(--primary), var(--secondary));
-            color: white; font-size: 0.75rem; font-weight: 700;
-            padding: 6px 16px; border-radius: 20px; text-transform: uppercase;
-            letter-spacing: 0.5px; box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.3);
-        }
-
-        .pack-icon { font-size: 1.5rem; margin-bottom: 10px; color: var(--text-muted); }
-        .popular .pack-icon { color: var(--primary); font-size: 1.8rem; }
-
-        .pack-credits {
-            font-size: 2.2rem; font-weight: 800; color: var(--text-main); line-height: 1; margin-bottom: 5px;
-        }
-        .pack-price {
-            font-size: 1.1rem; color: var(--text-muted); font-weight: 500; margin-bottom: 5px;
-        }
-        .price-per-unit {
-            font-size: 0.8rem; color: var(--success); font-weight: 600;
-            background: #ecfdf5; padding: 4px 10px; border-radius: 6px; margin-bottom: 20px;
-        }
-
-        .pack-btn {
-            width: 100%; padding: 12px; border-radius: 12px; border: none;
-            font-weight: 600; font-size: 0.95rem; cursor: pointer; transition: all 0.2s; margin-top: auto;
-        }
-        .btn-outline {
-            background: transparent; border: 2px solid var(--border); color: var(--text-main);
-        }
-        .pack-card:hover .btn-outline {
-            border-color: var(--primary); color: var(--primary);
-        }
-        .btn-primary {
-            background: var(--primary); color: white; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
-        }
-        .btn-primary:hover {
-            background: var(--primary-dark); box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
-        }
-
-        /* --- CLIENT SECTION (STUDIO) --- */
-        .client-section {
-            background: white; border-radius: 24px; padding: 40px;
-            border: 1px solid var(--border);
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02);
-        }
-        .section-header {
-            margin-bottom: 30px; border-bottom: 2px solid var(--bg); padding-bottom: 15px;
-        }
-        .section-title { font-size: 1.25rem; font-weight: 700; color: var(--text-main); }
-        .section-subtitle { color: var(--text-muted); font-size: 0.95rem; margin-top: 5px; }
-
-        .upload-grid {
-            display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 40px; align-items: start;
-        }
-        .upload-col label {
-            display: block; font-weight: 600; margin-bottom: 12px; font-size: 0.95rem; color: var(--text-main);
-        }
-
-        .preview-area {
-            width: 100%; aspect-ratio: 3/4; background: #f8fafc; border: 2px dashed #cbd5e1;
-            border-radius: 16px; display: flex; flex-direction: column; align-items: center; justify-content: center;
-            overflow: hidden; cursor: pointer; transition: 0.2s; position: relative;
-            text-align: center; color: var(--text-muted);
-        }
-        .preview-area:hover { border-color: var(--primary); background: #eef2ff; color: var(--primary); }
-        .preview-area img { width: 100%; height: 100%; object-fit: cover; display: none; }
-        .placeholder-text i { font-size: 2rem; margin-bottom: 10px; display: block; }
-
-        /* RESULTAT AREA */
-        .result-area {
-            border-style: solid; border-color: var(--success); background: #f0fdf4;
-        }
-        .result-area:hover { background: #f0fdf4; border-color: var(--success); cursor: default; }
-
-        .action-area {
-            grid-column: 1 / -1; margin-top: 30px; text-align: center;
-        }
-        .generate-btn {
-            background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; padding: 18px 40px;
-            border-radius: 99px; font-weight: 600; font-size: 1.1rem; cursor: pointer;
-            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3); transition: 0.2s;
-            display: inline-flex; align-items: center; gap: 12px;
-        }
-        .generate-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(16, 185, 129, 0.4); }
-        .generate-btn:disabled { background: #cbd5e1; cursor: not-allowed; box-shadow: none; transform: none; }
-
-        select {
-            width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #cbd5e1;
-            font-family: inherit; margin-bottom: 15px; outline: none;
-        }
-        select:focus { border-color: var(--primary); }
-        input[type="file"] { display: none; }
-
-        /* RESPONSIVE */
-        @media (max-width: 900px) {
-            .dashboard-grid { grid-template-columns: 1fr; }
-            .packs-container { grid-template-columns: 1fr; gap: 30px; }
-            .pack-card.popular { transform: scale(1); }
-            .pack-card.popular:hover { transform: translateY(-5px); }
-            .upload-grid { grid-template-columns: 1fr; }
-        }
-    </style>
-</head>
-<body>
-
-    <div class="container" id="adminPanel">
-        <div class="header">
-            <div class="brand">
-                <i class="fa-solid fa-wand-magic-sparkles"></i> StyleLab IA
-            </div>
-            <div class="status-badge">
-                <div class="status-dot"></div> Système Connecté
-            </div>
-        </div>
-
-        <div class="dashboard-grid">
+# --- INJECTION DU WIDGET (AUTOMATIQUE) ---
+def inject_script_tag(shop_url, token):
+    """ Installe le widget.js sur la boutique """
+    try:
+        session = shopify.Session(shop_url, API_VERSION, token)
+        shopify.ShopifyResource.activate_session(session)
+        
+        # Vérifie si déjà installé pour éviter les doublons
+        existing_scripts = shopify.ScriptTag.find()
+        script_url = f"{HOST}/static/widget.js"
+        
+        already_exists = False
+        for script in existing_scripts:
+            if script.src == script_url:
+                already_exists = True
+                break
+        
+        if not already_exists:
+            shopify.ScriptTag.create({
+                "event": "onload",
+                "src": script_url
+            })
+            print(f"🚀 Widget installé sur {shop_url}")
             
-            <div class="credit-card">
-                <div class="credit-header">
-                    <div class="credit-label">Solde Actuel</div>
-                    <i class="fa-brands fa-cc-stripe chip-icon"></i>
-                </div>
-                
-                <div>
-                    <div class="credit-amount" id="adminCredits">...</div>
-                </div>
-                
-                <div class="credit-footer">
-                    <i class="fa-solid fa-camera"></i> Générations disponibles
-                </div>
-            </div>
+    except Exception as e:
+        print(f"❌ Erreur injection script: {e}")
 
-            <div class="packs-container">
-                
-                <div class="pack-card" onclick="buyPack('pack_10')">
-                    <div class="pack-icon"><i class="fa-regular fa-star"></i></div>
-                    <div class="pack-credits">10</div>
-                    <div class="pack-price">4.99€</div>
-                    <div class="price-per-unit">0.50€ / photo</div>
-                    <button class="pack-btn btn-outline">Choisir Starter</button>
-                </div>
+# --- ROUTES ---
 
-                <div class="pack-card popular" onclick="buyPack('pack_30')">
-                    <div class="badge-popular">
-                        <i class="fa-solid fa-fire"></i> Best Seller
-                    </div>
-                    <div class="pack-icon"><i class="fa-solid fa-bolt"></i></div>
-                    <div class="pack-credits">30</div>
-                    <div class="pack-price">9.99€</div>
-                    <div class="price-per-unit">0.33€ / photo</div>
-                    <button class="pack-btn btn-primary">Acheter ce pack</button>
-                </div>
+@app.get("/")
+def index(shop: str = None):
+    if not shop: return "Paramètre shop manquant", 400
+    clean_shop = clean_shop_url(shop)
+    if clean_shop not in shop_sessions: return RedirectResponse(f"/login?shop={clean_shop}")
+    return FileResponse('index.html')
 
-                <div class="pack-card" onclick="buyPack('pack_100')">
-                    <div class="pack-icon"><i class="fa-solid fa-crown"></i></div>
-                    <div class="pack-credits">100</div>
-                    <div class="pack-price">19.99€</div>
-                    <div class="price-per-unit">0.20€ / photo</div>
-                    <button class="pack-btn btn-outline">Choisir Pro</button>
-                </div>
+@app.get("/login")
+def login(shop: str):
+    clean_shop = clean_shop_url(shop)
+    shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
+    session = shopify.Session(clean_shop, API_VERSION)
+    permission_url = session.create_permission_url(SCOPES, f"{HOST}/auth/callback")
+    return HTMLResponse(content=f"<script>window.top.location.href='{permission_url}'</script>")
 
-            </div>
-        </div>
-
-        <div class="client-section">
-            <div class="section-header">
-                <div class="section-title">Studio de Création</div>
-                <div class="section-subtitle">Importez vos photos pour visualiser le résultat instantanément.</div>
-            </div>
+@app.get("/auth/callback")
+def auth_callback(request: Request):
+    params = dict(request.query_params)
+    shop = params.get('shop')
+    code = params.get('code')
+    clean_shop = clean_shop_url(shop)
+    
+    try:
+        # Échange manuel du token (plus fiable)
+        access_token_url = f"https://{clean_shop}/admin/oauth/access_token"
+        payload = { "client_id": SHOPIFY_API_KEY, "client_secret": SHOPIFY_API_SECRET, "code": code }
+        response = requests.post(access_token_url, json=payload)
+        
+        if response.status_code == 200:
+            token = response.json().get('access_token')
+            shop_sessions[clean_shop] = token
             
-            <div class="upload-grid">
-                <div class="upload-col">
-                    <label>1. Photo Modèle</label>
-                    <div class="preview-area" onclick="document.getElementById('userImage').click()">
-                        <img id="previewUser" src="" alt="User">
-                        <div class="placeholder-text" id="placeholderUser">
-                            <i class="fa-solid fa-user"></i>
-                            Cliquez pour ajouter
-                        </div>
-                    </div>
-                    <input type="file" id="userImage" accept="image/*" onchange="previewImage('userImage', 'previewUser', 'placeholderUser')">
-                </div>
+            # 1. Init Crédits
+            current = get_shopify_credits(clean_shop, token)
+            if current == 0: update_shopify_credits(clean_shop, token, 3)
+            
+            # 2. INJECTION DU WIDGET
+            inject_script_tag(clean_shop, token)
+            
+            return RedirectResponse(f"https://admin.shopify.com/store/{clean_shop.replace('.myshopify.com','')}/apps/{SHOPIFY_API_KEY}")
+        else:
+            return f"Erreur Shopify: {response.text}", 500
+    except Exception as e:
+        return f"Erreur Auth: {e}", 500
 
-                <div class="upload-col">
-                    <label>2. Photo Vêtement</label>
-                    <select id="categorySelect">
-                        <option value="tops">Haut (T-shirt, Pull...)</option>
-                        <option value="bottoms">Bas (Pantalon, Jupe...)</option>
-                        <option value="one-pieces">Robe / Combi</option>
-                    </select>
-                    <div class="preview-area" onclick="document.getElementById('clothingImage').click()">
-                        <img id="previewCloth" src="" alt="Cloth">
-                        <div class="placeholder-text" id="placeholderCloth">
-                            <i class="fa-solid fa-shirt"></i>
-                            Cliquez pour ajouter
-                        </div>
-                    </div>
-                    <input type="file" id="clothingImage" accept="image/*" onchange="previewImage('clothingImage', 'previewCloth', 'placeholderCloth')">
-                </div>
+# --- API ---
 
-                <div class="upload-col">
-                    <label>3. Résultat IA</label>
-                    <div class="preview-area result-area">
-                        <img id="resultImage" src="" alt="Resultat">
-                        <div class="placeholder-text" id="resultPlaceholder" style="display:block; color: var(--success);">
-                            <i class="fa-solid fa-wand-magic-sparkles"></i>
-                            Le résultat apparaîtra ici
-                        </div>
-                        <div id="loadingMessage" style="display:none; color: var(--success); font-weight:600;">
-                            <i class="fa-solid fa-spinner fa-spin fa-2x"></i><br><br>L'IA travaille...
-                        </div>
-                    </div>
-                </div>
+@app.get("/api/get-credits")
+def get_credits_api(shop: str):
+    clean_shop = clean_shop_url(shop)
+    token = shop_sessions.get(clean_shop)
+    if not token: raise HTTPException(401, "Reload needed")
+    credits = get_shopify_credits(clean_shop, token)
+    return {"credits": credits}
 
-                <div class="action-area">
-                    <button id="generateButton" class="generate-btn" onclick="startTryOn()">
-                        <i class="fa-solid fa-bolt"></i> Générer l'essayage (-1 crédit)
-                    </button>
-                    <br>
-                    <a id="downloadLink" href="#" download="essayage.png" style="display:none; margin-top:15px; color:var(--primary); text-decoration:none; font-weight:600;">
-                        <i class="fa-solid fa-download"></i> Télécharger l'image HD
-                    </a>
-                </div>
-            </div>
-        </div>
-    </div>
+class BuyRequest(BaseModel):
+    shop: str
+    pack_id: str
 
-    <script src="static/app.js"></script>
-</body>
-</html>
+@app.post("/api/buy-credits")
+def buy_credits(req: BuyRequest):
+    clean_shop = clean_shop_url(req.shop)
+    token = shop_sessions.get(clean_shop)
+    if not token: raise HTTPException(401, "Reload needed")
+
+    if req.pack_id == 'pack_10': price, amount, name = 4.99, 10, "10 Crédits"
+    elif req.pack_id == 'pack_30': price, amount, name = 9.99, 30, "30 Crédits"
+    else: price, amount, name = 19.99, 100, "100 Crédits"
+
+    try:
+        shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
+        session = shopify.Session(clean_shop, API_VERSION, token)
+        shopify.ShopifyResource.activate_session(session)
+        
+        charge = shopify.ApplicationCharge.create({
+            "name": name, "price": price, "test": True,
+            "return_url": f"{HOST}/billing/callback?shop={clean_shop}&amt={amount}"
+        })
+        return {"confirmation_url": charge.confirmation_url}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+@app.get("/billing/callback")
+def billing_callback(shop: str, amt: int, charge_id: str):
+    clean_shop = clean_shop_url(shop)
+    token = shop_sessions.get(clean_shop)
+    if not token: return RedirectResponse(f"/login?shop={clean_shop}")
+    
+    try:
+        shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
+        session = shopify.Session(clean_shop, API_VERSION, token)
+        shopify.ShopifyResource.activate_session(session)
+        
+        charge = shopify.ApplicationCharge.find(charge_id)
+        if charge.status in ['accepted', 'active']:
+            if charge.status == 'accepted': charge.activate()
+            current = get_shopify_credits(clean_shop, token)
+            update_shopify_credits(clean_shop, token, current + int(amt))
+            return RedirectResponse(f"https://admin.shopify.com/store/{clean_shop.replace('.myshopify.com','')}/apps/{SHOPIFY_API_KEY}")
+        return "Paiement échoué"
+    except Exception as e:
+        return f"Erreur: {e}"
+
+class TryOnRequest(BaseModel):
+    shop: str
+    person_image_url: str
+    clothing_image_url: str
+    category: str
+
+@app.post("/api/generate")
+def generate(req: TryOnRequest):
+    clean_shop = clean_shop_url(req.shop)
+    
+    # Récupération du token en RAM
+    token = shop_sessions.get(clean_shop)
+    
+    if not token: 
+        # Si le serveur a redémarré, la RAM est vide.
+        # Le widget client ne peut pas générer l'image.
+        # On renvoie une erreur explicite.
+        raise HTTPException(400, "Maintenance serveur (Token perdu). Le propriétaire doit ouvrir l'app Admin.")
+
+    current_credits = get_shopify_credits(clean_shop, token)
+    if current_credits < 1: raise HTTPException(402, "La boutique n'a plus de crédits IA.")
+
+    try:
+        category_map = {"tops": "upper_body", "bottoms": "lower_body", "one-pieces": "dresses"}
+        output = replicate.run(
+            MODEL_ID,
+            input={
+                "human_img": req.person_image_url,
+                "garm_img": req.clothing_image_url,
+                "garment_des": req.category, 
+                "category": category_map.get(req.category, "upper_body"),
+                "crop": False, "seed": 42, "steps": 30
+            }
+        )
+        final_url = str(output[0]) if isinstance(output, list) else str(output)
+        
+        # Débit du crédit
+        update_shopify_credits(clean_shop, token, current_credits - 1)
+        
+        return {"result_image_url": final_url, "credits_remaining": current_credits - 1}
+    except Exception as e:
+        raise HTTPException(500, str(e))
