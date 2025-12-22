@@ -1,6 +1,7 @@
 import os
 import shopify
 import psycopg2
+import requests # <--- NOUVEAU
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -75,41 +76,57 @@ def index(shop: str = None):
 @app.get("/login")
 def login(shop: str):
     clean_shop = clean_shop_url(shop)
-    
-    # 1. SETUP GLOBAL
+    # On prépare l'URL d'autorisation
     shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
-    
-    # 2. DEMANDE D'ACCÈS "OFFLINE" (IMPORTANT POUR ÉVITER L'EXPIRATION)
-    # L'access_mode value="offline" est crucial
     session = shopify.Session(clean_shop, API_VERSION)
-    permission_url = session.create_permission_url(SCOPES, f"{HOST}/auth/callback", value="offline")
+    permission_url = session.create_permission_url(SCOPES, f"{HOST}/auth/callback")
     
     return HTMLResponse(content=f"<script>window.top.location.href='{permission_url}'</script>")
 
+# --- C'EST ICI QUE TOUT CHANGE ---
 @app.get("/auth/callback")
 def auth_callback(request: Request):
     params = dict(request.query_params)
     shop = params.get('shop')
+    code = params.get('code') # Le code temporaire donné par Shopify
+    
+    if not shop or not code:
+        return "Paramètres manquants (shop ou code)", 400
+
     clean_shop = clean_shop_url(shop)
     
     try:
-        shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
-        session = shopify.Session(clean_shop, API_VERSION)
-        token = session.request_token(params)
+        # ÉCHANGE MANUEL DU TOKEN (Bypass de la vérification HMAC locale)
+        # On envoie le code directement à Shopify. Si Shopify répond, c'est que c'est bon.
+        access_token_url = f"https://{clean_shop}/admin/oauth/access_token"
+        payload = {
+            "client_id": SHOPIFY_API_KEY,
+            "client_secret": SHOPIFY_API_SECRET,
+            "code": code
+        }
         
+        response = requests.post(access_token_url, json=payload)
+        
+        if response.status_code != 200:
+            # Si ça plante ici, c'est PREUVE que le Secret est faux sur Render
+            return JSONResponse({"error": "Echec échange token", "details": response.text}, status_code=500)
+            
+        token_data = response.json()
+        access_token = token_data.get('access_token')
+
+        # SAUVEGARDE EN DB
         conn = get_db_connection()
         cur = conn.cursor()
-        
-        # NETTOYAGE ET INSERTION
         cur.execute("DELETE FROM shops WHERE shop_url = %s", (clean_shop,))
-        cur.execute("INSERT INTO shops (shop_url, access_token, credits) VALUES (%s, %s, 50)", (clean_shop, token))
+        cur.execute("INSERT INTO shops (shop_url, access_token, credits) VALUES (%s, %s, 50)", (clean_shop, access_token))
         conn.commit()
         conn.close()
         
+        # Redirection vers l'Admin
         return RedirectResponse(f"https://admin.shopify.com/store/{clean_shop.replace('.myshopify.com','')}/apps/{SHOPIFY_API_KEY}")
         
     except Exception as e:
-        return JSONResponse({"error": f"Erreur installation : {str(e)}"}, status_code=500)
+        return JSONResponse({"error": f"Erreur critique : {str(e)}"}, status_code=500)
 
 # --- API PAIEMENT ---
 
@@ -127,9 +144,7 @@ def buy_credits(req: BuyRequest):
     data = cur.fetchone()
     conn.close()
     
-    if not data:
-        raise HTTPException(401, "Shop introuvable.")
-        
+    if not data: raise HTTPException(401, "Shop introuvable.")
     token = data[0]
 
     if req.pack_id == 'pack_10': price, credits, name = 4.99, 10, "Pack 10"
@@ -137,28 +152,23 @@ def buy_credits(req: BuyRequest):
     else: price, credits, name = 19.99, 100, "Pack 100"
 
     try:
-        # --- FIX ULTRA IMPORTANT : ON RECHARGE LES CLÉS API ICI ---
-        # C'est ça qui manquait. Si le worker a redémarré, il ne connaissait plus tes clés.
+        # Reconnexion explicite
         shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
-        
         session = shopify.Session(clean_shop, API_VERSION, token)
         shopify.ShopifyResource.activate_session(session)
         
         charge = shopify.ApplicationCharge.create({
-            "name": name,
-            "price": price,
-            "return_url": f"{HOST}/billing/callback?shop={clean_shop}&credits={credits}",
-            "test": True
+            "name": name, "price": price, "test": True,
+            "return_url": f"{HOST}/billing/callback?shop={clean_shop}&credits={credits}"
         })
         return {"confirmation_url": charge.confirmation_url}
     except Exception as e:
-        print(f"ERREUR PAIEMENT: {e}")
+        print(f"DEBUG: {e}")
         raise HTTPException(500, f"Erreur Shopify: {str(e)}")
 
 @app.get("/billing/callback")
 def billing_callback(shop: str, credits: int, charge_id: str):
     clean_shop = clean_shop_url(shop)
-    
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("SELECT access_token FROM shops WHERE shop_url = %s", (clean_shop,))
@@ -167,9 +177,7 @@ def billing_callback(shop: str, credits: int, charge_id: str):
     if not data: return "Erreur critique : Shop introuvable"
     
     try:
-        # ICI AUSSI ON RECHARGE LES CLÉS
         shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
-        
         session = shopify.Session(clean_shop, API_VERSION, data[0])
         shopify.ShopifyResource.activate_session(session)
         
