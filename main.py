@@ -59,10 +59,18 @@ init_db()
 
 def get_shop_data(shop_url):
     try:
+        # On essaie d'abord avec le shop tel quel
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("SELECT access_token, credits FROM shops WHERE shop_url = %s", (shop_url,))
         data = cur.fetchone()
+        
+        # Si pas trouvé, on essaie de nettoyer l'URL (enlever https://)
+        if not data:
+            clean_shop = shop_url.replace("https://", "").replace("http://", "").strip("/")
+            cur.execute("SELECT access_token, credits FROM shops WHERE shop_url = %s", (clean_shop,))
+            data = cur.fetchone()
+
         cur.close()
         conn.close()
         return data
@@ -72,14 +80,26 @@ def get_shop_data(shop_url):
 
 def update_credits(shop_url, amount):
     try:
+        # Nettoyage de sécurité (enlève https:// et le slash final)
+        clean_shop = shop_url.replace("https://", "").replace("http://", "").strip("/")
+        
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("UPDATE shops SET credits = credits + %s WHERE shop_url = %s", (amount, shop_url))
+        
+        # On essaie de mettre à jour avec le nom nettoyé
+        cur.execute("UPDATE shops SET credits = credits + %s WHERE shop_url = %s", (amount, clean_shop))
+        
+        # Si aucune ligne n'a été touchée (ex: erreur de format), on réessaie avec le nom brut
+        if cur.rowcount == 0:
+            print(f"⚠️ Update échoué pour {clean_shop}, essai avec {shop_url}")
+            cur.execute("UPDATE shops SET credits = credits + %s WHERE shop_url = %s", (amount, shop_url))
+            
         conn.commit()
         cur.close()
         conn.close()
+        print(f"💰 Succès : {amount} crédits ajoutés pour {clean_shop}")
     except Exception as e:
-        print(f"Erreur mise à jour crédits: {e}")
+        print(f"❌ Erreur critique update crédits: {e}")
 
 # --- ROUTES D'INSTALLATION & AUTHENTIFICATION ---
 
@@ -152,7 +172,6 @@ def auth_callback(request: Request):
 @app.get("/api/get-credits")
 def get_credits_api(shop: str):
     data = get_shop_data(shop)
-    # Si pas de data, on renvoie 0 sans planter
     return {"credits": data[1] if data else 0}
 
 class BuyRequest(BaseModel):
@@ -183,7 +202,7 @@ def buy_credits(req: BuyRequest):
             "name": name,
             "price": price,
             "return_url": f"{HOST}/billing/callback?shop={req.shop}&credits={credits}",
-            "test": True # Mettre à False pour passer en vrai paiement
+            "test": True 
         })
         return {"confirmation_url": charge.confirmation_url}
     except Exception as e:
@@ -192,22 +211,41 @@ def buy_credits(req: BuyRequest):
 
 @app.get("/billing/callback")
 def billing_callback(shop: str, credits: int, charge_id: str):
-    data = get_shop_data(shop)
-    if not data: return RedirectResponse(f"/?shop={shop}&error=db_error")
+    # 1. Nettoyage du nom du shop
+    clean_shop = shop.replace("https://", "").replace("http://", "").strip("/")
+    
+    # 2. Récupération des infos
+    data = get_shop_data(clean_shop)
+    if not data: 
+        data = get_shop_data(shop) # Fallback
+        if not data: return f"Erreur critique : Boutique introuvable.", 400
+
+    token = data[0]
 
     try:
-        session = shopify.Session(shop, "2024-01", data[0])
+        session = shopify.Session(clean_shop, "2024-01", token)
         shopify.ShopifyResource.activate_session(session)
         
+        # 3. Vérification du paiement
         charge = shopify.ApplicationCharge.find(charge_id)
-        if charge.status == 'accepted':
-            charge.activate()
-            update_credits(shop, int(credits))
-            return RedirectResponse(f"/?shop={shop}&success=true")
+        
+        if charge.status in ['accepted', 'active']:
+            if charge.status == 'accepted':
+                charge.activate()
+            
+            # 4. Ajout des crédits
+            update_credits(clean_shop, int(credits))
+            
+            # 5. Redirection vers l'Admin Shopify (IMPORTANT)
+            shop_name = clean_shop.replace('.myshopify.com', '')
+            admin_url = f"https://admin.shopify.com/store/{shop_name}/apps/{SHOPIFY_API_KEY}"
+            return RedirectResponse(admin_url)
         else:
-            return RedirectResponse(f"/?shop={shop}&error=declined")
+            return f"Paiement refusé ou annulé (Statut: {charge.status})", 400
+
     except Exception as e:
-        return RedirectResponse(f"/?shop={shop}&error={str(e)}")
+        print(f"❌ Erreur Billing Callback: {e}")
+        return f"Erreur lors du traitement du paiement : {str(e)}", 500
 
 class TryOnRequest(BaseModel):
     shop: str
