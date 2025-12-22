@@ -27,19 +27,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.mount("/static", StaticFiles(directory="."), name="static")
 shop_sessions = {}
 
-# --- INTERFACE CLIENT (CE QUE LE CLIENT VOIT) ---
-# Aucune mention de crédit ou de paiement ici. Juste l'outil.
+# --- WIDGET CLIENT (JAVASCRIPT) ---
+# Ce code est envoyé au navigateur du client
 WIDGET_JS = """
 (function() {
     const API_URL = "REPLACE_HOST";
     
-    // On n'affiche le bouton que sur les pages produits
     if (!window.location.pathname.includes('/products/')) return;
     
-    // CSS DU WIDGET CLIENT
+    // 1. CSS
     const s = document.createElement('style');
     s.innerHTML = `
         .sl-btn { position: fixed; bottom: 20px; right: 20px; background: linear-gradient(135deg, #6366f1, #ec4899); color: white; padding: 15px 25px; border-radius: 50px; cursor: pointer; z-index: 2147483647; font-family: sans-serif; font-weight: bold; box-shadow: 0 10px 25px rgba(0,0,0,0.2); transition: transform 0.2s; display: flex; gap: 10px; align-items: center; }
@@ -55,37 +53,33 @@ WIDGET_JS = """
     `;
     document.head.appendChild(s);
 
-    // BOUTON FLOTTANT
+    // 2. BOUTON
     const btn = document.createElement('div');
     btn.className = 'sl-btn';
     btn.innerHTML = '<span>✨ Essayer virtuellement</span>';
     btn.onclick = () => document.querySelector('.sl-modal').style.display = 'flex';
     document.body.appendChild(btn);
 
-    // FENETRE MODALE (POPUP)
+    // 3. MODALE
     const modal = document.createElement('div');
     modal.className = 'sl-modal';
     modal.innerHTML = `
         <div class="sl-content">
             <span class="sl-close" onclick="this.closest('.sl-modal').style.display='none'">&times;</span>
             <h2 style="margin:0 0 5px 0; color:#1f2937;">Cabine d'Essayage</h2>
-            <p style="margin:0 0 20px 0; color:#6b7280; font-size:14px;">Importez votre photo pour voir le résultat.</p>
-            
             <div class="sl-upload" onclick="document.getElementById('sl-in').click()">
                 <div id="sl-placeholder" class="sl-txt">📸 Cliquez pour ajouter votre photo</div>
                 <img id="sl-prev" class="sl-img">
             </div>
             <input type="file" id="sl-in" accept="image/*" style="display:none">
-            
             <img id="sl-res" class="sl-img" style="border:2px solid #10b981; background:#f0fdf4;">
-            
             <button id="sl-go" class="sl-go">Générer l'essayage</button>
             <div id="sl-load" style="display:none; margin-top:15px; color:#6366f1; font-weight:bold;">✨ L'IA travaille... (15s)</div>
         </div>
     `;
     document.body.appendChild(modal);
 
-    // LOGIQUE JAVASCRIPT
+    // 4. LOGIQUE
     document.getElementById('sl-in').onchange = e => {
         if(e.target.files[0]) {
             const r = new FileReader();
@@ -102,7 +96,6 @@ WIDGET_JS = """
         const file = document.getElementById('sl-in').files[0];
         if(!file) return alert("Merci d'ajouter votre photo !");
         
-        // Récupération intelligente de l'image produit Shopify
         let prodImg = "";
         const meta = document.querySelector('meta[property="og:image"]');
         if(meta) prodImg = meta.content;
@@ -153,8 +146,7 @@ WIDGET_JS = """
 })();
 """
 
-# --- BACKEND (GESTION DES CREDITS & ADMIN) ---
-# Tout ce qui est en dessous gère l'argent, mais n'est pas envoyé au client.
+# --- BACKEND ---
 
 def clean_shop_url(url):
     if not url: return ""
@@ -204,7 +196,7 @@ def inject_script_tag(shop_url, token):
     except Exception as e:
         print(f"Erreur injection: {e}")
 
-# --- ROUTES SERVEUR ---
+# --- ROUTES ---
 
 @app.get("/")
 def index(shop: str = None):
@@ -216,7 +208,6 @@ def index(shop: str = None):
 
 @app.get("/widget.js")
 def get_widget_js():
-    # Sert le code Javascript au client
     return Response(content=WIDGET_JS.replace("REPLACE_HOST", HOST), media_type="application/javascript")
 
 @app.get("/login")
@@ -316,7 +307,8 @@ def generate(req: TryOnRequest):
     clean_shop = clean_shop_url(req.shop)
     token = shop_sessions.get(clean_shop)
     
-    if not token: raise HTTPException(400, "Maintenance serveur")
+    if not token: 
+        raise HTTPException(400, "Maintenance serveur")
 
     current = get_shopify_credits(clean_shop, token)
     if current < 1: raise HTTPException(402, "Crédits épuisés")
