@@ -1,16 +1,12 @@
 document.addEventListener("DOMContentLoaded", function() {
     
-    // --- INITIALISATION ---
     const params = new URLSearchParams(window.location.search);
     const mode = params.get('mode');
     const shop = params.get('shop') || sessionStorage.getItem('shop');
     
     if(shop) sessionStorage.setItem('shop', shop);
-
-    // Fade in
     document.body.classList.add('loaded');
 
-    // Gestion Mode Client vs Admin
     if (mode === 'client') {
         document.body.classList.add('client-mode');
         document.getElementById('client-title').style.display = 'block';
@@ -18,7 +14,7 @@ document.addEventListener("DOMContentLoaded", function() {
         if(shop) fetchCredits(shop);
     }
 
-    // --- UPLOAD & PREVIEW ---
+    // --- UPLOAD ---
     window.preview = function(inputId, imgId, txtId) {
         const file = document.getElementById(inputId).files[0];
         if (file) {
@@ -26,9 +22,8 @@ document.addEventListener("DOMContentLoaded", function() {
             reader.onload = e => {
                 const img = document.getElementById(imgId);
                 img.src = e.target.result;
-                img.style.display = 'block'; // Affiche l'image
-                
-                // Cache les textes et icônes
+                img.style.display = 'block';
+                // Cache les textes
                 const zone = img.parentElement;
                 const texts = zone.querySelectorAll('span, i');
                 texts.forEach(el => el.style.display = 'none');
@@ -37,37 +32,25 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     };
 
-    // --- GENERATION IA ---
+    // --- GENERATION ---
     window.generate = async function() {
         const u = document.getElementById('uImg').files[0];
         const c = document.getElementById('cImg').files[0];
-        
-        if (!u || !c) return alert("⚠️ Veuillez ajouter les 2 photos avant de générer.");
+        if (!u || !c) return alert("Veuillez mettre les 2 photos.");
 
         const btn = document.getElementById('btnGo');
         const loader = document.getElementById('loader');
-        const txtRes = document.getElementById('txtRes');
-        const iconRes = document.querySelector('.result-zone .zone-icon');
-
-        // UI Loading State
+        
         btn.disabled = true;
-        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Création en cours...';
-        loader.style.display = 'block';
-        txtRes.style.display = 'none';
-        iconRes.style.display = 'none';
+        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Traitement...';
+        if(loader) loader.style.display = 'block';
 
         const toBase64 = f => new Promise(r => { const rd = new FileReader(); rd.readAsDataURL(f); rd.onload=()=>r(rd.result); });
 
         try {
             const res = await fetch('/api/generate', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    shop: shop || "demo",
-                    person_image_url: await toBase64(u),
-                    clothing_image_url: await toBase64(c),
-                    category: "upper_body"
-                })
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ shop: shop || "demo", person_image_url: await toBase64(u), clothing_image_url: await toBase64(c), category: "upper_body" })
             });
             const data = await res.json();
             
@@ -75,29 +58,15 @@ document.addEventListener("DOMContentLoaded", function() {
                 const resImg = document.getElementById('resImg');
                 resImg.src = data.result_image_url;
                 resImg.style.display = 'block';
-                loader.style.display = 'none';
-                
-                if(mode !== 'client') fetchCredits(shop); // Update crédits si admin
+                if(loader) loader.style.display = 'none';
+                if(mode !== 'client') fetchCredits(shop);
             } else {
-                alert("Erreur IA : " + JSON.stringify(data));
-                resetUI();
+                alert("Erreur IA");
             }
-        } catch(e) {
-            alert("Erreur technique : " + e.message);
-            resetUI();
-        } finally {
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fa-solid fa-bolt"></i> Générer l\'essayage';
-        }
-
-        function resetUI() {
-            loader.style.display = 'none';
-            txtRes.style.display = 'block';
-            iconRes.style.display = 'block';
-        }
+        } catch(e) { alert("Erreur technique"); } 
+        finally { btn.disabled = false; btn.innerHTML = 'Générer l\'essayage'; }
     };
 
-    // --- CREDITS & ACHAT ---
     async function fetchCredits(s) {
         try {
             const res = await fetch(`/api/get-credits?shop=${s}`);
@@ -106,12 +75,13 @@ document.addEventListener("DOMContentLoaded", function() {
         } catch(e) {}
     }
 
+    // --- ACHAT (AVEC RECONNEXION AUTO) ---
     window.buy = async function(packId) {
-        if(!shop) return alert("Erreur: Impossible de détecter la boutique.");
+        if(!shop) return alert("Shop non détecté");
         
         const btn = event.currentTarget;
-        const oldHtml = btn.innerHTML;
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+        const oldText = btn.innerText;
+        btn.innerText = "...";
         btn.disabled = true;
 
         try {
@@ -119,17 +89,21 @@ document.addEventListener("DOMContentLoaded", function() {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ shop: shop, pack_id: packId })
             });
-            const data = await res.json();
-            
-            if(data.confirmation_url) {
-                window.top.location.href = data.confirmation_url;
-            } else {
-                alert("Erreur : " + (data.error || "Inconnue"));
+
+            // SI LE TOKEN EST PERDU (401), ON RECONNECTE AUTO
+            if (res.status === 401) {
+                console.log("Token perdu, reconnexion...");
+                window.top.location.href = `https://shopify-try-on.onrender.com/login?shop=${shop}`;
+                return;
             }
+
+            const data = await res.json();
+            if(data.confirmation_url) window.top.location.href = data.confirmation_url;
+            else alert("Erreur: " + (data.error || "Inconnue"));
         } catch(e) {
-            alert("Erreur connexion serveur.");
+            alert("Erreur connexion");
         } finally {
-            btn.innerHTML = oldHtml;
+            btn.innerText = oldText;
             btn.disabled = false;
         }
     }
