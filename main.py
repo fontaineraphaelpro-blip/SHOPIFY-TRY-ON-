@@ -1,7 +1,6 @@
 import os
 import shopify
-import psycopg2
-import requests # <--- NOUVEAU
+import requests
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -13,15 +12,16 @@ SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
 SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
 HOST = os.getenv("HOST") 
 
-raw_db_url = os.getenv("DATABASE_URL")
-DATABASE_URL = raw_db_url.replace("postgres://", "postgresql://") if raw_db_url else None
-
-SCOPES = ['write_script_tags', 'read_products']
+SCOPES = ['write_script_tags', 'read_products', 'write_products'] # Ajouté pour gérer les Metafields
 API_VERSION = "2025-01" 
 MODEL_ID = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985"
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="."), name="static")
+
+# --- MÉMOIRE VIVE (Remplaçant de la DB pour les tokens) ---
+# Format : { "boutique.myshopify.com": "shpat_xxxxxxxxxxx" }
+shop_sessions = {}
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
@@ -29,46 +29,73 @@ async def add_security_headers(request: Request, call_next):
     response.headers["Content-Security-Policy"] = "frame-ancestors https://admin.shopify.com https://*.myshopify.com;"
     return response
 
-# --- DB TOOLS ---
-def get_db_connection():
-    return psycopg2.connect(DATABASE_URL)
-
-def init_db():
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute('''
-            CREATE TABLE IF NOT EXISTS shops (
-                shop_url VARCHAR(255) PRIMARY KEY,
-                access_token TEXT,
-                credits INTEGER DEFAULT 50
-            );
-        ''')
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        print(f"DB Init Error: {e}")
-
-init_db()
+# --- UTILITAIRES ---
 
 def clean_shop_url(url):
     if not url: return ""
     return url.replace("https://", "").replace("http://", "").strip("/")
 
+def get_shopify_credits(shop_url, token):
+    """ Récupère les crédits stockés dans les Metafields Shopify """
+    try:
+        session = shopify.Session(shop_url, API_VERSION, token)
+        shopify.ShopifyResource.activate_session(session)
+        
+        # On cherche le metafield "credits" dans le namespace "stylelab"
+        # On attache les crédits à l'objet "Shop"
+        current_shop = shopify.Shop.current()
+        metafields = current_shop.metafields()
+        
+        for m in metafields:
+            if m.namespace == "stylelab" and m.key == "credits":
+                return int(m.value)
+        
+        # Si pas trouvé, on initialise à 3 crédits gratuits
+        return 3
+    except Exception as e:
+        print(f"Erreur lecture crédits: {e}")
+        return 0
+
+def update_shopify_credits(shop_url, token, new_amount):
+    """ Enregistre les crédits dans Shopify """
+    try:
+        session = shopify.Session(shop_url, API_VERSION, token)
+        shopify.ShopifyResource.activate_session(session)
+        
+        current_shop = shopify.Shop.current()
+        metafields = current_shop.metafields()
+        target_metafield = None
+        
+        for m in metafields:
+            if m.namespace == "stylelab" and m.key == "credits":
+                target_metafield = m
+                break
+        
+        if target_metafield:
+            target_metafield.value = new_amount
+            target_metafield.save()
+        else:
+            # Création du champ s'il n'existe pas
+            current_shop.add_metafield(shopify.Metafield({
+                "namespace": "stylelab",
+                "key": "credits",
+                "value": new_amount,
+                "type": "integer"
+            }))
+            
+        print(f"✅ Crédits mis à jour pour {shop_url} : {new_amount}")
+    except Exception as e:
+        print(f"❌ Erreur sauvegarde crédits: {e}")
+
 # --- ROUTES ---
 
 @app.get("/")
 def index(shop: str = None):
-    if not shop: return "Shop manquant", 400
-    
+    if not shop: return "Paramètre shop manquant", 400
     clean_shop = clean_shop_url(shop)
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT access_token FROM shops WHERE shop_url = %s", (clean_shop,))
-    data = cur.fetchone()
-    conn.close()
     
-    if not data:
+    # Si on n'a pas le token en mémoire, on redirige pour se reconnecter
+    if clean_shop not in shop_sessions:
         return RedirectResponse(f"/login?shop={clean_shop}")
 
     return FileResponse('index.html')
@@ -76,59 +103,64 @@ def index(shop: str = None):
 @app.get("/login")
 def login(shop: str):
     clean_shop = clean_shop_url(shop)
-    # On prépare l'URL d'autorisation
     shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
     session = shopify.Session(clean_shop, API_VERSION)
+    
+    # On demande les droits pour écrire les metafields (crédits)
     permission_url = session.create_permission_url(SCOPES, f"{HOST}/auth/callback")
     
     return HTMLResponse(content=f"<script>window.top.location.href='{permission_url}'</script>")
 
-# --- C'EST ICI QUE TOUT CHANGE ---
 @app.get("/auth/callback")
 def auth_callback(request: Request):
     params = dict(request.query_params)
     shop = params.get('shop')
-    code = params.get('code') # Le code temporaire donné par Shopify
-    
-    if not shop or not code:
-        return "Paramètres manquants (shop ou code)", 400
-
+    code = params.get('code')
     clean_shop = clean_shop_url(shop)
     
     try:
-        # ÉCHANGE MANUEL DU TOKEN (Bypass de la vérification HMAC locale)
-        # On envoie le code directement à Shopify. Si Shopify répond, c'est que c'est bon.
+        # Échange manuel du token (bypass HMAC strict)
         access_token_url = f"https://{clean_shop}/admin/oauth/access_token"
         payload = {
             "client_id": SHOPIFY_API_KEY,
             "client_secret": SHOPIFY_API_SECRET,
             "code": code
         }
-        
         response = requests.post(access_token_url, json=payload)
         
-        if response.status_code != 200:
-            # Si ça plante ici, c'est PREUVE que le Secret est faux sur Render
-            return JSONResponse({"error": "Echec échange token", "details": response.text}, status_code=500)
+        if response.status_code == 200:
+            token = response.json().get('access_token')
             
-        token_data = response.json()
-        access_token = token_data.get('access_token')
-
-        # SAUVEGARDE EN DB
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("DELETE FROM shops WHERE shop_url = %s", (clean_shop,))
-        cur.execute("INSERT INTO shops (shop_url, access_token, credits) VALUES (%s, %s, 50)", (clean_shop, access_token))
-        conn.commit()
-        conn.close()
-        
-        # Redirection vers l'Admin
-        return RedirectResponse(f"https://admin.shopify.com/store/{clean_shop.replace('.myshopify.com','')}/apps/{SHOPIFY_API_KEY}")
-        
+            # STOCKAGE EN MÉMOIRE (Plus de DB)
+            shop_sessions[clean_shop] = token
+            print(f"🔑 Token en mémoire pour {clean_shop}")
+            
+            # On initialise les crédits dans Shopify si besoin
+            current_credits = get_shopify_credits(clean_shop, token)
+            if current_credits == 0: # Si nouveau
+                update_shopify_credits(clean_shop, token, 3) # 3 offerts
+            
+            return RedirectResponse(f"https://admin.shopify.com/store/{clean_shop.replace('.myshopify.com','')}/apps/{SHOPIFY_API_KEY}")
+        else:
+            return f"Erreur Shopify: {response.text}", 500
+            
     except Exception as e:
-        return JSONResponse({"error": f"Erreur critique : {str(e)}"}, status_code=500)
+        return f"Erreur Auth: {e}", 500
 
-# --- API PAIEMENT ---
+# --- API ---
+
+@app.get("/api/get-credits")
+def get_credits_api(shop: str):
+    clean_shop = clean_shop_url(shop)
+    token = shop_sessions.get(clean_shop)
+    
+    if not token: 
+        # Si le serveur a redémarré, on renvoie 401 pour que le frontend recharge la page
+        # ce qui relancera le login silencieux
+        raise HTTPException(401, "Reload needed")
+        
+    credits = get_shopify_credits(clean_shop, token)
+    return {"credits": credits}
 
 class BuyRequest(BaseModel):
     shop: str
@@ -137,66 +169,52 @@ class BuyRequest(BaseModel):
 @app.post("/api/buy-credits")
 def buy_credits(req: BuyRequest):
     clean_shop = clean_shop_url(req.shop)
+    token = shop_sessions.get(clean_shop)
     
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT access_token FROM shops WHERE shop_url = %s", (clean_shop,))
-    data = cur.fetchone()
-    conn.close()
-    
-    if not data: raise HTTPException(401, "Shop introuvable.")
-    token = data[0]
+    if not token: raise HTTPException(401, "Reload needed")
 
-    if req.pack_id == 'pack_10': price, credits, name = 4.99, 10, "Pack 10"
-    elif req.pack_id == 'pack_30': price, credits, name = 9.99, 30, "Pack 30"
-    else: price, credits, name = 19.99, 100, "Pack 100"
+    if req.pack_id == 'pack_10': price, amount, name = 4.99, 10, "10 Crédits"
+    elif req.pack_id == 'pack_30': price, amount, name = 9.99, 30, "30 Crédits"
+    else: price, amount, name = 19.99, 100, "100 Crédits"
 
     try:
-        # Reconnexion explicite
         shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
         session = shopify.Session(clean_shop, API_VERSION, token)
         shopify.ShopifyResource.activate_session(session)
         
         charge = shopify.ApplicationCharge.create({
             "name": name, "price": price, "test": True,
-            "return_url": f"{HOST}/billing/callback?shop={clean_shop}&credits={credits}"
+            "return_url": f"{HOST}/billing/callback?shop={clean_shop}&amt={amount}"
         })
         return {"confirmation_url": charge.confirmation_url}
     except Exception as e:
-        print(f"DEBUG: {e}")
-        raise HTTPException(500, f"Erreur Shopify: {str(e)}")
+        raise HTTPException(500, str(e))
 
 @app.get("/billing/callback")
-def billing_callback(shop: str, credits: int, charge_id: str):
+def billing_callback(shop: str, amt: int, charge_id: str):
     clean_shop = clean_shop_url(shop)
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT access_token FROM shops WHERE shop_url = %s", (clean_shop,))
-    data = cur.fetchone()
+    token = shop_sessions.get(clean_shop)
     
-    if not data: return "Erreur critique : Shop introuvable"
+    if not token: return RedirectResponse(f"/login?shop={clean_shop}") # Re-login si besoin
     
     try:
         shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
-        session = shopify.Session(clean_shop, API_VERSION, data[0])
+        session = shopify.Session(clean_shop, API_VERSION, token)
         shopify.ShopifyResource.activate_session(session)
         
         charge = shopify.ApplicationCharge.find(charge_id)
         if charge.status in ['accepted', 'active']:
             if charge.status == 'accepted': charge.activate()
             
-            cur.execute("UPDATE shops SET credits = credits + %s WHERE shop_url = %s", (int(credits), clean_shop))
-            conn.commit()
-            conn.close()
+            # On récupère les crédits actuels et on ajoute
+            current = get_shopify_credits(clean_shop, token)
+            update_shopify_credits(clean_shop, token, current + int(amt))
             
             return RedirectResponse(f"https://admin.shopify.com/store/{clean_shop.replace('.myshopify.com','')}/apps/{SHOPIFY_API_KEY}")
-        
-        conn.close()
-        return "Paiement refusé"
+            
+        return "Paiement échoué"
     except Exception as e:
-        return f"Erreur callback: {e}"
-
-# --- API GENERATE ---
+        return f"Erreur: {e}"
 
 class TryOnRequest(BaseModel):
     shop: str
@@ -207,15 +225,12 @@ class TryOnRequest(BaseModel):
 @app.post("/api/generate")
 def generate(req: TryOnRequest):
     clean_shop = clean_shop_url(req.shop)
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT access_token, credits FROM shops WHERE shop_url = %s", (clean_shop,))
-    data = cur.fetchone()
+    token = shop_sessions.get(clean_shop)
     
-    if not data: raise HTTPException(401, "Token invalide")
-    if data[1] < 1: 
-        conn.close()
-        raise HTTPException(402, "Crédits insuffisants")
+    if not token: raise HTTPException(401, "Reload needed")
+    
+    current_credits = get_shopify_credits(clean_shop, token)
+    if current_credits < 1: raise HTTPException(402, "Pas assez de crédits")
 
     try:
         category_map = {"tops": "upper_body", "bottoms": "lower_body", "one-pieces": "dresses"}
@@ -231,11 +246,9 @@ def generate(req: TryOnRequest):
         )
         final_url = str(output[0]) if isinstance(output, list) else str(output)
         
-        cur.execute("UPDATE shops SET credits = credits - 1 WHERE shop_url = %s", (clean_shop,))
-        conn.commit()
-        conn.close()
+        # Débit
+        update_shopify_credits(clean_shop, token, current_credits - 1)
         
-        return {"result_image_url": final_url, "credits_remaining": data[1] - 1}
+        return {"result_image_url": final_url, "credits_remaining": current_credits - 1}
     except Exception as e:
-        conn.close()
         raise HTTPException(500, str(e))
