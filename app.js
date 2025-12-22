@@ -1,16 +1,23 @@
 document.addEventListener("DOMContentLoaded", function() {
     
-    // 1. DETECTER LE MODE CLIENT
+    // 1. DETECTION : EST-CE LE CLIENT ?
     const params = new URLSearchParams(window.location.search);
-    const mode = params.get('mode');
+    const mode = params.get('mode'); // Récupère ?mode=client
+    const shop = params.get('shop');
+
+    // On affiche le corps de la page maintenant que le JS est chargé
+    document.body.style.display = 'block';
 
     if (mode === 'client') {
-        // Active le mode client dans le CSS
+        // C'est le client : on ajoute la classe qui déclenche le CSS "Cache-Cache"
         document.body.classList.add('client-mode');
-        console.log("Mode Client Activé : Admin masqué");
+        console.log("Mode Client Activé");
+    } else {
+        // C'est l'admin : on charge les crédits
+        if(shop) fetchCredits(shop);
     }
 
-    // 2. LOGIQUE PREVIEW
+    // 2. PREVISUALISATION IMAGES
     window.preview = function(input, imgId) {
         const file = input.files[0];
         if (file) {
@@ -24,17 +31,18 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     };
 
-    // 3. LOGIQUE GENERATION
+    // 3. GENERATION IA
     window.generate = async function() {
         const u = document.getElementById('uImg').files[0];
         const c = document.getElementById('cImg').files[0];
         
-        if (!u || !c) return alert("Mettez les 2 photos !");
+        if (!u || !c) return alert("Ajoutez les 2 photos !");
 
         const btn = document.querySelector('button');
         btn.disabled = true;
         btn.innerText = "Génération...";
 
+        // Helper pour convertir en base64
         const toBase64 = file => new Promise(r => {
             const reader = new FileReader();
             reader.readAsDataURL(file);
@@ -46,7 +54,7 @@ document.addEventListener("DOMContentLoaded", function() {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
-                    shop: params.get('shop') || "demo",
+                    shop: shop || "demo",
                     person_image_url: await toBase64(u),
                     clothing_image_url: await toBase64(c),
                     category: "upper_body"
@@ -68,4 +76,16 @@ document.addEventListener("DOMContentLoaded", function() {
             btn.innerText = "Générer";
         }
     };
+
+    async function fetchCredits(shop) {
+        try {
+            const res = await fetch(`/api/get-credits?shop=${shop}`);
+            const data = await res.json();
+            document.getElementById('credits').innerText = data.credits;
+        } catch(e) { console.error(e); }
+    }
+    
+    window.buy = function() {
+        alert("Paiement désactivé pour ce test");
+    }
 });
