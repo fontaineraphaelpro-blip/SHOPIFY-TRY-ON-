@@ -206,3 +206,18 @@ def generate(req: TryOnRequest):
         return {"result_image_url": url}
     except Exception as e:
         return {"error": str(e)}
+
+# --- ROUTES OBLIGATOIRES SHOPIFY (RGPD/GDPR) ---
+# Shopify vérifie que ces adresses existent. On répond juste "200 OK".
+
+@app.post("/webhooks/customers/data_request")
+def customers_data_request():
+    return {"message": "Data request received"}
+
+@app.post("/webhooks/customers/redact")
+def customers_redact():
+    return {"message": "Customer redact received"}
+
+@app.post("/webhooks/shop/redact")
+def shop_redact():
+    return {"message": "Shop redact received"}
