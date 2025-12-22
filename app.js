@@ -14,7 +14,7 @@ document.addEventListener("DOMContentLoaded", function() {
         if(shop) fetchCredits(shop);
     }
 
-    // --- UPLOAD ---
+    // UPLOAD
     window.preview = function(inputId, imgId, txtId) {
         const file = document.getElementById(inputId).files[0];
         if (file) {
@@ -23,16 +23,14 @@ document.addEventListener("DOMContentLoaded", function() {
                 const img = document.getElementById(imgId);
                 img.src = e.target.result;
                 img.style.display = 'block';
-                // Cache les textes
                 const zone = img.parentElement;
-                const texts = zone.querySelectorAll('span, i');
-                texts.forEach(el => el.style.display = 'none');
+                zone.querySelectorAll('span, i').forEach(el => el.style.display = 'none');
             };
             reader.readAsDataURL(file);
         }
     };
 
-    // --- GENERATION ---
+    // GENERATION
     window.generate = async function() {
         const u = document.getElementById('uImg').files[0];
         const c = document.getElementById('cImg').files[0];
@@ -42,7 +40,7 @@ document.addEventListener("DOMContentLoaded", function() {
         const loader = document.getElementById('loader');
         
         btn.disabled = true;
-        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Traitement...';
+        btn.innerHTML = 'Traitement...';
         if(loader) loader.style.display = 'block';
 
         const toBase64 = f => new Promise(r => { const rd = new FileReader(); rd.readAsDataURL(f); rd.onload=()=>r(rd.result); });
@@ -75,13 +73,16 @@ document.addEventListener("DOMContentLoaded", function() {
         } catch(e) {}
     }
 
-    // --- ACHAT (AVEC RECONNEXION AUTO) ---
+    // ACHAT RAPIDE
     window.buy = async function(packId) {
         if(!shop) return alert("Shop non détecté");
         
-        const btn = event.currentTarget;
+        const btn = event.currentTarget.querySelector('button') || event.target;
         const oldText = btn.innerText;
+        
+        // Feedback immédiat
         btn.innerText = "...";
+        btn.style.opacity = "0.7";
         btn.disabled = true;
 
         try {
@@ -90,20 +91,25 @@ document.addEventListener("DOMContentLoaded", function() {
                 body: JSON.stringify({ shop: shop, pack_id: packId })
             });
 
-            // SI LE TOKEN EST PERDU (401), ON RECONNECTE AUTO
+            // GESTION ERREUR 401 (RECONNEXION)
             if (res.status === 401) {
-                console.log("Token perdu, reconnexion...");
                 window.top.location.href = `https://shopify-try-on.onrender.com/login?shop=${shop}`;
                 return;
             }
 
             const data = await res.json();
-            if(data.confirmation_url) window.top.location.href = data.confirmation_url;
-            else alert("Erreur: " + (data.error || "Inconnue"));
+            if(data.confirmation_url) {
+                window.top.location.href = data.confirmation_url;
+            } else {
+                alert("Erreur: " + (data.error || "Inconnue"));
+                btn.innerText = oldText;
+                btn.style.opacity = "1";
+                btn.disabled = false;
+            }
         } catch(e) {
             alert("Erreur connexion");
-        } finally {
             btn.innerText = oldText;
+            btn.style.opacity = "1";
             btn.disabled = false;
         }
     }
