@@ -2,8 +2,9 @@ import os
 import shopify
 import requests
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import replicate
 
@@ -12,89 +13,87 @@ SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
 SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
 HOST = os.getenv("HOST") 
 
-SCOPES = ['write_script_tags', 'read_products', 'write_products'] # Ajouté pour gérer les Metafields
+SCOPES = ['write_script_tags', 'read_products', 'write_products']
 API_VERSION = "2025-01" 
 MODEL_ID = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985"
 
 app = FastAPI()
-app.mount("/static", StaticFiles(directory="."), name="static")
 
-# --- MÉMOIRE VIVE (Remplaçant de la DB pour les tokens) ---
-# Format : { "boutique.myshopify.com": "shpat_xxxxxxxxxxx" }
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# On sert le dossier static uniquement pour le widget.js
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Mémoire vive
 shop_sessions = {}
 
-@app.middleware("http")
-async def add_security_headers(request: Request, call_next):
-    response = await call_next(request)
-    response.headers["Content-Security-Policy"] = "frame-ancestors https://admin.shopify.com https://*.myshopify.com;"
-    return response
-
 # --- UTILITAIRES ---
-
 def clean_shop_url(url):
     if not url: return ""
     return url.replace("https://", "").replace("http://", "").strip("/")
 
 def get_shopify_credits(shop_url, token):
-    """ Récupère les crédits stockés dans les Metafields Shopify """
     try:
         session = shopify.Session(shop_url, API_VERSION, token)
         shopify.ShopifyResource.activate_session(session)
-        
-        # On cherche le metafield "credits" dans le namespace "stylelab"
-        # On attache les crédits à l'objet "Shop"
         current_shop = shopify.Shop.current()
         metafields = current_shop.metafields()
-        
         for m in metafields:
             if m.namespace == "stylelab" and m.key == "credits":
                 return int(m.value)
-        
-        # Si pas trouvé, on initialise à 3 crédits gratuits
-        return 3
+        return 3 
     except Exception as e:
-        print(f"Erreur lecture crédits: {e}")
+        print(f"Erreur credits: {e}")
         return 0
 
 def update_shopify_credits(shop_url, token, new_amount):
-    """ Enregistre les crédits dans Shopify """
     try:
         session = shopify.Session(shop_url, API_VERSION, token)
         shopify.ShopifyResource.activate_session(session)
-        
         current_shop = shopify.Shop.current()
         metafields = current_shop.metafields()
-        target_metafield = None
-        
+        target = None
         for m in metafields:
             if m.namespace == "stylelab" and m.key == "credits":
-                target_metafield = m
+                target = m
                 break
-        
-        if target_metafield:
-            target_metafield.value = new_amount
-            target_metafield.save()
+        if target:
+            target.value = new_amount
+            target.save()
         else:
-            # Création du champ s'il n'existe pas
             current_shop.add_metafield(shopify.Metafield({
-                "namespace": "stylelab",
-                "key": "credits",
-                "value": new_amount,
-                "type": "integer"
+                "namespace": "stylelab", "key": "credits", "value": new_amount, "type": "integer"
             }))
-            
-        print(f"✅ Crédits mis à jour pour {shop_url} : {new_amount}")
     except Exception as e:
-        print(f"❌ Erreur sauvegarde crédits: {e}")
+        print(f"Erreur save credits: {e}")
+
+def inject_script_tag(shop_url, token):
+    try:
+        session = shopify.Session(shop_url, API_VERSION, token)
+        shopify.ShopifyResource.activate_session(session)
+        existing = shopify.ScriptTag.find()
+        src = f"{HOST}/static/widget.js"
+        if not any(s.src == src for s in existing):
+            shopify.ScriptTag.create({"event": "onload", "src": src})
+            print(f"Widget injecté sur {shop_url}")
+    except Exception as e:
+        print(f"Erreur script tag: {e}")
 
 # --- ROUTES ---
 
 @app.get("/")
 def index(shop: str = None):
-    if not shop: return "Paramètre shop manquant", 400
+    if not shop: return HTMLResponse("<h1>Paramètre shop manquant</h1>")
     clean_shop = clean_shop_url(shop)
     
-    # Si on n'a pas le token en mémoire, on redirige pour se reconnecter
+    # Si le serveur a redémarré (RAM vide), on force le login
     if clean_shop not in shop_sessions:
         return RedirectResponse(f"/login?shop={clean_shop}")
 
@@ -105,10 +104,9 @@ def login(shop: str):
     clean_shop = clean_shop_url(shop)
     shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
     session = shopify.Session(clean_shop, API_VERSION)
-    
-    # On demande les droits pour écrire les metafields (crédits)
     permission_url = session.create_permission_url(SCOPES, f"{HOST}/auth/callback")
     
+    # C'EST ICI QUE TU AVAIS L'ERREUR : J'ai bien mis le 'f' avant les guillemets
     return HTMLResponse(content=f"<script>window.top.location.href='{permission_url}'</script>")
 
 @app.get("/auth/callback")
@@ -119,33 +117,24 @@ def auth_callback(request: Request):
     clean_shop = clean_shop_url(shop)
     
     try:
-        # Échange manuel du token (bypass HMAC strict)
         access_token_url = f"https://{clean_shop}/admin/oauth/access_token"
-        payload = {
-            "client_id": SHOPIFY_API_KEY,
-            "client_secret": SHOPIFY_API_SECRET,
-            "code": code
-        }
+        payload = { "client_id": SHOPIFY_API_KEY, "client_secret": SHOPIFY_API_SECRET, "code": code }
         response = requests.post(access_token_url, json=payload)
         
         if response.status_code == 200:
             token = response.json().get('access_token')
-            
-            # STOCKAGE EN MÉMOIRE (Plus de DB)
             shop_sessions[clean_shop] = token
-            print(f"🔑 Token en mémoire pour {clean_shop}")
             
-            # On initialise les crédits dans Shopify si besoin
-            current_credits = get_shopify_credits(clean_shop, token)
-            if current_credits == 0: # Si nouveau
-                update_shopify_credits(clean_shop, token, 3) # 3 offerts
+            # Init crédits et widget
+            curr = get_shopify_credits(clean_shop, token)
+            if curr == 0: update_shopify_credits(clean_shop, token, 3)
+            inject_script_tag(clean_shop, token)
             
             return RedirectResponse(f"https://admin.shopify.com/store/{clean_shop.replace('.myshopify.com','')}/apps/{SHOPIFY_API_KEY}")
         else:
-            return f"Erreur Shopify: {response.text}", 500
-            
+            return HTMLResponse(f"<h1>Erreur Shopify</h1><p>{response.text}</p>")
     except Exception as e:
-        return f"Erreur Auth: {e}", 500
+        return HTMLResponse(f"<h1>Erreur Interne</h1><p>{str(e)}</p>")
 
 # --- API ---
 
@@ -153,14 +142,9 @@ def auth_callback(request: Request):
 def get_credits_api(shop: str):
     clean_shop = clean_shop_url(shop)
     token = shop_sessions.get(clean_shop)
-    
-    if not token: 
-        # Si le serveur a redémarré, on renvoie 401 pour que le frontend recharge la page
-        # ce qui relancera le login silencieux
-        raise HTTPException(401, "Reload needed")
-        
-    credits = get_shopify_credits(clean_shop, token)
-    return {"credits": credits}
+    # Si token perdu (redémarrage), on renvoie 401 pour forcer le reload client
+    if not token: raise HTTPException(status_code=401, detail="Session expired")
+    return {"credits": get_shopify_credits(clean_shop, token)}
 
 class BuyRequest(BaseModel):
     shop: str
@@ -170,8 +154,7 @@ class BuyRequest(BaseModel):
 def buy_credits(req: BuyRequest):
     clean_shop = clean_shop_url(req.shop)
     token = shop_sessions.get(clean_shop)
-    
-    if not token: raise HTTPException(401, "Reload needed")
+    if not token: raise HTTPException(401, "Session expired")
 
     if req.pack_id == 'pack_10': price, amount, name = 4.99, 10, "10 Crédits"
     elif req.pack_id == 'pack_30': price, amount, name = 9.99, 30, "30 Crédits"
@@ -181,7 +164,6 @@ def buy_credits(req: BuyRequest):
         shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
         session = shopify.Session(clean_shop, API_VERSION, token)
         shopify.ShopifyResource.activate_session(session)
-        
         charge = shopify.ApplicationCharge.create({
             "name": name, "price": price, "test": True,
             "return_url": f"{HOST}/billing/callback?shop={clean_shop}&amt={amount}"
@@ -194,27 +176,21 @@ def buy_credits(req: BuyRequest):
 def billing_callback(shop: str, amt: int, charge_id: str):
     clean_shop = clean_shop_url(shop)
     token = shop_sessions.get(clean_shop)
-    
-    if not token: return RedirectResponse(f"/login?shop={clean_shop}") # Re-login si besoin
+    if not token: return RedirectResponse(f"/login?shop={clean_shop}")
     
     try:
         shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
         session = shopify.Session(clean_shop, API_VERSION, token)
         shopify.ShopifyResource.activate_session(session)
-        
         charge = shopify.ApplicationCharge.find(charge_id)
         if charge.status in ['accepted', 'active']:
             if charge.status == 'accepted': charge.activate()
-            
-            # On récupère les crédits actuels et on ajoute
             current = get_shopify_credits(clean_shop, token)
             update_shopify_credits(clean_shop, token, current + int(amt))
-            
             return RedirectResponse(f"https://admin.shopify.com/store/{clean_shop.replace('.myshopify.com','')}/apps/{SHOPIFY_API_KEY}")
-            
-        return "Paiement échoué"
+        return HTMLResponse("<h1>Paiement échoué</h1>")
     except Exception as e:
-        return f"Erreur: {e}"
+        return HTMLResponse(f"<h1>Erreur</h1><p>{e}</p>")
 
 class TryOnRequest(BaseModel):
     shop: str
@@ -227,28 +203,27 @@ def generate(req: TryOnRequest):
     clean_shop = clean_shop_url(req.shop)
     token = shop_sessions.get(clean_shop)
     
-    if not token: raise HTTPException(401, "Reload needed")
-    
-    current_credits = get_shopify_credits(clean_shop, token)
-    if current_credits < 1: raise HTTPException(402, "Pas assez de crédits")
+    # Si le serveur a redémarré, le widget client ne peut pas générer
+    if not token: 
+        raise HTTPException(400, "Maintenance: Veuillez ouvrir l'application dans l'admin Shopify pour reconnecter le système.")
+
+    current = get_shopify_credits(clean_shop, token)
+    if current < 1: raise HTTPException(402, "Crédits insuffisants")
 
     try:
-        category_map = {"tops": "upper_body", "bottoms": "lower_body", "one-pieces": "dresses"}
+        cat_map = {"tops": "upper_body", "bottoms": "lower_body", "one-pieces": "dresses"}
         output = replicate.run(
             MODEL_ID,
             input={
                 "human_img": req.person_image_url,
                 "garm_img": req.clothing_image_url,
                 "garment_des": req.category, 
-                "category": category_map.get(req.category, "upper_body"),
+                "category": cat_map.get(req.category, "upper_body"),
                 "crop": False, "seed": 42, "steps": 30
             }
         )
         final_url = str(output[0]) if isinstance(output, list) else str(output)
-        
-        # Débit
-        update_shopify_credits(clean_shop, token, current_credits - 1)
-        
-        return {"result_image_url": final_url, "credits_remaining": current_credits - 1}
+        update_shopify_credits(clean_shop, token, current - 1)
+        return {"result_image_url": final_url, "credits_remaining": current - 1}
     except Exception as e:
         raise HTTPException(500, str(e))
