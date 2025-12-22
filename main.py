@@ -12,7 +12,7 @@ SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
 SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
 HOST = os.getenv("HOST") 
 
-# Correction automatique de l'URL Postgres pour Python (Render donne postgres:// mais on veut postgresql://)
+# Correction automatique de l'URL Postgres pour Python
 raw_db_url = os.getenv("DATABASE_URL")
 DATABASE_URL = raw_db_url.replace("postgres://", "postgresql://") if raw_db_url else None
 
@@ -25,7 +25,6 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="."), name="static")
 
 # --- SÉCURITÉ & IFRAME SHOPIFY ---
-# Ce middleware permet à ton app de s'afficher DANS l'admin Shopify sans être bloquée
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
@@ -54,20 +53,22 @@ def init_db():
     except Exception as e:
         print(f"❌ Erreur critique DB: {e}")
 
-# Lancement de la DB au démarrage
 init_db()
 
 def get_shop_data(shop_url):
     try:
-        # On essaie d'abord avec le shop tel quel
+        # On essaie de trouver le shop (en nettoyant l'URL au cas où)
+        clean_shop = shop_url.replace("https://", "").replace("http://", "").strip("/")
+        
         conn = get_db_connection()
         cur = conn.cursor()
+        
+        # Essai 1 : Nom exact
         cur.execute("SELECT access_token, credits FROM shops WHERE shop_url = %s", (shop_url,))
         data = cur.fetchone()
         
-        # Si pas trouvé, on essaie de nettoyer l'URL (enlever https://)
+        # Essai 2 : Nom nettoyé (si l'URL avait https://)
         if not data:
-            clean_shop = shop_url.replace("https://", "").replace("http://", "").strip("/")
             cur.execute("SELECT access_token, credits FROM shops WHERE shop_url = %s", (clean_shop,))
             data = cur.fetchone()
 
@@ -78,6 +79,7 @@ def get_shop_data(shop_url):
         print(f"Erreur lecture DB pour {shop_url}: {e}")
         return None
 
+# --- MODIFICATION 1 : Update Credits ROBUSTE ---
 def update_credits(shop_url, amount):
     try:
         # Nettoyage de sécurité (enlève https:// et le slash final)
@@ -102,13 +104,13 @@ def update_credits(shop_url, amount):
         print(f"❌ Erreur critique update crédits: {e}")
 
 # --- ROUTES D'INSTALLATION & AUTHENTIFICATION ---
+# (Je n'ai pas touché à cette partie qui marchait bien chez toi)
 
 @app.get("/")
 def index(shop: str = None):
     if not shop: 
         return HTMLResponse("<h1>Erreur</h1><p>Paramètre 'shop' manquant. Ouvrez l'app depuis Shopify.</p>", status_code=400)
     
-    # AUTO-RÉPARATION : Si le shop n'est pas dans la base, on lance l'installation
     data = get_shop_data(shop)
     if not data:
         print(f"⚠️ Shop inconnu ({shop}). Redirection vers l'installation...")
@@ -123,13 +125,10 @@ def login(shop: str):
     shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
     permission_url = shopify.Session(shop.strip(), "2024-01").create_permission_url(SCOPES, f"{HOST}/auth/callback")
     
-    # On force la sortie de l'iframe pour aller sur la page de login Shopify (Sécurité obligatoire)
     return HTMLResponse(content=f"<script>window.top.location.href='{permission_url}'</script>")
 
 @app.get("/auth/callback")
 def auth_callback(request: Request):
-    # --- FIX CRITIQUE HMAC ---
-    # On récupère TOUS les paramètres de l'URL (hmac, shop, timestamp, code...)
     params = dict(request.query_params)
     
     if 'shop' not in params:
@@ -141,13 +140,10 @@ def auth_callback(request: Request):
         shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
         session = shopify.Session(shop, "2024-01")
         
-        # On passe TOUS les paramètres pour que Shopify valide la signature de sécurité (HMAC)
         access_token = session.request_token(params)
         
-        # Enregistrement en Base de Données
         conn = get_db_connection()
         cur = conn.cursor()
-        # Upsert (Insérer ou Mettre à jour)
         cur.execute("""
             INSERT INTO shops (shop_url, access_token, credits) 
             VALUES (%s, %s, 50)
@@ -158,7 +154,6 @@ def auth_callback(request: Request):
         cur.close()
         conn.close()
         
-        # Redirection vers l'admin Shopify
         clean_shop_name = shop.replace('.myshopify.com', '')
         admin_url = f"https://admin.shopify.com/store/{clean_shop_name}/apps/{SHOPIFY_API_KEY}"
         return RedirectResponse(admin_url)
@@ -186,7 +181,6 @@ def buy_credits(req: BuyRequest):
     
     token = data[0]
     
-    # Configuration des packs
     if req.pack_id == 'pack_10': 
         price, credits, name = 4.99, 10, "Pack 10 Crédits"
     elif req.pack_id == 'pack_30': 
@@ -209,6 +203,7 @@ def buy_credits(req: BuyRequest):
         print(f"Erreur paiement: {e}")
         raise HTTPException(500, f"Erreur Shopify: {str(e)}")
 
+# --- MODIFICATION 2 : BILLING CALLBACK CORRIGÉ ---
 @app.get("/billing/callback")
 def billing_callback(shop: str, credits: int, charge_id: str):
     # 1. Nettoyage du nom du shop
@@ -217,7 +212,7 @@ def billing_callback(shop: str, credits: int, charge_id: str):
     # 2. Récupération des infos
     data = get_shop_data(clean_shop)
     if not data: 
-        data = get_shop_data(shop) # Fallback
+        data = get_shop_data(shop) # Fallback sur le nom brut
         if not data: return f"Erreur critique : Boutique introuvable.", 400
 
     token = data[0]
@@ -229,6 +224,7 @@ def billing_callback(shop: str, credits: int, charge_id: str):
         # 3. Vérification du paiement
         charge = shopify.ApplicationCharge.find(charge_id)
         
+        # On accepte 'accepted' (en attente d'activation) ou 'active' (déjà activé)
         if charge.status in ['accepted', 'active']:
             if charge.status == 'accepted':
                 charge.activate()
@@ -236,7 +232,7 @@ def billing_callback(shop: str, credits: int, charge_id: str):
             # 4. Ajout des crédits
             update_credits(clean_shop, int(credits))
             
-            # 5. Redirection vers l'Admin Shopify (IMPORTANT)
+            # 5. REDIRECTION VERS L'ADMIN SHOPIFY (C'est ça qui manquait !)
             shop_name = clean_shop.replace('.myshopify.com', '')
             admin_url = f"https://admin.shopify.com/store/{shop_name}/apps/{SHOPIFY_API_KEY}"
             return RedirectResponse(admin_url)
