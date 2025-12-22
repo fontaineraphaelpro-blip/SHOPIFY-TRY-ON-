@@ -4,87 +4,86 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StyleLab AI</title>
-    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/styles.css"> 
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+    
     <script src="https://unpkg.com/@shopify/app-bridge-utils"></script>
 </head>
 <body>
 
     <div class="main-container">
         <header>
-            <div class="logo">
-                <span class="material-icons-round" style="color:#6366f1;">auto_awesome</span>
-                StyleLab AI
-            </div>
+            <div class="logo">✨ StyleLab AI</div>
             <div class="header-actions">
-                <div id="creditCounter">
-                    <span id="creditsLeft" style="color: #6366f1;">...</span> crédits
+                <div id="creditCounter" style="font-weight: 600; color: #4b5563; background: #fff; padding: 8px 16px; border-radius: 50px; border: 1px solid #f3f4f6;">
+                    <span id="creditsLeft" style="color: #6366f1; font-weight: 800;">...</span> crédits
                 </div>
                 <button onclick="openPricing()" class="buy-btn">
-                    <span class="material-icons-round" style="font-size: 16px;">add</span> RECHARGER
+                    <span class="material-icons-round" style="font-size: 18px;">diamond</span> RECHARGER
                 </button>
             </div>
         </header>
 
         <div class="app-grid">
-            
             <div class="card input-section">
-                <h2><span class="material-icons-round">tune</span>Studio de Création</h2>
+                <h2>1. Studio de Création</h2>
                 
                 <div class="uploads-wrapper">
                     <div class="upload-box">
-                        <span class="upload-label">Votre Photo</span>
+                        <div class="icon-header"><span class="material-icons-round">face</span><span>Votre Photo</span></div>
                         <div class="preview-area" onclick="document.getElementById('userImage').click()">
-                            <img id="userPreview" class="preview-img">
+                            <img id="userPreview" class="preview-img" style="display:none;">
                             <div class="placeholder" id="userPlaceholder">
-                                <span class="material-icons-round">face</span>
-                                <p>Choisir</p>
+                                <span class="material-icons-round">add_a_photo</span><p>Ajouter</p>
                             </div>
                         </div>
                         <input type="file" id="userImage" accept="image/*" onchange="previewImage('userImage','userPreview', 'userPlaceholder')" hidden>
                     </div>
 
                     <div class="upload-box">
-                        <span class="upload-label">Le Vêtement</span>
+                        <div class="icon-header"><span class="material-icons-round">checkroom</span><span>Article</span></div>
                         <div class="preview-area" onclick="document.getElementById('clothingImage').click()">
-                            <img id="clothingPreview" class="preview-img">
+                            <img id="clothingPreview" class="preview-img" style="display:none;">
                             <div class="placeholder" id="clothingPlaceholder">
-                                <span class="material-icons-round">checkroom</span>
-                                <p>Choisir</p>
+                                <span class="material-icons-round">add_a_photo</span><p>Ajouter</p>
                             </div>
                         </div>
                         <input type="file" id="clothingImage" accept="image/*" onchange="previewImage('clothingImage','clothingPreview', 'clothingPlaceholder')" hidden>
                     </div>
                 </div>
 
-                <div class="form-group">
-                    <label class="upload-label" for="categorySelect">Catégorie du vêtement</label>
+                <div class="options-row">
+                    <label for="categorySelect">Catégorie :</label>
                     <select id="categorySelect">
-                        <option value="tops">Haut (T-shirt, Pull, Veste)</option>
-                        <option value="bottoms">Bas (Pantalon, Jupe)</option>
+                        <option value="tops">Haut (T-shirt, Pull, Chemise)</option>
+                        <option value="bottoms">Bas (Pantalon, Short, Jupe)</option>
                         <option value="one-pieces">Robe / Combinaison</option>
                     </select>
                 </div>
 
                 <button id="generateButton" onclick="startTryOn()">
-                    Générer l'essayage ✨
+                    <span class="material-icons-round">auto_awesome</span>
+                    Voir mon essayage magique ✨
                 </button>
                 
-                <div id="loadingMessage">
+                <div id="loadingMessage" style="display:none;">
                     <div class="spinner"></div>
-                    <p style="color:#64748b; font-size:0.9rem;">L'IA travaille... (15-30s)</p>
+                    <p style="text-align:center; margin-top:10px; font-size:0.9rem;">Création en cours... (10-15s)</p>
                 </div>
             </div>
 
             <div class="card result-section">
-                <h2><span class="material-icons-round">photo_camera</span>Résultat</h2>
+                <h2>2. Résultat HD</h2>
                 <div class="result-container">
                     <img id="resultImage" style="display:none;">
                     <div id="resultPlaceholder" class="empty-state">
-                        <span class="material-icons-round" style="color:#e2e8f0;">image</span>
+                        <span class="material-icons-round">image</span>
                         <p>Le résultat apparaîtra ici</p>
                     </div>
+                    <a id="downloadLink" class="download-btn" style="display:none;" download="tryon_result.png">
+                        <span class="material-icons-round">download</span> Télécharger
+                    </a>
                 </div>
             </div>
         </div>
@@ -93,14 +92,13 @@
     <div id="pricingModal" class="modal-overlay" style="display:none;">
         <button class="close-btn" onclick="closePricing()">&times;</button>
         <div class="modal-content">
-            <h2 style="justify-content:center;">💎 Packs de Crédits</h2>
+            <h2>💎 Rechargez vos crédits</h2>
             <div class="pricing-grid">
                 <div class="pricing-card">
                     <h3>DÉCOUVERTE</h3><div class="price">4.99€</div><div class="credits">10 Crédits</div>
                     <button onclick="buyPack('pack_10')">Choisir</button>
                 </div>
                 <div class="pricing-card popular">
-                    <div class="badge">MEILLEUR</div>
                     <h3>CRÉATEUR</h3><div class="price">9.99€</div><div class="credits">30 Crédits</div>
                     <button onclick="buyPack('pack_30')">Choisir</button>
                 </div>
