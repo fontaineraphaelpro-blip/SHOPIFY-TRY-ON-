@@ -28,7 +28,6 @@
                 </div>
 
                 <div class="packs-container">
-                    
                     <div class="pack-card" onclick="buy('pack_10')">
                         <div style="margin-top:15px">
                             <div class="pack-title">Découverte</div>
@@ -67,7 +66,6 @@
                             <button class="pack-btn btn-outline">Choisir</button>
                         </div>
                     </div>
-
                 </div>
             </div>
             
@@ -75,30 +73,36 @@
         </div>
 
         <div id="studio-interface">
-            <div style="text-align:center; margin-bottom:20px">
-                <h2 id="client-title" class="hidden" style="margin:0">Cabine Virtuelle</h2>
+            <div style="text-align:center; margin-bottom:25px">
+                <h2 id="client-title" class="hidden" style="margin:0; font-size:1.4rem;">Cabine Virtuelle</h2>
             </div>
             
             <div class="client-grid">
+                
                 <div class="upload-card" onclick="document.getElementById('uImg').click()">
                     <div class="step-badge">1</div>
                     <img id="prevU">
-                    <i class="fa-solid fa-camera upload-icon"></i>
+                    <div class="icon-wrapper"><i class="fa-solid fa-camera upload-icon"></i></div>
                     <div class="upload-text" id="txtU">Ajouter votre photo</div>
+                    <div class="upload-sub">Selfie ou plein pied</div>
                 </div>
                 <input type="file" id="uImg" accept="image/*" onchange="preview('uImg','prevU','txtU')">
 
                 <div class="upload-card" onclick="document.getElementById('cImg').click()">
                     <div class="step-badge">2</div>
                     <img id="prevC">
-                    <i class="fa-solid fa-shirt upload-icon"></i>
+                    <div class="icon-wrapper"><i class="fa-solid fa-shirt upload-icon"></i></div>
                     <div class="upload-text" id="txtC">Ajouter le vêtement</div>
+                    <div class="upload-sub">Sur fond blanc ou neutre</div>
                 </div>
                 <input type="file" id="cImg" accept="image/*" onchange="preview('cImg','prevC','txtC')">
 
-                <div class="upload-card" id="resZone" style="display:none; cursor:default; background:#eff6ff; border-color:#93c5fd; min-height:250px; height:auto;">
+                <div class="upload-card" id="resZone" style="display:none; cursor:default; border-color:#bbf7d0;">
                     <img id="resImg">
-                    <div id="loader" style="color:#2563eb; font-weight:bold"><i class="fa-solid fa-spinner fa-spin"></i> L'IA travaille...</div>
+                    <div id="loader" style="color:#16a34a; font-weight:bold; text-align:center;">
+                        <i class="fa-solid fa-circle-notch fa-spin fa-2x" style="margin-bottom:10px"></i><br>
+                        L'IA travaille...
+                    </div>
                 </div>
 
                 <button class="cta-button" id="btnGo" onclick="generate()">
