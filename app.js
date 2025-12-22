@@ -1,44 +1,61 @@
-// Récupération des paramètres URL
+// --- RECUPERATION ROBUSTE DES PARAMETRES ---
+// Shopify App Bridge ajoute le shop dans l'URL, on le capture ici
 const urlParams = new URLSearchParams(window.location.search);
-const SHOP_URL = urlParams.get('shop');
-const APP_MODE = urlParams.get('mode'); // "client" ou null (admin)
+// On nettoie l'URL pour être sûr (parfois c'est test.myshopify.com, parfois https://test...)
+let SHOP_URL = urlParams.get('shop');
+
+// On stocke le shop dans la session pour ne jamais le perdre
+if (SHOP_URL) {
+    sessionStorage.setItem('stylelab_shop', SHOP_URL);
+} else {
+    SHOP_URL = sessionStorage.getItem('stylelab_shop');
+}
+
+const APP_MODE = urlParams.get('mode'); 
+
+console.log("App démarrée pour la boutique :", SHOP_URL);
 
 document.addEventListener("DOMContentLoaded", function() {
-    
-    // --- MODE CLIENT ---
+    // Gestion Admin vs Client
     if (APP_MODE === 'client') {
-        // On cache le panneau admin
-        document.getElementById('adminPanel').style.display = 'none';
-        // On s'assure que le header client est visible
-        document.getElementById('clientHeader').style.display = 'flex';
-        // On adapte le style pour l'intégration "App Block"
+        const adminPanel = document.getElementById('adminPanel');
+        if(adminPanel) adminPanel.style.display = 'none';
+        
+        const clientHeader = document.getElementById('clientHeader');
+        if(clientHeader) clientHeader.style.display = 'flex';
+        
         document.body.style.background = 'transparent';
         document.body.style.padding = '0';
-    } 
-    // --- MODE ADMIN (Propriétaire) ---
-    else {
-        // On affiche le Dashboard Admin
-        document.getElementById('adminPanel').style.display = 'block';
-        // On cache le petit header client (inutile car on a le dashboard)
-        document.getElementById('clientHeader').style.display = 'none';
+    } else {
+        const adminPanel = document.getElementById('adminPanel');
+        if(adminPanel) adminPanel.style.display = 'block';
         
-        // On va chercher les crédits pour le dashboard
-        fetchCredits();
+        const clientHeader = document.getElementById('clientHeader');
+        if(clientHeader) clientHeader.style.display = 'none';
+        
+        // C'est ici que ça plantait avant : on vérifie que SHOP_URL existe
+        if (SHOP_URL) {
+            fetchCredits();
+        } else {
+            console.error("Impossible de charger les crédits : Shop URL manquant");
+        }
     }
 });
 
-// --- FONCTIONS ---
+// --- API ---
 
 async function fetchCredits() {
     if (!SHOP_URL) return;
     try {
+        // ON AJOUTE BIEN LE SHOP DANS L'APPEL
         const res = await fetch(`/api/get-credits?shop=${SHOP_URL}`);
+        if (res.status === 401) {
+             console.log("Session expirée, rechargement...");
+             return;
+        }
         const data = await res.json();
-        
-        // Mise à jour du GROS compteur Admin
-        const adminCounter = document.getElementById('adminCredits');
-        if (adminCounter) adminCounter.innerText = data.credits;
-
+        const el = document.getElementById('adminCredits');
+        if (el) el.innerText = data.credits;
     } catch (e) {
         console.error("Erreur crédits:", e);
     }
@@ -69,6 +86,11 @@ async function startTryOn() {
         alert("Veuillez ajouter une photo de vous et du vêtement !");
         return;
     }
+    
+    if (!SHOP_URL) {
+        alert("Erreur critique : Impossible d'identifier la boutique. Rafraichissez la page.");
+        return;
+    }
 
     document.getElementById('generateButton').disabled = true;
     document.getElementById('loadingMessage').style.display = 'block';
@@ -79,11 +101,12 @@ async function startTryOn() {
         const userBase64 = await toBase64(userFile);
         const clothBase64 = await toBase64(clothFile);
 
+        // ENVOI SÉCURISÉ AVEC LE SHOP
         const response = await fetch('/api/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                shop: SHOP_URL,
+                shop: SHOP_URL, // <--- C'est ça qui manquait parfois
                 person_image_url: userBase64,
                 clothing_image_url: clothBase64,
                 category: category
@@ -104,7 +127,6 @@ async function startTryOn() {
                 dlLink.style.display = 'inline-block';
             }
 
-            // Si on est Admin, on met à jour le compteur en temps réel
             if (APP_MODE !== 'client') {
                  fetchCredits(); 
             }
@@ -114,7 +136,7 @@ async function startTryOn() {
 
     } catch (error) {
         console.error(error);
-        alert("Erreur technique.");
+        alert("Erreur technique. Vérifiez la console.");
     } finally {
         document.getElementById('generateButton').disabled = false;
         document.getElementById('loadingMessage').style.display = 'none';
@@ -130,23 +152,24 @@ function toBase64(file) {
     });
 }
 
-// Fonction de paiement directe (boutons du dashboard)
 async function buyPack(packId) {
-    if (!SHOP_URL) return alert("Erreur de boutique");
+    if (!SHOP_URL) return alert("Erreur: Boutique non identifiée");
     
     try {
         const res = await fetch('/api/buy-credits', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ shop: SHOP_URL, pack_id: packId })
+            body: JSON.stringify({ shop: SHOP_URL, pack_id: packId }) // <--- INDISPENSABLE
         });
         const data = await res.json();
+        
         if (data.confirmation_url) {
+            // Pour sortir de l'iframe Shopify et aller payer
             window.top.location.href = data.confirmation_url;
         } else {
-            alert("Erreur lors de la création du paiement.");
+            alert("Erreur : " + JSON.stringify(data));
         }
     } catch (e) {
-        alert("Erreur de connexion : " + e);
+        alert("Erreur connexion : " + e);
     }
 }
