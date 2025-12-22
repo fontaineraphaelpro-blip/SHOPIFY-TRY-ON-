@@ -4,66 +4,60 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StyleLab</title>
+    <link rel="stylesheet" href="/static/styles.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 
     <div class="container">
         
-        <div class="admin-only">
+        <div id="admin-zone">
             <div class="header">
-                <div class="brand"><i class="fa-solid fa-bolt"></i> StyleLab Admin</div>
-                <div style="background:#dcfce7; color:#166534; padding:5px 15px; border-radius:20px; font-weight:bold; font-size:14px;">● Système Actif</div>
+                <h2>⚡ Tableau de Bord Admin</h2>
+                <span>Système Actif</span>
             </div>
 
             <div class="dashboard-grid">
                 <div class="credit-card">
-                    <div style="opacity:0.8; font-weight:600;">CRÉDITS</div>
+                    <h3>Vos Crédits</h3>
                     <div class="credit-amount" id="credits">...</div>
-                    <div style="font-size:14px; opacity:0.8;">Utilisés par vos clients</div>
+                    <small>Utilisables par vos clients</small>
                 </div>
-                <div class="packs-container">
-                    <div class="pack-card" onclick="buy('pack_10')"><h2>10</h2><div style="color:#666">4.99€</div><button class="pack-btn outline">Recharger</button></div>
-                    <div class="pack-card popular" onclick="buy('pack_30')"><h2>30</h2><div style="color:#666">9.99€</div><button class="pack-btn">Recharger</button></div>
-                    <div class="pack-card" onclick="buy('pack_100')"><h2>100</h2><div style="color:#666">19.99€</div><button class="pack-btn outline">Recharger</button></div>
+                <div class="packs">
+                    <div class="pack"><h3>10</h3><p>4.99€</p><button onclick="buy()">Acheter</button></div>
+                    <div class="pack" style="border: 2px solid #4f46e5"><h3>30</h3><p>9.99€</p><button onclick="buy()">Acheter</button></div>
+                    <div class="pack"><h3>100</h3><p>19.99€</p><button onclick="buy()">Acheter</button></div>
                 </div>
             </div>
-            
-            <h2 style="margin-bottom:10px;">Zone de Test (Aperçu)</h2>
         </div>
 
-        <div class="studio">
-            <h2 id="client-title" style="display:none; text-align:center; margin-top:0;">Cabine d'Essayage Virtuelle</h2>
-            
+        <div id="studio-zone" class="studio">
+            <h3>Cabine d'Essayage</h3>
             <div class="upload-grid">
                 <div>
-                    <label style="font-weight:600; display:block; margin-bottom:5px;">1. Votre Photo</label>
+                    <label>Votre Photo</label>
                     <div class="preview" onclick="document.getElementById('uImg').click()">
-                        <img id="prevU"><div id="phU" style="color:#94a3b8; text-align:center;"><i class="fa-solid fa-camera fa-2x"></i><br>Ajouter</div>
+                        <img id="prevU"><span>+</span>
                     </div>
-                    <input type="file" id="uImg" accept="image/*" onchange="preview('uImg','prevU','phU')">
+                    <input type="file" id="uImg" onchange="preview(this, 'prevU')">
                 </div>
-
                 <div>
-                    <label style="font-weight:600; display:block; margin-bottom:5px;">2. Vêtement</label>
+                    <label>Vêtement</label>
                     <div class="preview" onclick="document.getElementById('cImg').click()">
-                        <img id="prevC"><div id="phC" style="color:#94a3b8; text-align:center;"><i class="fa-solid fa-shirt fa-2x"></i><br>Ajouter</div>
+                        <img id="prevC"><span>+</span>
                     </div>
-                    <input type="file" id="cImg" accept="image/*" onchange="preview('cImg','prevC','phC')">
+                    <input type="file" id="cImg" onchange="preview(this, 'prevC')">
                 </div>
-
                 <div>
-                    <label style="font-weight:600; display:block; margin-bottom:5px;">3. Résultat</label>
-                    <div class="preview" style="background:#f0fdf4; border-color:#10b981; cursor:default;">
+                    <label>Résultat</label>
+                    <div class="preview" style="background:#f0fdf4">
                         <img id="resImg">
-                        <div id="loading" style="display:none; color:#10b981; font-weight:bold;">Génération...</div>
                     </div>
-                    <button class="btn-go" onclick="generate()" id="btnGo">Générer</button>
+                    <button onclick="generate()">Générer</button>
                 </div>
             </div>
         </div>
+
     </div>
 
     <script src="/static/app.js"></script>
