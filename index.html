@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StyleLab VTON</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <link rel="stylesheet" href="/static/styles.css">
@@ -15,7 +15,8 @@
         
         <div class="admin-header">
             <div class="brand">
-                <i class="fa-solid fa-bolt"></i> VTON Magic Admin
+                <div class="brand-icon"><i class="fa-solid fa-shirt"></i><i class="fa-solid fa-bolt" style="font-size: 0.7em; margin-left: -5px;"></i></div>
+                VTON Magic Admin
             </div>
             <div class="status-badge">
                 <span class="dot"></span> System Active
@@ -23,45 +24,58 @@
         </div>
 
         <div class="dashboard-grid">
-            <div class="credit-card">
+            <div class="credit-card main-stat">
                 <div class="card-label">CREDITS REMAINING</div>
                 <div class="credit-amount">{{ credits }}</div>
                 <div class="card-sub"><i class="fa-solid fa-infinity"></i> No Expiration Date</div>
+                <div class="shiny-effect"></div>
             </div>
 
             <div class="packs-container">
                 <div class="pack-card">
-                    <div class="pack-title">Starter</div>
-                    <div class="pack-credits">10</div>
-                    <div class="unit-price">approx €0.50 / photo</div>
-                    <div class="pack-price">€4.99</div>
-                    <button class="pack-btn btn-outline" onclick="buyCredits(10)">Select</button>
+                    <div class="pack-header">
+                        <div class="pack-title">Starter</div>
+                        <div class="pack-credits">10 Credits</div>
+                    </div>
+                    <div class="pack-pricing">
+                        <div class="pack-price">€4.99</div>
+                        <div class="unit-price">approx €0.50 / try-on</div>
+                    </div>
+                    <button class="pack-btn btn-outline" onclick="buyCredits(10)">Select Pack</button>
                 </div>
 
                 <div class="pack-card popular">
                     <div class="popular-badge"><i class="fa-solid fa-fire"></i> Best Seller</div>
                     <div class="save-badge">SAVE 33%</div>
-                    <div class="pack-title">Growth</div>
-                    <div class="pack-credits">30</div>
-                    <div class="unit-price">approx €0.33 / photo</div>
-                    <div class="pack-price">€9.99</div>
-                    <button class="pack-btn btn-fill" onclick="buyCredits(30)">Top Up Now</button>
+                    <div class="pack-header">
+                        <div class="pack-title" style="color:var(--primary)">Growth</div>
+                        <div class="pack-credits">30 Credits</div>
+                    </div>
+                    <div class="pack-pricing">
+                        <div class="pack-price" style="color:var(--primary)">€9.99</div>
+                        <div class="unit-price">approx €0.33 / try-on</div>
+                    </div>
+                    <button class="pack-btn btn-fill" onclick="buyCredits(30)">Top Up Now <i class="fa-solid fa-arrow-right"></i></button>
                 </div>
 
                 <div class="pack-card">
-                    <div class="save-badge" style="background:#fef3c7; color:#d97706">BEST VALUE</div>
-                    <div class="pack-title">Business</div>
-                    <div class="pack-credits">100</div>
-                    <div class="unit-price">approx €0.20 / photo</div>
-                    <div class="pack-price">€19.99</div>
-                    <button class="pack-btn btn-outline" onclick="buyCredits(100)">Select</button>
+                    <div class="save-badge best-value">BEST VALUE</div>
+                    <div class="pack-header">
+                        <div class="pack-title">Business</div>
+                        <div class="pack-credits">100 Credits</div>
+                    </div>
+                    <div class="pack-pricing">
+                        <div class="pack-price">€19.99</div>
+                        <div class="unit-price">approx €0.20 / try-on</div>
+                    </div>
+                    <button class="pack-btn btn-outline" onclick="buyCredits(100)">Select Pack</button>
                 </div>
             </div>
         </div>
 
-        <div style="margin-top: 50px; border-top: 1px solid #e5e7eb; padding-top: 20px;">
-            <h3 style="color:#6b7280; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 20px;">
-                Customer View (Mobile Preview)
+        <div class="preview-section">
+            <h3 class="preview-title">
+                <i class="fa-solid fa-mobile-screen"></i> Customer View (Mobile Preview)
             </h3>
         </div>
     </div>
@@ -76,31 +90,44 @@
                 <div class="upload-card" id="card-human" onclick="document.getElementById('human_image').click()">
                     <div class="step-badge">1</div>
                     <input type="file" id="human_image" name="human_image" accept="image/*" required onchange="previewImage(this, 'card-human')">
-                    <i class="fa-regular fa-user upload-icon"></i>
-                    <div class="upload-text">Upload<br>Your Photo</div>
+                    <div class="upload-content">
+                        <i class="fa-regular fa-user upload-icon"></i>
+                        <div class="upload-text">Upload<br>Your Photo</div>
+                        <div class="upload-subtext">Selfie or full body</div>
+                    </div>
                     <img src="" alt="Me">
                 </div>
+
+                <div class="math-sign"><i class="fa-solid fa-plus"></i></div>
 
                 <div class="upload-card" id="card-garment" onclick="document.getElementById('garment_image').click()">
                     <div class="step-badge">2</div>
                     <input type="file" id="garment_image" name="garment_image" accept="image/*" required onchange="previewImage(this, 'card-garment')">
-                    <i class="fa-solid fa-shirt upload-icon"></i>
-                    <div class="upload-text">Upload<br>Garment</div>
+                    <div class="upload-content">
+                        <i class="fa-solid fa-shirt upload-icon"></i>
+                        <div class="upload-text">Upload<br>Garment</div>
+                        <div class="upload-subtext">Flat lay or mannequin</div>
+                    </div>
                     <img src="" alt="Cloth">
                 </div>
 
-                <div class="upload-card" id="resZone">
-                    <div class="step-badge" style="background:var(--success)">3</div>
-                    <i class="fa-solid fa-wand-magic-sparkles upload-icon" style="color: #93c5fd;"></i>
-                    <div class="upload-text" id="resText">AI Result<br>Will appear here</div>
+                <div class="math-sign"><i class="fa-solid fa-equals"></i></div>
+
+                <div class="upload-card result-card" id="resZone">
+                    <div class="step-badge result-badge"><i class="fa-solid fa-check"></i></div>
+                    <div class="upload-content" id="resContent">
+                        <i class="fa-solid fa-wand-magic-sparkles upload-icon magic-icon"></i>
+                        <div class="upload-text" id="resText">AI Result<br>Will appear here</div>
+                    </div>
                     <img id="resultImage" src="" alt="Result">
                 </div>
 
-                <button type="submit" class="cta-button" id="genBtn">
-                    Try On Now <i class="fa-solid fa-sparkles"></i>
-                </button>
-
             </div>
+
+            <button type="submit" class="cta-button" id="genBtn">
+                Try On Now <i class="fa-solid fa-sparkles fa-bounce" style="--fa-animation-duration: 2s;"></i>
+            </button>
+             <p class="credits-notice"><i class="fa-solid fa-circle-info"></i> Uses 1 credit per try-on</p>
 
         </form>
     </div>
@@ -108,19 +135,10 @@
 
     <script>
         // --- 1. DETECTION DU MODE (ADMIN vs CLIENT) ---
-        // Si l'URL contient "shop=", on est souvent dans l'admin ou via un proxy authentifié.
-        // Mais la vraie distinction pour l'affichage : est-ce qu'on est dans une iframe de Storefront ?
-        // Pour faire simple : Par défaut on affiche l'admin. Si on détecte un paramètre spécifique ou une classe, on change.
-        
-        // Pour ton test actuel, on va utiliser une astuce simple :
-        // Si l'écran est petit (mobile) -> on suppose Client (pour le test visuel)
-        // Sinon -> Admin.
-        // PLUS TARD : Shopify injectera des paramètres pour dire "C'est le storefront".
-        
+        // Astuce pour le test : Si l'écran est petit (mobile) OU si l'URL a ?mode=client -> on affiche le client.
         const urlParams = new URLSearchParams(window.location.search);
-        const isClientMode = urlParams.get('mode') === 'client'; 
+        const isClientMode = urlParams.get('mode') === 'client' || window.innerWidth < 768; 
 
-        // Pour forcer le mode client si on veut tester : ajouter ?mode=client dans l'URL
         if (isClientMode) {
             document.body.classList.add('client-mode');
         }
@@ -133,15 +151,24 @@
 
         // --- 2. FONCTIONS ADMIN (Paiement) ---
         async function buyCredits(amount) {
-            // Bouton loading state
             const btn = event.target;
-            const originalText = btn.innerText;
-            btn.innerText = "Processing...";
+            const originalHtml = btn.innerHTML;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Redirecting...';
             btn.disabled = true;
 
             try {
-                // On appelle ton backend Python
                 const response = await fetch(`/buy_credits?amount=${amount}`, { method: 'POST' });
+                
+                // GESTION DES ERREURS 401 (Session expirée)
+                if (response.status === 401) {
+                    // Shopify demande un rechargement pour rafraîchir la session
+                     const data = await response.json();
+                     if(data.force_redirect) {
+                         window.top.location.href = data.force_redirect;
+                         return;
+                     }
+                }
+                
                 const data = await response.json();
                 
                 if (data.confirmation_url) {
@@ -149,12 +176,13 @@
                     window.top.location.href = data.confirmation_url;
                 } else {
                     alert("Error: " + (data.error || "Unknown error"));
-                    btn.innerText = originalText;
+                    btn.innerHTML = originalHtml;
                     btn.disabled = false;
                 }
             } catch (e) {
-                alert("Connection error");
-                btn.innerText = originalText;
+                console.error(e);
+                alert("Connection error with the server.");
+                btn.innerHTML = originalHtml;
                 btn.disabled = false;
             }
         }
@@ -171,10 +199,6 @@
                     img.src = e.target.result;
                     img.style.display = 'block'; // Affiche l'image
                     card.classList.add('has-image'); // Ajoute la classe CSS pour le style
-                    
-                    // Masquer les icones pour faire propre
-                    card.querySelector('.upload-icon').style.display = 'none';
-                    card.querySelector('.upload-text').style.display = 'none';
                 }
                 reader.readAsDataURL(file);
             }
@@ -186,12 +210,18 @@
             const btn = document.getElementById('genBtn');
             const resZone = document.getElementById('resZone');
             const resImg = document.getElementById('resultImage');
-            const resText = document.getElementById('resText');
+            const resContent = document.getElementById('resContent');
+
+            // Validation basique
+            if(!document.getElementById('human_image').files[0] || !document.getElementById('garment_image').files[0]) {
+                alert("Please upload both photos first.");
+                return;
+            }
 
             // UI Loading
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generating...';
-            btn.style.opacity = "0.7";
-            resZone.style.opacity = "0.5";
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generating Magic...';
+            btn.classList.add('loading');
+            resZone.classList.add('loading-zone');
 
             const formData = new FormData(e.target);
 
@@ -207,27 +237,28 @@
                 if (data.result_image_url) {
                     // Succès !
                     resImg.src = data.result_image_url;
-                    resImg.style.display = 'block';
-                    resZone.classList.add('has-image');
-                    resZone.style.opacity = "1";
-                    
-                    // Masquer le placeholder
-                    resZone.querySelector('.upload-icon').style.display = 'none';
-                    resText.style.display = 'none';
-                    
-                    btn.innerHTML = 'Try Another <i class="fa-solid fa-rotate-right"></i>';
+                    // On attend que l'image soit chargée pour l'afficher
+                    resImg.onload = () => {
+                         resImg.style.display = 'block';
+                         resZone.classList.add('has-image');
+                         resZone.classList.remove('loading-zone');
+                         resContent.style.display = 'none'; // Cache le texte "AI Result"
+                         btn.innerHTML = 'Try Another Outfit <i class="fa-solid fa-rotate-right"></i>';
+                         btn.classList.remove('loading');
+                    };
                 } else {
-                    alert("Error: " + (data.error || "Generation failed"));
+                    alert("Error: " + (data.error || "Generation failed. Please try again."));
+                    resZone.classList.remove('loading-zone');
+                    btn.innerHTML = 'Try On Now <i class="fa-solid fa-sparkles"></i>';
+                    btn.classList.remove('loading');
                 }
 
             } catch (err) {
-                alert("Error connecting to server");
+                alert("Error connecting to server. Please check your connection.");
                 console.error(err);
-            } finally {
-                btn.style.opacity = "1";
-                if(btn.innerHTML.includes('Generating')) {
-                    btn.innerHTML = 'Try On Now <i class="fa-solid fa-sparkles"></i>';
-                }
+                resZone.classList.remove('loading-zone');
+                btn.innerHTML = 'Try On Now <i class="fa-solid fa-sparkles"></i>';
+                btn.classList.remove('loading');
             }
         }
     </script>
