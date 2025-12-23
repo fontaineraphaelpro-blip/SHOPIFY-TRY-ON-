@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -15,66 +15,66 @@
         <div id="admin-dashboard">
             <div class="admin-header">
                 <div class="brand"><i class="fa-solid fa-bolt"></i> StyleLab Admin</div>
-                <div style="background:#dcfce7; color:#166534; padding:5px 15px; border-radius:20px; font-weight:bold; font-size:0.85rem">● Système Actif</div>
+                <div style="background:#dcfce7; color:#166534; padding:5px 15px; border-radius:20px; font-weight:bold; font-size:0.85rem">● System Active</div>
             </div>
 
             <div class="dashboard-grid">
                 <div class="credit-card">
-                    <div style="text-transform:uppercase; letter-spacing:2px; font-size:0.8rem; font-weight:700; opacity:0.7">Crédits Restants</div>
+                    <div style="text-transform:uppercase; letter-spacing:2px; font-size:0.8rem; font-weight:700; opacity:0.7">Remaining Credits</div>
                     <div class="credit-amount" id="credits">...</div>
                     <div style="font-size:0.95rem; opacity:0.9; margin-top:10px;">
-                        <i class="fa-solid fa-infinity"></i> Validité illimitée
+                        <i class="fa-solid fa-infinity"></i> No expiration date
                     </div>
                 </div>
 
                 <div class="packs-container">
                     <div class="pack-card" onclick="buy('pack_10')">
                         <div style="margin-top:15px">
-                            <div class="pack-title">Découverte</div>
+                            <div class="pack-title">Discovery</div>
                             <div class="pack-credits">10</div>
-                            <div class="unit-price">soit 0.50€ / photo</div>
+                            <div class="unit-price">approx. €0.50 / photo</div>
                         </div>
                         <div style="margin-top:auto">
                             <div class="pack-price">4.99€</div>
-                            <button class="pack-btn btn-outline">Choisir</button>
+                            <button class="pack-btn btn-outline">Select</button>
                         </div>
                     </div>
                     
                     <div class="pack-card popular" onclick="buy('pack_30')">
                         <div class="popular-badge"><i class="fa-solid fa-fire"></i> Best Seller</div>
                         <div style="margin-top:15px">
-                            <div class="save-badge">ÉCONOMISEZ 33%</div>
+                            <div class="save-badge">SAVE 33%</div>
                             <div class="pack-title" style="color:var(--primary)">Standard</div>
                             <div class="pack-credits" style="color:var(--primary)">30</div>
-                            <div class="unit-price" style="color:#4b5563; font-weight:bold">soit 0.33€ / photo</div>
+                            <div class="unit-price" style="color:#4b5563; font-weight:bold">approx. €0.33 / photo</div>
                         </div>
                         <div style="margin-top:auto">
                             <div class="pack-price" style="font-size:1.8rem">9.99€</div>
-                            <button class="pack-btn btn-fill">Recharger ce pack</button>
+                            <button class="pack-btn btn-fill">Top up this pack</button>
                         </div>
                     </div>
                     
                     <div class="pack-card" onclick="buy('pack_100')">
                         <div style="margin-top:15px">
-                            <div class="save-badge" style="background:#fef3c7; color:#b45309">MEILLEUR PRIX</div>
+                            <div class="save-badge" style="background:#fef3c7; color:#b45309">BEST VALUE</div>
                             <div class="pack-title">Business</div>
                             <div class="pack-credits">100</div>
-                            <div class="unit-price">soit 0.20€ / photo</div>
+                            <div class="unit-price">approx. €0.20 / photo</div>
                         </div>
                         <div style="margin-top:auto">
                             <div class="pack-price">19.99€</div>
-                            <button class="pack-btn btn-outline">Choisir</button>
+                            <button class="pack-btn btn-outline">Select</button>
                         </div>
                     </div>
                 </div>
             </div>
             
-            <h3 style="margin-top:50px; color:#9ca3af; font-size:0.9rem; text-transform:uppercase; letter-spacing:1px;">Prévisualisation Mobile (Client)</h3>
+            <h3 style="margin-top:50px; color:#9ca3af; font-size:0.9rem; text-transform:uppercase; letter-spacing:1px;">Mobile Preview (Client)</h3>
         </div>
 
         <div id="studio-interface">
             <div style="text-align:center; margin-bottom:25px">
-                <h2 id="client-title" class="hidden" style="margin:0; font-size:1.4rem;">Cabine Virtuelle</h2>
+                <h2 id="client-title" class="hidden" style="margin:0; font-size:1.4rem;">Virtual Fitting Room</h2>
             </div>
             
             <div class="client-grid">
@@ -83,8 +83,8 @@
                     <div class="step-badge">1</div>
                     <img id="prevU">
                     <div class="icon-wrapper"><i class="fa-solid fa-camera upload-icon"></i></div>
-                    <div class="upload-text" id="txtU">Ajouter votre photo</div>
-                    <div class="upload-sub">Selfie ou plein pied</div>
+                    <div class="upload-text" id="txtU">Upload your photo</div>
+                    <div class="upload-sub">Selfie or full body</div>
                 </div>
                 <input type="file" id="uImg" accept="image/*" onchange="preview('uImg','prevU','txtU')">
 
@@ -92,8 +92,8 @@
                     <div class="step-badge">2</div>
                     <img id="prevC">
                     <div class="icon-wrapper"><i class="fa-solid fa-shirt upload-icon"></i></div>
-                    <div class="upload-text" id="txtC">Ajouter le vêtement</div>
-                    <div class="upload-sub">Sur fond blanc ou neutre</div>
+                    <div class="upload-text" id="txtC">Upload the garment</div>
+                    <div class="upload-sub">On white or neutral background</div>
                 </div>
                 <input type="file" id="cImg" accept="image/*" onchange="preview('cImg','prevC','txtC')">
 
@@ -101,12 +101,12 @@
                     <img id="resImg">
                     <div id="loader" style="color:#16a34a; font-weight:bold; text-align:center;">
                         <i class="fa-solid fa-circle-notch fa-spin fa-2x" style="margin-bottom:10px"></i><br>
-                        L'IA travaille...
+                        AI is working...
                     </div>
                 </div>
 
                 <button class="cta-button" id="btnGo" onclick="generate()">
-                    Essayer Maintenant <i class="fa-solid fa-wand-magic-sparkles"></i>
+                    Try On Now <i class="fa-solid fa-wand-magic-sparkles"></i>
                 </button>
             </div>
         </div>
