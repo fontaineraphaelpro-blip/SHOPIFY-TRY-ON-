@@ -5,131 +5,71 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StyleLab Admin</title>
     <link rel="stylesheet" href="/styles.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
-
-    <div class="container">
-        
-        <div id="admin-dashboard">
-            <div class="admin-header">
-                <div class="brand"><i class="fa-solid fa-bolt"></i> VTON Magic Admin</div>
-                <div style="background:#dcfce7; color:#166534; padding:5px 15px; border-radius:20px; font-weight:bold; font-size:0.85rem">● System Active</div>
+    <div class="admin-container">
+        <header class="admin-header">
+            <div class="logo">
+                <span class="bolt">⚡</span> VTON Magic Admin
             </div>
-
-            <div class="roi-banner">
-                <div class="roi-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
-                <div class="roi-text">
-                    <strong>Stop losing money on returns.</strong> Letting customers <span style="text-decoration:underline;">test products virtually</span> removes doubt. This slashes refunds and boosts conversion by <span style="color:#10b981">2.5x</span> instantly.
-                </div>
+            <div class="status-badge">
+                <span class="dot"></span> System Active
             </div>
+        </header>
 
-            <div class="dashboard-grid">
-                <div class="credit-card">
-                    <div style="text-transform:uppercase; letter-spacing:2px; font-size:0.8rem; font-weight:700; opacity:0.7">Remaining Credits</div>
-                    <div class="credit-amount" id="credits">...</div>
-                    <div style="font-size:0.95rem; opacity:0.9; margin-top:10px;">
-                        <i class="fa-solid fa-infinity"></i> Credits never expire
-                    </div>
-                </div>
-
-                <div class="packs-container">
-                    <div class="pack-card" onclick="buy('pack_10')">
-                        <div style="margin-top:15px">
-                            <div class="pack-title">Discovery</div>
-                            <div class="pack-credits">10</div>
-                            <div class="unit-price" style="color:#6b7280">Start offering Virtual Testing</div>
-                        </div>
-                        <div style="margin-top:auto">
-                            <div class="pack-price">4.99€</div>
-                            <button class="pack-btn btn-outline">Select</button>
-                        </div>
-                    </div>
-                    
-                    <div class="pack-card popular" onclick="buy('pack_30')">
-                        <div class="popular-badge"><i class="fa-solid fa-fire"></i> Best Seller</div>
-                        <div style="margin-top:15px">
-                            <div class="save-badge">SAVE 15%</div>
-                            <div class="pack-title" style="color:var(--primary)">Standard</div>
-                            <div class="pack-credits" style="color:var(--primary)">30</div>
-                            <div class="unit-price" style="color:#4b5563; font-weight:bold">Turn visitors into buyers</div>
-                        </div>
-                        <div style="margin-top:auto">
-                            <div class="pack-price" style="font-size:1.8rem">12.99€</div>
-                            <button class="pack-btn btn-fill">Top Up Now</button>
-                        </div>
-                    </div>
-                    
-                    <div class="pack-card" onclick="buy('pack_100')">
-                        <div style="margin-top:15px">
-                            <div class="save-badge" style="background:#fef3c7; color:#b45309">BEST ROI</div>
-                            <div class="pack-title">Business</div>
-                            <div class="pack-credits">100</div>
-                            <div class="unit-price">Slash return rates by 30%</div>
-                        </div>
-                        <div style="margin-top:auto">
-                            <div class="pack-price">29.99€</div>
-                            <button class="pack-btn btn-outline">Select</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="custom-section">
-                <div style="flex:1">
-                    <h3 style="margin:0; font-size:1.1rem; color:#1e293b"><i class="fa-solid fa-building"></i> High Volume Store?</h3>
-                    <p style="margin:5px 0 0 0; color:#64748b; font-size:0.9rem;">Get our lowest rate (<strong>€0.25 / try-on</strong>) for bulk orders.</p>
-                </div>
-                <div class="custom-input-group">
-                    <input type="number" id="customAmount" placeholder="200" min="200" step="10" value="200">
-                    <button onclick="buyCustom()">Get Custom Pack</button>
-                </div>
-            </div>
-            
-            <h3 style="margin-top:50px; color:#9ca3af; font-size:0.9rem; text-transform:uppercase; letter-spacing:1px;">Mobile Preview (Customer View)</h3>
+        <div class="alert-banner">
+            <span class="icon">⚠️</span>
+            <p><strong>Stop losing money on returns.</strong> Letting customers <a href="#">test products virtually</a> removes doubt. This slashes refunds and boosts conversion by 2.5x instantly.</p>
         </div>
 
-        <div id="studio-interface">
-            <div style="text-align:center; margin-bottom:25px">
-                <h2 id="client-title" class="hidden" style="margin:0; font-size:1.4rem;">Virtual Fitting Room</h2>
+        <main class="dashboard-grid">
+            <div class="card main-card">
+                <p class="card-label">REMAINING CREDITS</p>
+                <h1 id="credits-count">...</h1>
+                <p class="card-footer">∞ Credits never expire</p>
             </div>
-            
-            <div class="client-grid">
-                
-                <div class="upload-card" onclick="document.getElementById('uImg').click()">
-                    <div class="step-badge">1</div>
-                    <img id="prevU">
-                    <div class="icon-wrapper"><i class="fa-solid fa-camera upload-icon"></i></div>
-                    <div class="upload-text" id="txtU">Upload your photo</div>
-                    <div class="upload-sub">Selfie or full body</div>
-                </div>
-                <input type="file" id="uImg" accept="image/*" onchange="preview('uImg','prevU','txtU')">
 
-                <div class="upload-card" id="card-garment" onclick="document.getElementById('cImg').click()">
-                    <div class="step-badge">2</div>
-                    <img id="prevC">
-                    <div class="icon-wrapper"><i class="fa-solid fa-shirt upload-icon"></i></div>
-                    <div class="upload-text" id="txtC">Upload the garment</div>
-                    <div class="upload-sub">On white or neutral background</div>
-                </div>
-                <input type="file" id="cImg" accept="image/*" onchange="preview('cImg','prevC','txtC')">
-
-                <div class="upload-card" id="resZone" style="display:none; cursor:default; border-color:#bbf7d0;">
-                    <img id="resImg">
-                    <div id="loader" style="color:#16a34a; font-weight:bold; text-align:center;">
-                        <i class="fa-solid fa-circle-notch fa-spin fa-2x" style="margin-bottom:10px"></i><br>
-                        AI Magic in progress...
-                    </div>
-                </div>
-
-                <button class="cta-button" id="btnGo" onclick="generate()">
-                    Test This Outfit Now <i class="fa-solid fa-wand-magic-sparkles"></i>
-                </button>
+            <div class="card pricing-card">
+                <h3>Discovery</h3>
+                <div class="amount">10</div>
+                <p>Start offering Virtual Testing</p>
+                <div class="price">4.99€</div>
+                <button class="btn-select" onclick="buyPack('pack_10')">Select</button>
             </div>
-        </div>
 
+            <div class="card pricing-card featured">
+                <div class="badge">BEST SELLER</div>
+                <div class="save-tag">SAVE 15%</div>
+                <h3>Standard</h3>
+                <div class="amount">30</div>
+                <p>Turn visitors into buyers</p>
+                <div class="price">12.99€</div>
+                <button class="btn-primary" onclick="buyPack('pack_30')">Top Up Now</button>
+            </div>
+
+            <div class="card pricing-card">
+                <div class="save-tag">BEST ROI</div>
+                <h3>Business</h3>
+                <div class="amount">100</div>
+                <p>Slash return rates by 30%</p>
+                <div class="price">29.99€</div>
+                <button class="btn-select" onclick="buyPack('pack_100')">Select</button>
+            </div>
+        </main>
+
+        <footer class="admin-footer">
+            <div class="custom-pack">
+                <span class="icon">🏢</span>
+                <strong>High Volume Store?</strong>
+                <p>Get our lowest rate (€0.25 / try-on) for bulk orders.</p>
+                <div class="input-group">
+                    <input type="number" value="200" id="custom-amt">
+                    <button class="btn-dark" onclick="buyCustom()">Get Custom Pack</button>
+                </div>
+            </div>
+        </footer>
     </div>
+
     <script src="/app.js"></script>
 </body>
 </html>
