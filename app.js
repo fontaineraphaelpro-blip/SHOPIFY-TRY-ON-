@@ -1,8 +1,6 @@
 document.addEventListener("DOMContentLoaded", function() {
-    
-    // 1. GESTION IMMÉDIATE DE L'ÉCRAN BLANC
     document.body.classList.add('loaded');
-
+    
     const params = new URLSearchParams(window.location.search);
     const mode = params.get('mode');
     const shop = params.get('shop') || sessionStorage.getItem('shop');
@@ -10,10 +8,9 @@ document.addEventListener("DOMContentLoaded", function() {
     
     if(shop) sessionStorage.setItem('shop', shop);
 
-    // MODE CLIENT (WIDGET)
+    // MODE CLIENT
     if (mode === 'client') {
         document.body.classList.add('client-mode');
-        // On cache le dashboard admin et on montre l'interface studio
         const adminDash = document.getElementById('admin-dashboard');
         const studioInt = document.getElementById('studio-interface');
         const title = document.getElementById('client-title');
@@ -22,10 +19,8 @@ document.addEventListener("DOMContentLoaded", function() {
         if(studioInt) studioInt.style.display = 'block';
         if(title) title.style.display = 'block';
 
-        // Auto-chargement image produit
         if (autoProductImage) {
             const img = document.getElementById('prevC');
-            const card = document.getElementById('card-garment');
             if(img) {
                 img.src = autoProductImage;
                 img.style.display = 'block';
@@ -41,7 +36,74 @@ document.addEventListener("DOMContentLoaded", function() {
         if(shop) fetchCredits(shop);
     }
 
-    // FONCTIONS UPLOAD ET IA
+    // --- FONCTION VITALE : AUTO-RECONNEXION ---
+    async function fetchCredits(s) {
+        try {
+            const res = await fetch(`/api/get-credits?shop=${s}`);
+            // SI CLÉ PERDUE (401) -> ON RECHARGE POUR SE RECONNECTER
+            if (res.status === 401) { 
+                console.log("Session lost, reconnecting...");
+                window.top.location.href = `/login?shop=${s}`; 
+                return; 
+            }
+            const data = await res.json();
+            const el = document.getElementById('credits'); 
+            if(el) el.innerText = data.credits;
+        } catch(e) { console.error("API Error", e); }
+    }
+
+    // --- PAIEMENT ---
+    window.buy = async function(packId) {
+        if(!shop) return alert("Shop ID missing");
+        
+        let btn;
+        if (event && event.target) btn = event.currentTarget.tagName === 'BUTTON' ? event.currentTarget : event.target.closest('button');
+        if (!btn) btn = document.querySelector('.custom-input-group button');
+        const oldText = btn ? btn.innerText : "Buy";
+        if(btn) { btn.innerText = "Redirecting..."; btn.disabled = true; }
+
+        try {
+            const res = await fetch('/api/buy-credits', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ shop: shop, pack_id: packId })
+            });
+
+            // ICI C'EST CRUCIAL : Si 401, on reconnecte au lieu d'afficher "Unknown"
+            if (res.status === 401) {
+                window.top.location.href = `/login?shop=${shop}`;
+                return;
+            }
+
+            const data = await res.json();
+            if(data.confirmation_url) {
+                window.top.location.href = data.confirmation_url;
+            } else {
+                alert("Error: " + (data.error || "Unknown"));
+                if(btn) { btn.innerText = oldText; btn.disabled = false; }
+            }
+        } catch(e) {
+            alert("Network Error");
+            if(btn) { btn.innerText = oldText; btn.disabled = false; }
+        }
+    }
+
+    window.buyCustom = function() {
+        const amount = document.getElementById('customAmount').value;
+        if(amount < 200) return alert("Min 200 credits");
+        
+        // On utilise la même logique pour le custom
+        fetch('/api/buy-credits', {
+             method: 'POST', headers: {'Content-Type': 'application/json'},
+             body: JSON.stringify({ shop: shop, pack_id: 'pack_custom', custom_amount: parseInt(amount) })
+        }).then(async r => {
+            if (r.status === 401) { window.top.location.href = `/login?shop=${shop}`; return; }
+            const d = await r.json();
+            if(d.confirmation_url) window.top.location.href = d.confirmation_url;
+            else alert(d.error);
+        });
+    }
+
+    // --- RESTE DU CODE (IA) ---
     window.preview = function(inputId, imgId, txtId) {
         const file = document.getElementById(inputId).files[0];
         if (file) {
@@ -63,9 +125,7 @@ document.addEventListener("DOMContentLoaded", function() {
     window.generate = async function() {
         const u = document.getElementById('uImg').files[0];
         const cFile = document.getElementById('cImg').files[0];
-        
         if (!u || (!cFile && !autoProductImage)) return alert("Please upload your photo.");
-
         const btn = document.getElementById('btnGo');
         const resZone = document.getElementById('resZone');
         const loader = document.getElementById('loader');
@@ -73,7 +133,8 @@ document.addEventListener("DOMContentLoaded", function() {
         btn.disabled = true; btn.innerHTML = 'Processing...';
         if(resZone) resZone.style.display = 'flex';
         if(loader) loader.style.display = 'block';
-
+        if(resZone) resZone.scrollIntoView({ behavior: 'smooth' });
+        
         const to64 = f => new Promise(r => { const rd = new FileReader(); rd.readAsDataURL(f); rd.onload=()=>r(rd.result); });
 
         try {
@@ -83,7 +144,6 @@ document.addEventListener("DOMContentLoaded", function() {
                 body: JSON.stringify({ shop: shop || "demo", person_image_url: await to64(u), clothing_image_url: garmentData, category: "upper_body" })
             });
             const data = await res.json();
-            
             if(data.result_image_url) {
                 const ri = document.getElementById('resImg');
                 ri.src = data.result_image_url;
@@ -94,43 +154,4 @@ document.addEventListener("DOMContentLoaded", function() {
         } catch(e) { alert("Error: " + e); }
         finally { btn.disabled = false; btn.innerHTML = 'Test This Outfit Now <i class="fa-solid fa-wand-magic-sparkles"></i>'; }
     };
-
-    // LOGIQUE CRÉDITS (CORRIGÉE)
-    async function fetchCredits(s) {
-        try {
-            const res = await fetch(`/api/get-credits?shop=${s}`);
-            if (res.status === 401) { window.top.location.href = `/login?shop=${s}`; return; }
-            const data = await res.json();
-            // Ton HTML a l'ID "credits", pas "credits-count". Je corrige ici.
-            const el = document.getElementById('credits'); 
-            if(el) el.innerText = data.credits;
-        } catch(e) { console.error("Credit fetch error", e); }
-    }
-
-    window.buy = async function(packId) {
-        if(!shop) return alert("Shop ID missing");
-        try {
-            const res = await fetch('/api/buy-credits', {
-                method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ shop: shop, pack_id: packId })
-            });
-            const data = await res.json();
-            if(data.confirmation_url) window.top.location.href = data.confirmation_url;
-            else alert("Error: " + (data.error || "Unknown"));
-        } catch(e) { alert("Network Error"); }
-    }
-
-    window.buyCustom = function() {
-        const amount = document.getElementById('customAmount').value;
-        if(amount < 200) return alert("Min 200 credits");
-        // On réutilise la même logique mais avec une route adaptée dans buy
-        // Note: J'ai adapté la fonction buy ci-dessus pour simplifier, 
-        // voici l'appel spécifique pour le custom qui tape sur la meme route API
-        fetch('/api/buy-credits', {
-             method: 'POST', headers: {'Content-Type': 'application/json'},
-             body: JSON.stringify({ shop: shop, pack_id: 'pack_custom', custom_amount: parseInt(amount) })
-        })
-        .then(r=>r.json())
-        .then(d=>{ if(d.confirmation_url) window.top.location.href = d.confirmation_url; });
-    }
 });
