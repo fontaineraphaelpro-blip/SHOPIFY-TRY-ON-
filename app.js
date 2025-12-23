@@ -45,7 +45,7 @@ document.addEventListener("DOMContentLoaded", function() {
         const resZone = document.getElementById('resZone');
         const loader = document.getElementById('loader');
         
-        btn.disabled = true; btn.innerHTML = 'Traitement en cours...';
+        btn.disabled = true; btn.innerHTML = 'Processing...';
         if(resZone) resZone.style.display = 'flex';
         if(loader) loader.style.display = 'block';
         if(resZone) resZone.scrollIntoView({ behavior: 'smooth' });
@@ -64,47 +64,55 @@ document.addEventListener("DOMContentLoaded", function() {
                 ri.src = data.result_image_url;
                 ri.style.display = 'block';
                 if(loader) loader.style.display = 'none';
-                // Si on est admin, on met à jour les crédits (simulation décompte)
                 if(mode !== 'client') fetchCredits(shop);
             } else alert("Erreur IA");
         } catch(e) { alert("Erreur technique"); }
-        finally { btn.disabled = false; btn.innerHTML = 'Essayer Maintenant ✨'; }
+        finally { btn.disabled = false; btn.innerHTML = 'Try On Now ✨'; }
     };
 
-    // --- GESTION DES CRÉDITS & SESSION ---
+    // --- GESTION DES CRÉDITS ---
     async function fetchCredits(s) {
         try {
             const res = await fetch(`/api/get-credits?shop=${s}`);
-            
-            // SI LA SESSION EST PERDUE (401), ON RECHARGE LA PAGE IMMÉDIATEMENT
             if (res.status === 401) {
-                console.log("Session perdue, reconnexion auto...");
                 window.top.location.href = `/login?shop=${s}`;
                 return;
             }
-
             const data = await res.json();
             const el = document.getElementById('credits');
             if(el) el.innerText = data.credits;
         } catch(e) {}
     }
 
-    // --- FONCTION PAIEMENT ROBUSTE ---
-    window.buy = async function(packId) {
+    // --- FONCTION PAIEMENT MISE À JOUR ---
+    window.buy = async function(packId, customAmount = 0) {
         if(!shop) return alert("Erreur shop");
         
-        const btn = event.currentTarget.querySelector('button') || event.target;
-        const oldText = btn.innerText;
-        btn.innerText = "Redirection...";
-        btn.disabled = true;
+        let btn;
+        if (event && event.target) {
+             btn = event.currentTarget.tagName === 'BUTTON' ? event.currentTarget : event.currentTarget.querySelector('button');
+             if(!btn) btn = event.target; // Fallback
+        } else {
+            // Si appelé via buyCustom sans event direct sur un bouton
+            btn = document.querySelector('.custom-input-group button');
+        }
+
+        const oldText = btn ? btn.innerText : "Acheter";
+        if(btn) {
+            btn.innerText = "Redirection...";
+            btn.disabled = true;
+        }
 
         try {
             const res = await fetch('/api/buy-credits', {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ shop: shop, pack_id: packId })
+                body: JSON.stringify({ 
+                    shop: shop, 
+                    pack_id: packId,
+                    custom_amount: parseInt(customAmount) 
+                })
             });
 
-            // Si ça échoue ici (401), on redirige vers le login pour réparer
             if (res.status === 401) {
                 window.top.location.href = `/login?shop=${shop}`;
                 return;
@@ -113,17 +121,24 @@ document.addEventListener("DOMContentLoaded", function() {
             const data = await res.json();
             
             if(data.confirmation_url) {
-                // On part payer chez Shopify
                 window.top.location.href = data.confirmation_url;
             } else {
                 alert("Erreur: " + (data.error || "Inconnue"));
-                btn.innerText = oldText;
-                btn.disabled = false;
+                if(btn) { btn.innerText = oldText; btn.disabled = false; }
             }
         } catch(e) {
             alert("Erreur réseau");
-            btn.innerText = oldText;
-            btn.disabled = false;
+            if(btn) { btn.innerText = oldText; btn.disabled = false; }
         }
+    }
+
+    // NOUVELLE FONCTION POUR CUSTOM PACK
+    window.buyCustom = function() {
+        const amount = document.getElementById('customAmount').value;
+        if(amount < 200) {
+            alert("Minimum order for custom pack is 200 credits.");
+            return;
+        }
+        window.buy('pack_custom', amount);
     }
 });
