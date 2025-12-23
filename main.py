@@ -77,9 +77,7 @@ def auth_callback(shop: str, code: str, host: str = None):
 def get_credits(shop: str):
     shop = clean_shop_url(shop)
     token = shop_sessions.get(shop)
-    
-    if not token: 
-        raise HTTPException(status_code=401, detail="Session expired")
+    if not token: raise HTTPException(status_code=401, detail="Session expired")
 
     try:
         shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
@@ -91,7 +89,7 @@ def get_credits(shop: str):
         if mf:
             val = int(mf[0].value) if isinstance(mf, list) else int(mf.value)
         return {"credits": val}
-    except Exception as e:
+    except Exception:
         return {"credits": 0}
 
 class BuyRequest(BaseModel):
@@ -103,9 +101,7 @@ class BuyRequest(BaseModel):
 def buy_credits(req: BuyRequest):
     shop = clean_shop_url(req.shop)
     token = shop_sessions.get(shop)
-    
-    if not token: 
-        raise HTTPException(status_code=401, detail="Session expired")
+    if not token: raise HTTPException(status_code=401, detail="Session expired")
 
     price, name, credits = 0, "", 0
     if req.pack_id == 'pack_10': price, name, credits = 4.99, "10 Credits", 10
@@ -174,41 +170,34 @@ def generate(req: TryOnRequest):
         return {"result_image_url": str(output[0]) if isinstance(output, list) else str(output)}
     except Exception as e: return {"error": str(e)}
 
-# --- WEBHOOKS SÉCURISÉS (MODIFIÉ ICI) ---
-
-@app.post("/webhooks/customers/data_request")
-def w1(): return {"ok": True}
-@app.post("/webhooks/customers/redact")
-def w2(): return {"ok": True}
-@app.post("/webhooks/shop/redact")
-def w3(): return {"ok": True}
-    
+# --- WEBHOOKS GDPR SÉCURISÉS (LE POINT CRUCIAL) ---
+# Cette route gère TOUS les webhooks GDPR avec validation HMAC
 @app.post("/webhooks/gdpr")
 async def gdpr_webhooks(request: Request):
-    """
-    Vérifie la signature HMAC de Shopify et répond 200 OK si c'est valide.
-    Répond 401 Unauthorized si la signature ne correspond pas.
-    """
-    # 1. Récupérer les données
     try:
+        # 1. On récupère le corps brut de la requête (requis pour le calcul HMAC)
         data = await request.body()
+        
+        # 2. On récupère la signature envoyée par Shopify
         hmac_header = request.headers.get('X-Shopify-Hmac-SHA256')
         
-        # 2. Vérifier si le secret est là
+        # 3. On vérifie que le secret est bien configuré sur Render
         if not SHOPIFY_API_SECRET:
-            print("Erreur: SHOPIFY_API_SECRET non défini")
+            print("Erreur CRITIQUE : SHOPIFY_API_SECRET est vide !")
             return HTMLResponse(content="Server Config Error", status_code=500)
 
-        # 3. Calcul du HMAC
+        # 4. On recalcule la signature nous-mêmes
         digest = hmac.new(SHOPIFY_API_SECRET.encode('utf-8'), data, hashlib.sha256).digest()
         computed_hmac = base64.b64encode(digest).decode()
 
-        # 4. Comparaison sécurisée
+        # 5. COMPARISON : Est-ce que ça vient vraiment de Shopify ?
         if hmac_header and hmac.compare_digest(computed_hmac, hmac_header):
-            print("Webhook GDPR vérifié et accepté.")
+            # C'est VALIDE : On répond 200 OK comme demandé
+            print("✅ Webhook GDPR validé.")
             return HTMLResponse(content="OK", status_code=200)
         else:
-            print("Echec vérification webhook HMAC.")
+            # C'est INVALIDE : On rejette avec 401 comme exigé par la doc
+            print("⛔ Signature invalide.")
             return HTMLResponse(content="Unauthorized", status_code=401)
             
     except Exception as e:
