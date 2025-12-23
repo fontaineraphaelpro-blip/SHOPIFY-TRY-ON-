@@ -1,6 +1,9 @@
 import os
 import shopify
 import requests
+import hmac
+import hashlib
+import base64
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,7 +13,7 @@ import replicate
 # --- CONFIGURATION ---
 SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
 SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
-HOST = os.getenv("HOST") 
+HOST = os.getenv("HOST")
 SCOPES = ['read_products', 'write_products']
 API_VERSION = "2024-01"
 MODEL_ID = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985"
@@ -68,14 +71,13 @@ def auth_callback(shop: str, code: str, host: str = None):
     except Exception as e:
         return HTMLResponse(content=f"Auth Error: {str(e)}", status_code=500)
 
-# --- API CRÉDITS (LE COEUR DU PROBLÈME) ---
+# --- API CRÉDITS ---
 
 @app.get("/api/get-credits")
 def get_credits(shop: str):
     shop = clean_shop_url(shop)
     token = shop_sessions.get(shop)
     
-    # ICI : Si le serveur a redémarré, on force le JS à recharger la page
     if not token: 
         raise HTTPException(status_code=401, detail="Session expired")
 
@@ -90,7 +92,6 @@ def get_credits(shop: str):
             val = int(mf[0].value) if isinstance(mf, list) else int(mf.value)
         return {"credits": val}
     except Exception as e:
-        # En cas d'erreur API Shopify, on renvoie 0 mais on ne plante pas
         return {"credits": 0}
 
 class BuyRequest(BaseModel):
@@ -103,7 +104,6 @@ def buy_credits(req: BuyRequest):
     shop = clean_shop_url(req.shop)
     token = shop_sessions.get(shop)
     
-    # ICI : Même chose, si pas de token, erreur 401 immédiate
     if not token: 
         raise HTTPException(status_code=401, detail="Session expired")
 
@@ -134,7 +134,6 @@ def buy_credits(req: BuyRequest):
 def billing_callback(shop: str, amt: int, charge_id: str):
     shop = clean_shop_url(shop)
     token = shop_sessions.get(shop)
-    # Si le token est perdu pendant le paiement, on relance le login
     if not token: return RedirectResponse(f"/login?shop={shop}")
 
     try:
@@ -175,7 +174,8 @@ def generate(req: TryOnRequest):
         return {"result_image_url": str(output[0]) if isinstance(output, list) else str(output)}
     except Exception as e: return {"error": str(e)}
 
-# --- WEBHOOKS ---
+# --- WEBHOOKS SÉCURISÉS (MODIFIÉ ICI) ---
+
 @app.post("/webhooks/customers/data_request")
 def w1(): return {"ok": True}
 @app.post("/webhooks/customers/redact")
@@ -183,9 +183,34 @@ def w2(): return {"ok": True}
 @app.post("/webhooks/shop/redact")
 def w3(): return {"ok": True}
     
-# --- AJOUT POUR LES WEBHOOKS GDPR ---
-@app.route('/webhooks/gdpr', methods=['POST'])
-def gdpr_webhooks():
-    # On répond juste 200 OK pour dire à Shopify qu'on a bien reçu l'info
-    return "OK", 200
+@app.post("/webhooks/gdpr")
+async def gdpr_webhooks(request: Request):
+    """
+    Vérifie la signature HMAC de Shopify et répond 200 OK si c'est valide.
+    Répond 401 Unauthorized si la signature ne correspond pas.
+    """
+    # 1. Récupérer les données
+    try:
+        data = await request.body()
+        hmac_header = request.headers.get('X-Shopify-Hmac-SHA256')
+        
+        # 2. Vérifier si le secret est là
+        if not SHOPIFY_API_SECRET:
+            print("Erreur: SHOPIFY_API_SECRET non défini")
+            return HTMLResponse(content="Server Config Error", status_code=500)
 
+        # 3. Calcul du HMAC
+        digest = hmac.new(SHOPIFY_API_SECRET.encode('utf-8'), data, hashlib.sha256).digest()
+        computed_hmac = base64.b64encode(digest).decode()
+
+        # 4. Comparaison sécurisée
+        if hmac_header and hmac.compare_digest(computed_hmac, hmac_header):
+            print("Webhook GDPR vérifié et accepté.")
+            return HTMLResponse(content="OK", status_code=200)
+        else:
+            print("Echec vérification webhook HMAC.")
+            return HTMLResponse(content="Unauthorized", status_code=401)
+            
+    except Exception as e:
+        print(f"Erreur Webhook: {str(e)}")
+        return HTMLResponse(content="Error", status_code=500)
