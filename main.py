@@ -1,7 +1,7 @@
 import os
 import shopify
 import requests
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -10,9 +10,10 @@ import replicate
 # --- CONFIGURATION ---
 SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
 SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
-HOST = os.getenv("HOST")
+HOST = os.getenv("HOST") # Doit être https://shopify-try-on.onrender.com
 SCOPES = ['read_products', 'write_products']
 API_VERSION = "2024-01"
+
 # Ton modèle Replicate (IDM-VTON)
 MODEL_ID = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985"
 
@@ -26,53 +27,63 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mémoire tampon
+# Mémoire tampon pour les tokens (En production, utilise une base de données)
 shop_sessions = {}
 
 def clean_shop_url(url):
     if not url: return ""
     return url.replace("https://", "").replace("http://", "").strip("/")
 
-# --- ROUTES FICHIERS STATIQUES (STRUCTURE PLATE) ---
+# --- ROUTES FICHIERS STATIQUES ---
 
 @app.get("/")
 def index():
-    # Cherche index.html à la racine
     return FileResponse('index.html')
 
 @app.get("/styles.css")
 def styles():
-    # Cherche styles.css à la racine
     return FileResponse('styles.css')
 
 @app.get("/app.js")
 def javascript():
-    # Cherche app.js à la racine
     return FileResponse('app.js')
 
-# --- ROUTES SHOPIFY ---
+# --- ROUTES SHOPIFY (INSTALLATION & AUTH) ---
 
 @app.get("/login")
 def login(shop: str):
     shop = clean_shop_url(shop)
-    auth_url = f"https://{shop}/admin/oauth/authorize?client_id={SHOPIFY_API_KEY}&scope={','.join(SCOPES)}&redirect_uri={HOST}/auth/callback"
+    # Initialisation de la session pour générer l'URL d'autorisation
+    shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
+    session = shopify.Session(shop, API_VERSION)
+    
+    redirect_uri = f"{HOST}/auth/callback"
+    auth_url = session.create_permission_url(SCOPES, redirect_uri)
     return RedirectResponse(auth_url)
 
 @app.get("/auth/callback")
-def auth_callback(shop: str, code: str):
+def auth_callback(shop: str, code: str, host: str = None):
     shop = clean_shop_url(shop)
-    url = f"https://{shop}/admin/oauth/access_token"
-    payload = {"client_id": SHOPIFY_API_KEY, "client_secret": SHOPIFY_API_SECRET, "code": code}
     try:
-        res = requests.post(url, json=payload)
-        if res.status_code == 200:
-            token = res.json().get('access_token')
-            shop_sessions[shop] = token
-            return RedirectResponse(f"https://admin.shopify.com/store/{shop.replace('.myshopify.com','')}/apps/{SHOPIFY_API_KEY}")
-    except: pass
-    return HTMLResponse("Erreur Connexion")
+        shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
+        session = shopify.Session(shop, API_VERSION)
+        
+        # Échange du code contre un access_token permanent
+        access_token = session.request_token({"code": code})
+        shop_sessions[shop] = access_token
+        
+        # REDIRECTION EMBED : On renvoie vers l'admin Shopify avec le paramètre 'host'
+        # C'est ce qui permet à l'app de s'ouvrir DANS Shopify
+        shop_name = shop.replace(".myshopify.com", "")
+        if host:
+            return RedirectResponse(f"https://admin.shopify.com/store/{shop_name}/apps/{SHOPIFY_API_KEY}?host={host}")
+        else:
+            return RedirectResponse(f"https://{shop}/admin/apps/{SHOPIFY_API_KEY}")
+            
+    except Exception as e:
+        return HTMLResponse(content=f"Erreur d'authentification : {str(e)}", status_code=500)
 
-# --- API ---
+# --- API CRÉDITS & PAIEMENT ---
 
 class BuyRequest(BaseModel):
     shop: str
@@ -85,29 +96,19 @@ def buy_credits(req: BuyRequest):
     token = shop_sessions.get(shop)
     
     if not token:
-        raise HTTPException(status_code=401, detail="Session expirée")
+        raise HTTPException(status_code=401, detail="Session expirée, veuillez recharger l'app.")
 
-    # LOGIQUE PRIX
-    price = 0
-    name = ""
-    credits = 0
-
-    if req.pack_id == 'pack_10': 
-        price, name, credits = 4.99, "10 Crédits", 10
-    elif req.pack_id == 'pack_30': 
-        price, name, credits = 12.99, "30 Crédits", 30
-    elif req.pack_id == 'pack_100': 
-        price, name, credits = 29.99, "100 Crédits", 100
-    # Custom Pack
+    price, name, credits = 0, "", 0
+    if req.pack_id == 'pack_10': price, name, credits = 4.99, "10 Crédits", 10
+    elif req.pack_id == 'pack_30': price, name, credits = 12.99, "30 Crédits", 30
+    elif req.pack_id == 'pack_100': price, name, credits = 29.99, "100 Crédits", 100
     elif req.pack_id == 'pack_custom' and req.custom_amount >= 200:
         credits = req.custom_amount
         price = round(credits * 0.25, 2)
         name = f"{credits} Crédits (Enterprise)"
-    else: 
-        return {"error": "Pack invalide"}
+    else: return {"error": "Pack invalide"}
 
     try:
-        import shopify
         shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
         session = shopify.Session(shop, API_VERSION, token)
         shopify.ShopifyResource.activate_session(session)
@@ -115,10 +116,7 @@ def buy_credits(req: BuyRequest):
         return_url = f"{HOST}/billing/callback?shop={shop}&amt={credits}"
         
         charge = shopify.ApplicationCharge.create({
-            "name": name,
-            "price": price,
-            "test": True,
-            "return_url": return_url
+            "name": name, "price": price, "test": True, "return_url": return_url
         })
         
         if charge.confirmation_url:
@@ -134,7 +132,6 @@ def billing_callback(shop: str, amt: int, charge_id: str):
     if not token: return RedirectResponse(f"/login?shop={shop}")
 
     try:
-        import shopify
         shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
         session = shopify.Session(shop, API_VERSION, token)
         shopify.ShopifyResource.activate_session(session)
@@ -142,48 +139,44 @@ def billing_callback(shop: str, amt: int, charge_id: str):
         charge = shopify.ApplicationCharge.find(charge_id)
         if charge.status != 'active': charge.activate()
 
+        # Mise à jour des crédits dans les Metafields
         current_shop = shopify.Shop.current()
         credits_field = shopify.Metafield.find(namespace="stylelab", key="credits")
         
         current_credits = 0
         if credits_field:
             if isinstance(credits_field, list) and len(credits_field) > 0: current_credits = int(credits_field[0].value)
-            elif not isinstance(credits_field, list): current_credits = int(credits_field.value)
+            else: current_credits = int(credits_field.value)
 
         new_total = current_credits + amt
-        
-        metafield = shopify.Metafield()
-        metafield.namespace = "stylelab"
-        metafield.key = "credits"
-        metafield.value = new_total
-        metafield.type = "number_integer"
+        metafield = shopify.Metafield({'namespace': 'stylelab', 'key': 'credits', 'value': new_total, 'type': 'number_integer'})
         current_shop.add_metafield(metafield)
 
         shop_name = shop.replace(".myshopify.com", "")
         admin_url = f"https://admin.shopify.com/store/{shop_name}/apps/{SHOPIFY_API_KEY}"
         return HTMLResponse(f"<script>window.top.location.href='{admin_url}';</script>")
-
     except Exception as e:
-        return HTMLResponse(f"Erreur ajout crédits: {e}")
+        return HTMLResponse(f"Erreur: {e}")
 
 @app.get("/api/get-credits")
 def get_credits(shop: str):
     shop = clean_shop_url(shop)
     token = shop_sessions.get(shop)
-    if not token: raise HTTPException(status_code=401, detail="Session expirée")
+    if not token: raise HTTPException(status_code=401)
 
     try:
-        import shopify
         shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
         session = shopify.Session(shop, API_VERSION, token)
         shopify.ShopifyResource.activate_session(session)
-        credits = 0
         mf = shopify.Metafield.find(namespace="stylelab", key="credits")
+        credits = 0
         if mf:
             if isinstance(mf, list) and len(mf) > 0: credits = int(mf[0].value)
-            elif not isinstance(mf, list): credits = int(mf.value)
+            else: credits = int(mf.value)
         return {"credits": credits}
     except: return {"credits": 0}
+
+# --- API GÉNÉRATION IA ---
 
 class TryOnRequest(BaseModel):
     shop: str
@@ -194,6 +187,7 @@ class TryOnRequest(BaseModel):
 @app.post("/api/generate")
 def generate(req: TryOnRequest):
     try:
+        # Appel à Replicate (IDM-VTON)
         output = replicate.run(
             MODEL_ID,
             input={
@@ -208,11 +202,10 @@ def generate(req: TryOnRequest):
         return {"result_image_url": url}
     except Exception as e: return {"error": str(e)}
 
-# Webhooks obligatoires
+# --- WEBHOOKS OBLIGATOIRES (RGPD) ---
 @app.post("/webhooks/customers/data_request")
 def w1(): return {"ok": True}
 @app.post("/webhooks/customers/redact")
 def w2(): return {"ok": True}
 @app.post("/webhooks/shop/redact")
 def w3(): return {"ok": True}
-
