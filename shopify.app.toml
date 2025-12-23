@@ -1,0 +1,13 @@
+# Configuration de l'application
+client_id = "85e1a9dba888450e33b84fbb067bc3a5"
+name = "StyleLab"
+application_url = "https://stylelab-vtonn.onrender.com"
+embedded = true
+
+[webhooks]
+api_version = "2024-10"
+
+# Les 3 webhooks RGPD obligatoires (remplacent les cases de l'interface)
+[[webhooks.subscriptions]]
+topics = ["customers/data_request", "customers/redact", "shop/redact"]
+uri = "https://stylelab-vtonn.onrender.com/webhooks/gdpr"
