@@ -55,6 +55,7 @@ def auth_callback(shop: str, code: str, host: str = None):
         url = f"https://{shop}/admin/oauth/access_token"
         payload = {"client_id": SHOPIFY_API_KEY, "client_secret": SHOPIFY_API_SECRET, "code": code}
         res = requests.post(url, json=payload)
+        
         if res.status_code == 200:
             token = res.json().get('access_token')
             shop_sessions[shop] = token
@@ -63,18 +64,20 @@ def auth_callback(shop: str, code: str, host: str = None):
                 return RedirectResponse(f"https://admin.shopify.com/store/{shop_name}/apps/{SHOPIFY_API_KEY}?host={host}")
             else:
                 return RedirectResponse(f"https://{shop}/admin/apps/{SHOPIFY_API_KEY}")
-        return HTMLResponse(f"Error: {res.text}", status_code=400)
+        return HTMLResponse(f"Token Error: {res.text}", status_code=400)
     except Exception as e:
         return HTMLResponse(content=f"Auth Error: {str(e)}", status_code=500)
 
-# --- API CRÉDITS & PAIEMENTS (C'ÉTAIT MANQUANT) ---
+# --- API CRÉDITS (LE COEUR DU PROBLÈME) ---
 
 @app.get("/api/get-credits")
 def get_credits(shop: str):
     shop = clean_shop_url(shop)
     token = shop_sessions.get(shop)
-    # Si pas de token en mémoire (redémarrage serveur), on renvoie 0 mais on ne plante pas
-    if not token: return {"credits": 0}
+    
+    # ICI : Si le serveur a redémarré, on force le JS à recharger la page
+    if not token: 
+        raise HTTPException(status_code=401, detail="Session expired")
 
     try:
         shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
@@ -86,7 +89,8 @@ def get_credits(shop: str):
         if mf:
             val = int(mf[0].value) if isinstance(mf, list) else int(mf.value)
         return {"credits": val}
-    except:
+    except Exception as e:
+        # En cas d'erreur API Shopify, on renvoie 0 mais on ne plante pas
         return {"credits": 0}
 
 class BuyRequest(BaseModel):
@@ -98,7 +102,10 @@ class BuyRequest(BaseModel):
 def buy_credits(req: BuyRequest):
     shop = clean_shop_url(req.shop)
     token = shop_sessions.get(shop)
-    if not token: raise HTTPException(status_code=401)
+    
+    # ICI : Même chose, si pas de token, erreur 401 immédiate
+    if not token: 
+        raise HTTPException(status_code=401, detail="Session expired")
 
     price, name, credits = 0, "", 0
     if req.pack_id == 'pack_10': price, name, credits = 4.99, "10 Credits", 10
@@ -106,6 +113,7 @@ def buy_credits(req: BuyRequest):
     elif req.pack_id == 'pack_100': price, name, credits = 29.99, "100 Credits", 100
     elif req.pack_id == 'pack_custom':
         credits = req.custom_amount
+        if credits < 200: return {"error": "Min 200 credits"}
         price = round(credits * 0.25, 2)
         name = f"{credits} Credits (Custom)"
     else: return {"error": "Invalid Pack"}
@@ -126,6 +134,9 @@ def buy_credits(req: BuyRequest):
 def billing_callback(shop: str, amt: int, charge_id: str):
     shop = clean_shop_url(shop)
     token = shop_sessions.get(shop)
+    # Si le token est perdu pendant le paiement, on relance le login
+    if not token: return RedirectResponse(f"/login?shop={shop}")
+
     try:
         shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
         session = shopify.Session(shop, API_VERSION, token)
@@ -141,7 +152,6 @@ def billing_callback(shop: str, amt: int, charge_id: str):
         meta = shopify.Metafield({'namespace': 'stylelab', 'key': 'credits', 'value': curr + amt, 'type': 'number_integer'})
         current_shop.add_metafield(meta)
 
-        # Retour à l'admin
         admin_url = f"https://admin.shopify.com/store/{shop.replace('.myshopify.com','')}/apps/{SHOPIFY_API_KEY}"
         return HTMLResponse(f"<script>window.top.location.href='{admin_url}';</script>")
     except Exception as e: return HTMLResponse(f"Error: {e}")
