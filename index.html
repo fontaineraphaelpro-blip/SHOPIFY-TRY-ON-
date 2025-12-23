@@ -9,12 +9,8 @@
 <body>
     <div class="admin-container">
         <header class="admin-header">
-            <div class="logo">
-                <span class="bolt">⚡</span> VTON Magic Admin
-            </div>
-            <div class="status-badge">
-                <span class="dot"></span> System Active
-            </div>
+            <div class="logo"><span class="bolt">⚡</span> VTON Magic Admin</div>
+            <div class="status-badge"><span class="dot"></span> System Active</div>
         </header>
 
         <div class="alert-banner">
@@ -25,7 +21,7 @@
         <main class="dashboard-grid">
             <div class="card main-card">
                 <p class="card-label">REMAINING CREDITS</p>
-                <h1 id="credits-count">...</h1>
+                <h1 id="credits-count">0</h1>
                 <p class="card-footer">∞ Credits never expire</p>
             </div>
 
@@ -56,20 +52,7 @@
                 <button class="btn-select" onclick="buyPack('pack_100')">Select</button>
             </div>
         </main>
-
-        <footer class="admin-footer">
-            <div class="custom-pack">
-                <span class="icon">🏢</span>
-                <strong>High Volume Store?</strong>
-                <p>Get our lowest rate (€0.25 / try-on) for bulk orders.</p>
-                <div class="input-group">
-                    <input type="number" value="200" id="custom-amt">
-                    <button class="btn-dark" onclick="buyCustom()">Get Custom Pack</button>
-                </div>
-            </div>
-        </footer>
     </div>
-
     <script src="/app.js"></script>
 </body>
 </html>
