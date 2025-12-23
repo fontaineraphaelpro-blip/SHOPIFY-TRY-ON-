@@ -3,56 +3,71 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>StyleLab Admin</title>
+    <title>StyleLab</title>
     <link rel="stylesheet" href="/styles.css">
 </head>
-<body>
-    <div class="admin-container">
+<body id="body-tag">
+    <div id="admin-dashboard" class="container">
         <header class="admin-header">
-            <div class="logo"><span class="bolt">⚡</span> VTON Magic Admin</div>
-            <div class="status-badge"><span class="dot"></span> System Active</div>
+            <div class="brand">⚡ StyleLab Admin</div>
         </header>
-
-        <div class="alert-banner">
-            <span class="icon">⚠️</span>
-            <p><strong>Stop losing money on returns.</strong> Letting customers <a href="#">test products virtually</a> removes doubt. This slashes refunds and boosts conversion by 2.5x instantly.</p>
+        <div class="roi-banner">
+            <div class="roi-text"><strong>Boost sales.</strong> Reduce returns by 30% with Virtual Try-On.</div>
         </div>
-
-        <main class="dashboard-grid">
-            <div class="card main-card">
-                <p class="card-label">REMAINING CREDITS</p>
-                <h1 id="credits-count">0</h1>
-                <p class="card-footer">∞ Credits never expire</p>
+        <div class="dashboard-grid">
+            <div class="credit-card">
+                <p>REMAINING CREDITS</p>
+                <div id="credits-count" class="credit-amount">0</div>
             </div>
-
-            <div class="card pricing-card">
-                <h3>Discovery</h3>
-                <div class="amount">10</div>
-                <p>Start offering Virtual Testing</p>
-                <div class="price">4.99€</div>
-                <button class="btn-select" onclick="buyPack('pack_10')">Select</button>
+            <div class="packs-container">
+                <div class="pack-card" onclick="buyPack('pack_10')">
+                    <div class="pack-title">Discovery</div>
+                    <div class="pack-credits">10</div>
+                    <button class="pack-btn btn-outline">4.99€</button>
+                </div>
+                <div class="pack-card popular" onclick="buyPack('pack_30')">
+                    <div class="popular-badge">Best Seller</div>
+                    <div class="pack-title">Standard</div>
+                    <div class="pack-credits">30</div>
+                    <button class="pack-btn btn-fill">12.99€</button>
+                </div>
             </div>
-
-            <div class="card pricing-card featured">
-                <div class="badge">BEST SELLER</div>
-                <div class="save-tag">SAVE 15%</div>
-                <h3>Standard</h3>
-                <div class="amount">30</div>
-                <p>Turn visitors into buyers</p>
-                <div class="price">12.99€</div>
-                <button class="btn-primary" onclick="buyPack('pack_30')">Top Up Now</button>
-            </div>
-
-            <div class="card pricing-card">
-                <div class="save-tag">BEST ROI</div>
-                <h3>Business</h3>
-                <div class="amount">100</div>
-                <p>Slash return rates by 30%</p>
-                <div class="price">29.99€</div>
-                <button class="btn-select" onclick="buyPack('pack_100')">Select</button>
-            </div>
-        </main>
+        </div>
     </div>
+
+    <div id="studio-interface" class="hidden">
+        <div class="client-grid">
+            <div class="upload-card" onclick="document.getElementById('user-img').click()">
+                <div class="step-badge">1</div>
+                <div class="upload-text">Upload photo</div>
+                <input type="file" id="user-img" hidden onchange="previewImg(this, 'preview1')">
+                <img id="preview1" src="" style="display:none; width:100%; height:100%; object-fit:cover;">
+            </div>
+            <div class="upload-card">
+                <div class="step-badge">2</div>
+                <img id="product-preview" src="" style="display:block; width:100%; height:100%; object-fit:cover;">
+            </div>
+            <div id="resZone" class="upload-card">
+                <div class="step-badge">3</div>
+                <div id="loading-spinner" class="hidden">Generating...</div>
+                <img id="result-img" src="" style="display:none; width:100%; height:100%; object-fit:cover;">
+            </div>
+            <button class="cta-button" onclick="startGeneration()">✨ Test This Outfit Now</button>
+        </div>
+    </div>
+
     <script src="/app.js"></script>
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('mode') === 'client') {
+            document.getElementById('body-tag').classList.add('client-mode');
+            document.getElementById('admin-dashboard').classList.add('hidden');
+            document.getElementById('studio-interface').classList.remove('hidden');
+            const prodImg = urlParams.get('product_image');
+            if (prodImg) document.getElementById('product-preview').src = decodeURIComponent(prodImg);
+        } else {
+            document.getElementById('body-tag').classList.add('loaded');
+        }
+    </script>
 </body>
 </html>
