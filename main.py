@@ -182,3 +182,10 @@ def w1(): return {"ok": True}
 def w2(): return {"ok": True}
 @app.post("/webhooks/shop/redact")
 def w3(): return {"ok": True}
+    
+# --- AJOUT POUR LES WEBHOOKS GDPR ---
+@app.route('/webhooks/gdpr', methods=['POST'])
+def gdpr_webhooks():
+    # On répond juste 200 OK pour dire à Shopify qu'on a bien reçu l'info
+    return "OK", 200
+
