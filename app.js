@@ -7,7 +7,7 @@ document.addEventListener("DOMContentLoaded", function() {
     if(shop) sessionStorage.setItem('shop', shop);
     document.body.classList.add('loaded');
 
-    // SETUP INITIAL
+    // SETUP INITIAL (ADMIN VS CLIENT)
     if (mode === 'client') {
         document.body.classList.add('client-mode');
         const t = document.getElementById('client-title');
@@ -16,7 +16,7 @@ document.addEventListener("DOMContentLoaded", function() {
         if(shop) fetchCredits(shop);
     }
 
-    // FONCTION UPLOAD
+    // FONCTION UPLOAD (PREVIEW)
     window.preview = function(inputId, imgId, txtId) {
         const file = document.getElementById(inputId).files[0];
         if (file) {
@@ -35,11 +35,11 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     };
 
-    // GENERATION IA
+    // GENERATION IA (APPEL API)
     window.generate = async function() {
         const u = document.getElementById('uImg').files[0];
         const c = document.getElementById('cImg').files[0];
-        if (!u || !c) return alert("Veuillez mettre les 2 photos.");
+        if (!u || !c) return alert("Please upload both photos.");
 
         const btn = document.getElementById('btnGo');
         const resZone = document.getElementById('resZone');
@@ -55,7 +55,12 @@ document.addEventListener("DOMContentLoaded", function() {
         try {
             const res = await fetch('/api/generate', {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ shop: shop || "demo", person_image_url: await to64(u), clothing_image_url: await to64(c), category: "upper_body" })
+                body: JSON.stringify({ 
+                    shop: shop || "demo", 
+                    person_image_url: await to64(u), 
+                    clothing_image_url: await to64(c), 
+                    category: "upper_body" 
+                })
             });
             const data = await res.json();
             
@@ -65,8 +70,8 @@ document.addEventListener("DOMContentLoaded", function() {
                 ri.style.display = 'block';
                 if(loader) loader.style.display = 'none';
                 if(mode !== 'client') fetchCredits(shop);
-            } else alert("Erreur IA");
-        } catch(e) { alert("Erreur technique"); }
+            } else alert("AI Error: " + (data.error || "Unknown"));
+        } catch(e) { alert("Technical Error: " + e); }
         finally { btn.disabled = false; btn.innerHTML = 'Try On Now ✨'; }
     };
 
@@ -84,22 +89,21 @@ document.addEventListener("DOMContentLoaded", function() {
         } catch(e) {}
     }
 
-    // --- FONCTION PAIEMENT MISE À JOUR ---
+    // --- FONCTION PAIEMENT MISE À JOUR (CUSTOM PACK) ---
     window.buy = async function(packId, customAmount = 0) {
-        if(!shop) return alert("Erreur shop");
+        if(!shop) return alert("Shop ID missing");
         
         let btn;
+        // Détecter le bouton cliqué même si on clique sur l'enfant
         if (event && event.target) {
-             btn = event.currentTarget.tagName === 'BUTTON' ? event.currentTarget : event.currentTarget.querySelector('button');
-             if(!btn) btn = event.target; // Fallback
-        } else {
-            // Si appelé via buyCustom sans event direct sur un bouton
-            btn = document.querySelector('.custom-input-group button');
-        }
+            btn = event.currentTarget.tagName === 'BUTTON' ? event.currentTarget : event.target.closest('button');
+        } 
+        // Si appelé manuellement sans event
+        if (!btn) btn = document.querySelector('.custom-input-group button');
 
-        const oldText = btn ? btn.innerText : "Acheter";
+        const oldText = btn ? btn.innerText : "Buy";
         if(btn) {
-            btn.innerText = "Redirection...";
+            btn.innerText = "Redirecting...";
             btn.disabled = true;
         }
 
@@ -123,11 +127,11 @@ document.addEventListener("DOMContentLoaded", function() {
             if(data.confirmation_url) {
                 window.top.location.href = data.confirmation_url;
             } else {
-                alert("Erreur: " + (data.error || "Inconnue"));
+                alert("Error: " + (data.error || "Unknown"));
                 if(btn) { btn.innerText = oldText; btn.disabled = false; }
             }
         } catch(e) {
-            alert("Erreur réseau");
+            alert("Network Error");
             if(btn) { btn.innerText = oldText; btn.disabled = false; }
         }
     }
@@ -139,6 +143,7 @@ document.addEventListener("DOMContentLoaded", function() {
             alert("Minimum order for custom pack is 200 credits.");
             return;
         }
+        // Appel manuel à buy avec le bon ID
         window.buy('pack_custom', amount);
     }
 });
