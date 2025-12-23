@@ -95,13 +95,13 @@ def buy_credits(req: BuyRequest):
     if req.pack_id == 'pack_10': 
         price, name, credits = 4.99, "10 Crédits", 10
     elif req.pack_id == 'pack_30': 
-        price, name, credits = 9.99, "30 Crédits", 30
+        price, name, credits = 12.99, "30 Crédits", 30
     elif req.pack_id == 'pack_100': 
-        price, name, credits = 19.99, "100 Crédits", 100
+        price, name, credits = 29.99, "100 Crédits", 100
     # Custom Pack
     elif req.pack_id == 'pack_custom' and req.custom_amount >= 200:
         credits = req.custom_amount
-        price = round(credits * 0.15, 2)
+        price = round(credits * 0.25, 2)
         name = f"{credits} Crédits (Enterprise)"
     else: 
         return {"error": "Pack invalide"}
@@ -215,3 +215,4 @@ def w1(): return {"ok": True}
 def w2(): return {"ok": True}
 @app.post("/webhooks/shop/redact")
 def w3(): return {"ok": True}
+
