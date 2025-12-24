@@ -1,23 +1,23 @@
-import json
 import os
 import hmac
 import hashlib
 import base64
+import json
 import shopify
 import requests
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse
+import replicate
+from fastapi import FastAPI, Request
+from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import replicate
 
 # --- CONFIGURATION ---
-# Récupération des variables d'environnement
 SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
 SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
-HOST = os.getenv("HOST")
+HOST = os.getenv("HOST") # ex: https://stylelab-vtonn.onrender.com
 SCOPES = ['read_products', 'write_products']
 API_VERSION = "2024-01"
+# Votre modèle Replicate (IDM-VTON)
 MODEL_ID = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985"
 
 app = FastAPI()
@@ -30,17 +30,41 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-shop_sessions = {}
+# --- BASES DE DONNÉES (EN MÉMOIRE) ---
+# Attention : Ces données s'effacent si Render redémarre.
+# Pour la production, utilisez une vraie base de données (SQLite, PostgreSQL, Firebase).
+shop_sessions = {}  # Stocke les tokens : { "shop.com": "token_xyz" }
+credits_db = {}     # Stocke les crédits : { "shop.com": 10 }
 
+# --- MODÈLES DE DONNÉES ---
+class BuyModel(BaseModel):
+    shop: str
+    pack_id: str
+    custom_amount: int = None
+
+class GenerateModel(BaseModel):
+    shop: str
+    person_image_url: str
+    clothing_image_url: str
+    category: str = "upper_body"
+
+# --- UTILITAIRES ---
 def clean_shop_url(url):
     if not url: return ""
     return url.replace("https://", "").replace("http://", "").strip("/")
 
+def get_session(shop):
+    token = shop_sessions.get(shop)
+    if not token:
+        return None
+    session = shopify.Session(shop, API_VERSION, token)
+    shopify.ShopifyResource.activate_session(session)
+    return session
+
 # --- ROUTES STATIQUES ---
 @app.get("/")
 def index():
-    if os.path.exists('index.html'):
-        return FileResponse('index.html')
+    if os.path.exists('index.html'): return FileResponse('index.html')
     return HTMLResponse("<h1>StyleLab App is Running</h1>")
 
 @app.get("/styles.css")
@@ -71,6 +95,10 @@ def auth_callback(shop: str, code: str, host: str = None):
         if res.status_code == 200:
             token = res.json().get('access_token')
             shop_sessions[shop] = token
+            # Initialiser les crédits si nouveau client
+            if shop not in credits_db:
+                credits_db[shop] = 10 # 10 crédits gratuits
+                
             shop_name = shop.replace(".myshopify.com", "")
             if host:
                 return RedirectResponse(f"https://admin.shopify.com/store/{shop_name}/apps/{SHOPIFY_API_KEY}?host={host}")
@@ -80,67 +108,178 @@ def auth_callback(shop: str, code: str, host: str = None):
     except Exception as e:
         return HTMLResponse(content=f"Auth Error: {str(e)}", status_code=500)
 
-# --- API ---
+# --- API CRÉDITS & PAIEMENT ---
+
 @app.get("/api/get-credits")
 def get_credits(shop: str):
-    return {"credits": 10} # Version simplifiée pour test
+    shop = clean_shop_url(shop)
+    # Vérifier si connecté
+    if shop not in shop_sessions:
+        return JSONResponse(content={"error": "Session lost"}, status_code=401)
+    
+    count = credits_db.get(shop, 0)
+    return {"credits": count}
 
-# --- WEBHOOKS GDPR OBLIGATOIRES ---
+@app.post("/api/buy-credits")
+def buy_credits(data: BuyModel):
+    shop = clean_shop_url(data.shop)
+    if not get_session(shop):
+        return JSONResponse(content={"error": "Session expirée"}, status_code=401)
+
+    try:
+        # 1. Définir le prix
+        price = 10.0
+        name = "Recharge Crédits"
+        credits_to_add = 0
+        
+        # Logique des packs (doit correspondre à votre HTML)
+        if data.pack_id == 'pack_discovery': # 10 crédits
+             price = 4.99
+             name = "Discovery Pack (10 Credits)"
+        elif data.pack_id == 'pack_standard': # 30 crédits
+            price = 12.99
+            name = "Standard Pack (30 Credits)"
+        elif data.pack_id == 'pack_business': # 100 crédits
+            price = 29.99
+            name = "Business Pack (100 Credits)"
+        elif data.pack_id == 'pack_custom' and data.custom_amount:
+            price = data.custom_amount * 0.25 # 0.25€ le crédit
+            name = f"Custom Pack ({data.custom_amount} Credits)"
+        
+        # 2. Créer la demande de paiement Shopify
+        charge = shopify.ApplicationCharge.create({
+            "name": name,
+            "price": price,
+            "return_url": f"{HOST}/api/charge/callback?shop={shop}&pack_id={data.pack_id}&custom={data.custom_amount or 0}",
+            "test": True # ⚠️ Mettre à False pour de vrais paiements
+        })
+
+        if charge.confirmation_url:
+            return {"confirmation_url": charge.confirmation_url}
+        else:
+            return {"error": "Erreur création charge Shopify"}
+
+    except Exception as e:
+        print(f"Erreur paiement: {e}")
+        return {"error": str(e)}
+
+@app.get("/api/charge/callback")
+def charge_callback(shop: str, charge_id: str, pack_id: str, custom: int = 0):
+    shop = clean_shop_url(shop)
+    if not get_session(shop):
+        return HTMLResponse("Session expirée. Veuillez recharger l'application.")
+
+    try:
+        # 1. Récupérer et activer la charge
+        charge = shopify.ApplicationCharge.find(charge_id)
+        if charge.status == 'accepted':
+            charge.activate()
+            
+            # 2. Calculer les crédits à ajouter
+            credits_to_add = 0
+            if pack_id == 'pack_discovery': credits_to_add = 10
+            elif pack_id == 'pack_standard': credits_to_add = 30
+            elif pack_id == 'pack_business': credits_to_add = 100
+            elif pack_id == 'pack_custom': credits_to_add = int(custom)
+            
+            # 3. Ajouter à la base de données
+            current = credits_db.get(shop, 0)
+            credits_db[shop] = current + credits_to_add
+            
+            # 4. Rediriger vers l'app
+            return RedirectResponse(f"https://{shop}/admin/apps/{SHOPIFY_API_KEY}")
+        else:
+            return HTMLResponse("Paiement refusé ou annulé.")
+            
+    except Exception as e:
+        return HTMLResponse(f"Erreur validation paiement: {str(e)}")
+
+# --- API GÉNÉRATION IA ---
+
+@app.post("/api/generate")
+def generate_image(data: GenerateModel):
+    shop = clean_shop_url(data.shop)
+    
+    # 1. Vérification auth
+    # Note: Pour le mode "Client", vous devrez peut-être assouplir ça ou utiliser un autre système
+    if shop not in shop_sessions and shop != "demo": 
+         # Si c'est le mode admin, on veut vérifier
+         pass 
+
+    # 2. Vérification crédits
+    current_credits = credits_db.get(shop, 0)
+    if current_credits < 1 and shop != "demo":
+        return {"error": "Crédits insuffisants"}
+
+    try:
+        # 3. Appel à Replicate
+        output = replicate.run(
+            MODEL_ID,
+            input={
+                "human_img": data.person_image_url,
+                "garm_img": data.clothing_image_url,
+                "garment_des": data.category,
+            }
+        )
+        
+        # 4. Déduire un crédit
+        if shop != "demo":
+            credits_db[shop] = current_credits - 1
+            
+        return {"result_image_url": output}
+        
+    except Exception as e:
+        print(f"Replicate Error: {e}")
+        return {"error": str(e)}
+
+# --- WEBHOOKS RGPD (CONFORMITÉ) ---
 @app.post("/webhooks/gdpr")
 async def gdpr_webhooks(request: Request):
     try:
-        # 1. Lire les données brutes pour le HMAC
+        # 1. Sécurité HMAC
         data = await request.body()
-        
-        # 2. Vérifier la signature HMAC
         hmac_header = request.headers.get('X-Shopify-Hmac-SHA256')
-        topic = request.headers.get('X-Shopify-Topic') # <-- ON RÉCUPÈRE LE SUJET ICI
+        topic = request.headers.get('X-Shopify-Topic')
         
         if not SHOPIFY_API_SECRET:
-            print("❌ Erreur: Secret API manquant")
+            print("❌ Secret manquant")
             return HTMLResponse(content="Config Error", status_code=500)
 
         digest = hmac.new(SHOPIFY_API_SECRET.encode('utf-8'), data, hashlib.sha256).digest()
         computed_hmac = base64.b64encode(digest).decode()
 
-        # 3. Comparaison de sécurité
-        if hmac_header and hmac.compare_digest(computed_hmac, hmac_header):
-            
-            # 4. Traitement selon le sujet (Topic)
-            # On transforme les données brutes en dictionnaire Python
-            try:
-                payload = json.loads(data)
-            except:
-                payload = {}
-
-            print(f"✅ Webhook REÇU : {topic}")
-
-            if topic == "customers/data_request":
-                # EXEMPLE : Envoyer un email au marchand avec les données du client
-                # Payload contient : shop_domain, customer (email, id)
-                print(f"📩 Demande de données pour {payload.get('customer', {}).get('email')}")
-                # TODO: Implémenter la logique d'export ici
-
-            elif topic == "customers/redact":
-                # EXEMPLE : Supprimer ou anonymiser le client en DB
-                # Payload contient : shop_domain, customer (email, id)
-                print(f"🗑️ Demande d'effacement pour {payload.get('customer', {}).get('email')}")
-                # TODO: Implémenter la suppression ici
-
-            elif topic == "shop/redact":
-                # EXEMPLE : Supprimer toutes les données de la boutique (désinstallation)
-                # Payload contient : shop_domain, shop_id
-                print(f"🛑 Demande d'effacement complet pour la boutique {payload.get('shop_domain')}")
-                # TODO: Supprimer la boutique de votre base de données
-
-            # On répond 200 OK immédiatement à Shopify quoi qu'il arrive
-            return HTMLResponse(content="Webhook received", status_code=200)
-            
-        else:
-            print("⛔ Signature invalide.")
+        if not hmac_header or not hmac.compare_digest(computed_hmac, hmac_header):
+            print("⛔ Signature invalide")
             return HTMLResponse(content="Unauthorized", status_code=401)
+
+        # 2. Traitement Logique
+        try:
+            payload = json.loads(data)
+        except:
+            payload = {}
+
+        print(f"✅ RGPD Webhook reçu : {topic}")
+        
+        if topic == "customers/data_request":
+            # Envoyer les données du client au marchand par email
+            print(f"📩 Export demandé pour {payload.get('customer', {}).get('email')}")
             
+        elif topic == "customers/redact":
+            # Supprimer les données du client
+            print(f"🗑️ Suppression demandée pour {payload.get('customer', {}).get('email')}")
+            
+        elif topic == "shop/redact":
+            # Supprimer la boutique de la DB
+            shop_domain = payload.get('shop_domain')
+            print(f"🛑 Suppression boutique : {shop_domain}")
+            if shop_domain in credits_db:
+                del credits_db[shop_domain]
+            if shop_domain in shop_sessions:
+                del shop_sessions[shop_domain]
+
+        # 3. Réponse obligatoire 200 OK
+        return HTMLResponse(content="Webhook received", status_code=200)
+
     except Exception as e:
         print(f"Erreur Webhook: {str(e)}")
-        # On renvoie 200 même en cas d'erreur de logique interne pour éviter que Shopify ne réessaie en boucle
         return HTMLResponse(content="Error processed", status_code=200)
