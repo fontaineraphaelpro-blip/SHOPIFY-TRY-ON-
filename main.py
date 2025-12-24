@@ -1,84 +1,132 @@
-document.addEventListener("DOMContentLoaded", async () => {
-    document.body.classList.add("loaded");
+from fastapi import FastAPI, Request, UploadFile, File, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
+import httpx, os
 
-    const shop = prompt("Enter your shop domain (ex: mon-shop.myshopify.com)"); // Pour test en dev
+app = FastAPI()
 
-    async function fetchCredits() {
-        const res = await fetch("/api/get-credits", { headers: { "X-Shopify-Shop": shop } });
-        const data = await res.json();
-        document.getElementById("credits").innerText = data.credits || 0;
+API_KEY = os.environ.get("SHOPIFY_API_KEY")
+API_SECRET = os.environ.get("SHOPIFY_API_SECRET")
+API_VERSION = "2025-10"
+
+PACK_PRICES = {"pack_10": 4.99, "pack_30": 12.99, "pack_100": 29.99}
+PRICE_PER_CREDIT = 0.25
+
+# ---------------------------
+# OAuth Installation
+# ---------------------------
+@app.get("/auth")
+async def install(shop: str):
+    if not shop:
+        raise HTTPException(400, "Missing shop param")
+    redirect_uri = "https://stylelab-vtonn.onrender.com/auth/callback"
+    scope = "read_products,write_products,read_metafields,write_metafields"
+    state = "optional_state"
+    install_url = f"https://{shop}/admin/oauth/authorize?client_id={API_KEY}&scope={scope}&redirect_uri={redirect_uri}&state={state}"
+    return RedirectResponse(install_url)
+
+@app.get("/auth/callback")
+async def auth_callback(shop: str, code: str):
+    token_url = f"https://{shop}/admin/oauth/access_token"
+    payload = {"client_id": API_KEY, "client_secret": API_SECRET, "code": code}
+    async with httpx.AsyncClient() as client:
+        r = await client.post(token_url, json=payload)
+        if r.status_code != 200:
+            return JSONResponse({"error": r.text}, status_code=400)
+        access_token = r.json().get("access_token")
+
+    # Init Metafield credits
+    metafield_payload = {
+        "metafield": {
+            "namespace": "custom_app",
+            "key": "credits",
+            "value": "0",
+            "type": "single_line_text_field"
+        }
     }
-    fetchCredits();
+    async with httpx.AsyncClient() as client:
+        await client.post(
+            f"https://{shop}/admin/api/{API_VERSION}/metafields.json",
+            headers={"X-Shopify-Access-Token": access_token, "Content-Type": "application/json"},
+            json=metafield_payload
+        )
 
-    window.buy = async function(event, packId) {
-        event.preventDefault();
-        const btn = event.currentTarget;
-        const oldText = btn.innerText;
-        btn.innerText = "Redirecting...";
-        btn.disabled = true;
-        try {
-            const res = await fetch("/api/buy-credits", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ shop, pack_id: packId })
-            });
-            const data = await res.json();
-            if (data.confirmation_url) window.top.location.href = data.confirmation_url;
-            else throw new Error(data.error || "Unknown error");
-        } catch (e) {
-            console.error(e);
-            btn.innerText = oldText;
-            btn.disabled = false;
-            alert("Erreur achat pack");
-        }
-    };
+    # Redirection vers l'app dans Shopify
+    return RedirectResponse(f"https://{shop}/admin/apps/YOUR_APP_HANDLE?token={access_token}")
+    
 
-    window.buyCustom = async function() {
-        const amount = parseInt(document.getElementById("customAmount").value);
-        if (isNaN(amount) || amount < 200) return alert("Montant min 200");
-        const res = await fetch("/api/buy-custom", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ shop, amount })
-        });
-        const data = await res.json();
-        if (data.confirmation_url) window.top.location.href = data.confirmation_url;
-        else alert("Erreur custom pack");
-    };
+# ---------------------------
+# Page principale
+# ---------------------------
+@app.get("/", response_class=HTMLResponse)
+async def index():
+    html_path = os.path.join(os.path.dirname(__file__), "index.html")
+    return FileResponse(html_path)
 
-    window.preview = function(inputId,imgId,txtId){
-        const file = document.getElementById(inputId).files[0];
-        if(!file) return;
-        const reader = new FileReader();
-        reader.onload=e=>{
-            const img=document.getElementById(imgId);
-            const txt=document.getElementById(txtId);
-            img.src=e.target.result; img.style.display="block"; txt.style.display="none";
-            document.getElementById(inputId).parentElement.classList.add("has-image");
-        }
-        reader.readAsDataURL(file);
-    };
 
-    window.generate=async function(){
-        const userFile=document.getElementById("uImg").files[0];
-        const garmentFile=document.getElementById("cImg").files[0];
-        if(!userFile||!garmentFile){alert("Please upload both images"); return;}
-        const btn=document.getElementById("btnGo");
-        btn.disabled=true; btn.innerText="Processing...";
-        const formData=new FormData();
-        formData.append("user_image",userFile);
-        formData.append("garment_image",garmentFile);
-        try{
-            const res=await fetch("/api/generate-tryon",{method:"POST",body:formData});
-            if(!res.ok) throw new Error("AI generation failed");
-            const data=await res.json();
-            const resImg=document.getElementById("resImg");
-            const resZone=document.getElementById("resZone");
-            const loader=document.getElementById("loader");
-            resImg.src=data.generated_image_url;
-            resZone.style.display="block";
-            loader.style.display="none";
-            btn.innerText="Test This Outfit Now ✨"; btn.disabled=false;
-        }catch(err){console.error(err);alert("Error generating try-on"); btn.innerText="Test This Outfit Now ✨"; btn.disabled=false;}
-    };
-});
+# ---------------------------
+# Get Credits via Metafields
+# ---------------------------
+@app.get("/api/get-credits")
+async def get_credits(shop: str, token: str):
+    async with httpx.AsyncClient() as client:
+        r = await client.get(
+            f"https://{shop}/admin/api/{API_VERSION}/metafields.json",
+            headers={"X-Shopify-Access-Token": token}
+        )
+        if r.status_code != 200:
+            return JSONResponse({"credits": 0})
+        credits = 0
+        for mf in r.json().get("metafields", []):
+            if mf["namespace"] == "custom_app" and mf["key"] == "credits":
+                credits = int(mf["value"])
+        return JSONResponse({"credits": credits})
+
+
+# ---------------------------
+# Update Credits / Buy Packs
+# ---------------------------
+async def create_charge(shop: str, token: str, name: str, price: float):
+    payload = {"application_charge": {"name": name, "price": price, "return_url": f"https://{shop}/admin/apps/YOUR_APP_HANDLE", "test": True}}
+    async with httpx.AsyncClient() as client:
+        r = await client.post(
+            f"https://{shop}/admin/api/{API_VERSION}/application_charges.json",
+            headers={"X-Shopify-Access-Token": token, "Content-Type": "application/json"},
+            json=payload
+        )
+        if r.status_code not in [200, 201]:
+            raise HTTPException(400, r.text)
+        return r.json()["application_charge"]["confirmation_url"]
+
+@app.post("/api/buy-credits")
+async def buy_credits(data: dict):
+    shop = data.get("shop")
+    token = data.get("token")
+    pack_id = data.get("pack_id")
+    if not shop or not token or not pack_id:
+        raise HTTPException(400, "Missing params")
+    price = PACK_PRICES.get(pack_id, 5.0)
+    confirmation_url = await create_charge(shop, token, f"Pack {pack_id}", price)
+    return JSONResponse({"confirmation_url": confirmation_url})
+
+@app.post("/api/buy-custom")
+async def buy_custom(data: dict):
+    shop = data.get("shop")
+    token = data.get("token")
+    amount = int(data.get("amount"))
+    if not shop or not token or not amount:
+        raise HTTPException(400, "Missing params")
+    total_price = round(amount * PRICE_PER_CREDIT, 2)
+    confirmation_url = await create_charge(shop, token, f"Custom Pack {amount} credits", total_price)
+    return JSONResponse({"confirmation_url": confirmation_url})
+
+
+# ---------------------------
+# Virtual Try-On (placeholder)
+# ---------------------------
+@app.post("/api/generate-tryon")
+async def generate_tryon(user_image: UploadFile = File(...), garment_image: UploadFile = File(...)):
+    user_path = f"/tmp/{user_image.filename}"
+    garment_path = f"/tmp/{garment_image.filename}"
+    with open(user_path, "wb") as f: f.write(await user_image.read())
+    with open(garment_path, "wb") as f: f.write(await garment_image.read())
+    return {"generated_image_url": "https://via.placeholder.com/400x600.png?text=Virtual+Try-On"}
