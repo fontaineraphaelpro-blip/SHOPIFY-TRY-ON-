@@ -1,163 +1,184 @@
 import os
-import hmac
-import hashlib
-import base64
-import json
-import httpx
-import replicate
-from fastapi import FastAPI, Request, Form, File, UploadFile, HTTPException
-from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse, FileResponse
+import shopify
+import requests
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
+import replicate
 
 # --- CONFIGURATION ---
 SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
 SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
 HOST = os.getenv("HOST") 
-REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
+SCOPES = ['read_products', 'write_products']
 API_VERSION = "2024-01"
 MODEL_ID = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985"
 
 app = FastAPI()
-templates = Jinja2Templates(directory="templates")
-
-# --- COUPE ET COLLE CE BLOC ICI ---
-@app.get("/styles.css")
-async def get_css():
-    return FileResponse("styles.css", media_type="text/css")
-
-@app.get("/app.js")
-async def get_js():
-    return FileResponse("app.js", media_type="text/javascript")
-# ----------------------------------
-
-@app.get("/")
-async def index(shop: str = None):
-    return FileResponse('index.html')
-# Simulation de stockage des tokens (À remplacer par une DB en prod réelle pour les tokens)
-# Mais les CRÉDITS sont 100% sur Shopify Metafields
-shop_sessions = {} 
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- UTILS SHOPIFY GRAPHQL ---
+shop_sessions = {}
 
-async def query_shopify(shop, token, query, variables=None):
-    url = f"https://{shop}/admin/api/{API_VERSION}/graphql.json"
-    headers = {"X-Shopify-Access-Token": token, "Content-Type": "application/json"}
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(url, json={"query": query, "variables": variables}, headers=headers)
-        return resp.json()
+def clean_shop_url(url):
+    if not url: return ""
+    return url.replace("https://", "").replace("http://", "").strip("/")
 
-async def get_shop_data(shop, token):
-    """Récupère l'ID du shop et les crédits depuis les Metafields"""
-    query = """
-    {
-      shop {
-        id
-        metafield(namespace: "stylelab", key: "credits") {
-          value
-        }
-      }
-    }
-    """
-    res = await query_shopify(shop, token, query)
-    shop_id = res['data']['shop']['id']
-    meta = res['data']['shop']['metafield']
-    credits = int(meta['value']) if meta else 10 # 10 par défaut
-    return shop_id, credits
-
-async def set_shop_credits(shop, token, shop_id, amount):
-    """Enregistre les crédits dans les Metafields Shopify"""
-    mutation = """
-    mutation metafieldsSet($metafields: [MetafieldsSetInput!]!) {
-      metafieldsSet(metafields: $metafields) {
-        metafields { key value }
-        userErrors { message }
-      }
-    }
-    """
-    variables = {
-        "metafields": [{
-            "ownerId": shop_id,
-            "namespace": "stylelab",
-            "key": "credits",
-            "type": "number_integer",
-            "value": str(amount)
-        }]
-    }
-    await query_shopify(shop, token, mutation, variables)
-
-# --- ROUTES ---
-
+# --- ROUTES STATIQUES ---
 @app.get("/")
-async def index(shop: str = None):
-    return FileResponse('index.html')
+def index(): return FileResponse('index.html')
 
+@app.get("/styles.css")
+def styles(): return FileResponse('styles.css')
+
+@app.get("/app.js")
+def javascript(): return FileResponse('app.js')
+
+# --- AUTHENTIFICATION ---
 @app.get("/login")
-def login(shop: str):
-    auth_url = f"https://{shop}/admin/oauth/authorize?client_id={SHOPIFY_API_KEY}&scope=read_products,write_products,read_metafields,write_metafields&redirect_uri={HOST}/auth/callback"
+def login(shop: str, host: str = None):
+    shop = clean_shop_url(shop)
+    auth_url = f"https://{shop}/admin/oauth/authorize?client_id={SHOPIFY_API_KEY}&scope={','.join(SCOPES)}&redirect_uri={HOST}/auth/callback"
     return RedirectResponse(auth_url)
 
 @app.get("/auth/callback")
-async def auth_callback(shop: str, code: str):
-    url = f"https://{shop}/admin/oauth/access_token"
-    data = {"client_id": SHOPIFY_API_KEY, "client_secret": SHOPIFY_API_SECRET, "code": code}
-    async with httpx.AsyncClient() as client:
-        res = await client.post(url, json=data)
-        token = res.json().get('access_token')
-    
-    shop_sessions[shop] = token
-    
-    # Initialisation des crédits sur Shopify à l'installation
-    shop_id, credits = await get_shop_data(shop, token)
-    await set_shop_credits(shop, token, shop_id, credits)
+def auth_callback(shop: str, code: str, host: str = None):
+    shop = clean_shop_url(shop)
+    try:
+        url = f"https://{shop}/admin/oauth/access_token"
+        payload = {"client_id": SHOPIFY_API_KEY, "client_secret": SHOPIFY_API_SECRET, "code": code}
+        res = requests.post(url, json=payload)
+        
+        if res.status_code == 200:
+            token = res.json().get('access_token')
+            shop_sessions[shop] = token
+            shop_name = shop.replace(".myshopify.com", "")
+            if host:
+                return RedirectResponse(f"https://admin.shopify.com/store/{shop_name}/apps/{SHOPIFY_API_KEY}?host={host}")
+            else:
+                return RedirectResponse(f"https://{shop}/admin/apps/{SHOPIFY_API_KEY}")
+        return HTMLResponse(f"Token Error: {res.text}", status_code=400)
+    except Exception as e:
+        return HTMLResponse(content=f"Auth Error: {str(e)}", status_code=500)
 
-    return RedirectResponse(f"https://{shop}/admin/apps/{SHOPIFY_API_KEY}")
+# --- API CRÉDITS (LE COEUR DU PROBLÈME) ---
 
 @app.get("/api/get-credits")
-async def get_credits(shop: str):
+def get_credits(shop: str):
+    shop = clean_shop_url(shop)
     token = shop_sessions.get(shop)
-    if not token: return JSONResponse({"credits": 0, "error": "No session"}, status_code=401)
-    _, credits = await get_shop_data(shop, token)
-    return {"credits": credits}
-
-@app.post("/api/generate")
-async def generate(
-    shop: str = Form(...),
-    person_image: UploadFile = File(...),
-    clothing_url: str = Form(...)
-):
-    token = shop_sessions.get(shop)
-    if not token: raise HTTPException(status_code=401)
-
-    # 1. Check Credits sur Shopify
-    shop_id, current_credits = await get_shop_data(shop, token)
-    if current_credits < 1:
-        return JSONResponse({"error": "Crédits insuffisants"}, status_code=402)
+    
+    # ICI : Si le serveur a redémarré, on force le JS à recharger la page
+    if not token: 
+        raise HTTPException(status_code=401, detail="Session expired")
 
     try:
-        # 2. IA Replicate
-        img_bytes = await person_image.read()
-        output = replicate.run(
-            MODEL_ID,
-            input={
-                "human_img": img_bytes,
-                "garm_img": clothing_url,
-                "garment_des": "upper_body"
-            }
-        )
-
-        # 3. Débit Crédit sur Shopify
-        new_total = current_credits - 1
-        await set_shop_credits(shop, token, shop_id, new_total)
-
-        return {"result_image_url": output, "new_credits": new_total}
+        shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
+        session = shopify.Session(shop, API_VERSION, token)
+        shopify.ShopifyResource.activate_session(session)
+        
+        mf = shopify.Metafield.find(namespace="stylelab", key="credits")
+        val = 0
+        if mf:
+            val = int(mf[0].value) if isinstance(mf, list) else int(mf.value)
+        return {"credits": val}
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        # En cas d'erreur API Shopify, on renvoie 0 mais on ne plante pas
+        return {"credits": 0}
 
+class BuyRequest(BaseModel):
+    shop: str
+    pack_id: str
+    custom_amount: int = 0
+
+@app.post("/api/buy-credits")
+def buy_credits(req: BuyRequest):
+    shop = clean_shop_url(req.shop)
+    token = shop_sessions.get(shop)
+    
+    # ICI : Même chose, si pas de token, erreur 401 immédiate
+    if not token: 
+        raise HTTPException(status_code=401, detail="Session expired")
+
+    price, name, credits = 0, "", 0
+    if req.pack_id == 'pack_10': price, name, credits = 4.99, "10 Credits", 10
+    elif req.pack_id == 'pack_30': price, name, credits = 12.99, "30 Credits", 30
+    elif req.pack_id == 'pack_100': price, name, credits = 29.99, "100 Credits", 100
+    elif req.pack_id == 'pack_custom':
+        credits = req.custom_amount
+        if credits < 200: return {"error": "Min 200 credits"}
+        price = round(credits * 0.25, 2)
+        name = f"{credits} Credits (Custom)"
+    else: return {"error": "Invalid Pack"}
+
+    try:
+        shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
+        session = shopify.Session(shop, API_VERSION, token)
+        shopify.ShopifyResource.activate_session(session)
+        
+        return_url = f"{HOST}/billing/callback?shop={shop}&amt={credits}"
+        charge = shopify.ApplicationCharge.create({
+            "name": name, "price": price, "test": True, "return_url": return_url
+        })
+        return {"confirmation_url": charge.confirmation_url}
+    except Exception as e: return {"error": str(e)}
+
+@app.get("/billing/callback")
+def billing_callback(shop: str, amt: int, charge_id: str):
+    shop = clean_shop_url(shop)
+    token = shop_sessions.get(shop)
+    # Si le token est perdu pendant le paiement, on relance le login
+    if not token: return RedirectResponse(f"/login?shop={shop}")
+
+    try:
+        shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
+        session = shopify.Session(shop, API_VERSION, token)
+        shopify.ShopifyResource.activate_session(session)
+
+        charge = shopify.ApplicationCharge.find(charge_id)
+        if charge.status != 'active': charge.activate()
+
+        current_shop = shopify.Shop.current()
+        mf = shopify.Metafield.find(namespace="stylelab", key="credits")
+        curr = int(mf[0].value) if (mf and isinstance(mf, list)) else (int(mf.value) if mf else 0)
+
+        meta = shopify.Metafield({'namespace': 'stylelab', 'key': 'credits', 'value': curr + amt, 'type': 'number_integer'})
+        current_shop.add_metafield(meta)
+
+        admin_url = f"https://admin.shopify.com/store/{shop.replace('.myshopify.com','')}/apps/{SHOPIFY_API_KEY}"
+        return HTMLResponse(f"<script>window.top.location.href='{admin_url}';</script>")
+    except Exception as e: return HTMLResponse(f"Error: {e}")
+
+# --- API IA ---
+class TryOnRequest(BaseModel):
+    shop: str
+    person_image_url: str
+    clothing_image_url: str
+    category: str
+
+@app.post("/api/generate")
+def generate(req: TryOnRequest):
+    try:
+        clothing_url = req.clothing_image_url
+        if clothing_url.startswith("//"): clothing_url = "https:" + clothing_url
+        output = replicate.run(MODEL_ID, input={
+            "human_img": req.person_image_url, "garm_img": clothing_url,
+            "garment_des": req.category, "category": "upper_body"
+        })
+        return {"result_image_url": str(output[0]) if isinstance(output, list) else str(output)}
+    except Exception as e: return {"error": str(e)}
+
+# --- WEBHOOKS ---
+@app.post("/webhooks/customers/data_request")
+def w1(): return {"ok": True}
+@app.post("/webhooks/customers/redact")
+def w2(): return {"ok": True}
+@app.post("/webhooks/shop/redact")
+def w3(): return {"ok": True}
