@@ -7,4 +7,3 @@ pydantic
 python-multipart
 jinja2
 httpx
-shopify-api-python
