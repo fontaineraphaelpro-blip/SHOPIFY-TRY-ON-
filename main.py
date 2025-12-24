@@ -14,9 +14,10 @@ from pydantic import BaseModel
 # --- CONFIGURATION ---
 SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
 SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
-HOST = os.getenv("HOST") # ex: https://stylelab-vtonn.onrender.com
+HOST = os.getenv("HOST") 
 SCOPES = ['read_products', 'write_products']
 API_VERSION = "2024-01"
+
 # Votre modèle Replicate (IDM-VTON)
 MODEL_ID = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985"
 
@@ -31,10 +32,8 @@ app.add_middleware(
 )
 
 # --- BASES DE DONNÉES (EN MÉMOIRE) ---
-# Attention : Ces données s'effacent si Render redémarre.
-# Pour la production, utilisez une vraie base de données (SQLite, PostgreSQL, Firebase).
-shop_sessions = {}  # Stocke les tokens : { "shop.com": "token_xyz" }
-credits_db = {}     # Stocke les crédits : { "shop.com": 10 }
+shop_sessions = {}  
+credits_db = {}     
 
 # --- MODÈLES DE DONNÉES ---
 class BuyModel(BaseModel):
@@ -95,9 +94,8 @@ def auth_callback(shop: str, code: str, host: str = None):
         if res.status_code == 200:
             token = res.json().get('access_token')
             shop_sessions[shop] = token
-            # Initialiser les crédits si nouveau client
             if shop not in credits_db:
-                credits_db[shop] = 10 # 10 crédits gratuits
+                credits_db[shop] = 10 
                 
             shop_name = shop.replace(".myshopify.com", "")
             if host:
@@ -113,7 +111,6 @@ def auth_callback(shop: str, code: str, host: str = None):
 @app.get("/api/get-credits")
 def get_credits(shop: str):
     shop = clean_shop_url(shop)
-    # Vérifier si connecté
     if shop not in shop_sessions:
         return JSONResponse(content={"error": "Session lost"}, status_code=401)
     
@@ -127,31 +124,33 @@ def buy_credits(data: BuyModel):
         return JSONResponse(content={"error": "Session expirée"}, status_code=401)
 
     try:
-        # 1. Définir le prix
-        price = 10.0
-        name = "Recharge Crédits"
-        credits_to_add = 0
+        # CORRECTION : On initialise à None pour forcer le choix du pack
+        price = None
+        name = ""
         
-        # Logique des packs (doit correspondre à votre HTML)
-        if data.pack_id == 'pack_discovery': # 10 crédits
-             price = 4.99
-             name = "Discovery Pack (10 Credits)"
-        elif data.pack_id == 'pack_standard': # 30 crédits
+        if data.pack_id == 'pack_discovery':
+            price = 4.99
+            name = "Discovery Pack (10 Credits)"
+        elif data.pack_id == 'pack_standard':
             price = 12.99
             name = "Standard Pack (30 Credits)"
-        elif data.pack_id == 'pack_business': # 100 crédits
+        elif data.pack_id == 'pack_business':
             price = 29.99
             name = "Business Pack (100 Credits)"
         elif data.pack_id == 'pack_custom' and data.custom_amount:
-            price = data.custom_amount * 0.25 # 0.25€ le crédit
-            name = f"Custom Pack ({data.custom_amount} Credits)"
+            amount = int(data.custom_amount)
+            price = float(amount * 0.25)
+            name = f"Custom Pack ({amount} Credits)"
         
-        # 2. Créer la demande de paiement Shopify
+        if price is None:
+            return JSONResponse(content={"error": "Pack invalide"}, status_code=400)
+
+        # Création de la charge avec le prix dynamique
         charge = shopify.ApplicationCharge.create({
             "name": name,
             "price": price,
             "return_url": f"{HOST}/api/charge/callback?shop={shop}&pack_id={data.pack_id}&custom={data.custom_amount or 0}",
-            "test": True # ⚠️ Mettre à False pour de vrais paiements
+            "test": True 
         })
 
         if charge.confirmation_url:
@@ -161,7 +160,7 @@ def buy_credits(data: BuyModel):
 
     except Exception as e:
         print(f"Erreur paiement: {e}")
-        return {"error": str(e)}
+        return JSONResponse(content={"error": str(e)}, status_code=500)
 
 @app.get("/api/charge/callback")
 def charge_callback(shop: str, charge_id: str, pack_id: str, custom: int = 0):
@@ -170,23 +169,19 @@ def charge_callback(shop: str, charge_id: str, pack_id: str, custom: int = 0):
         return HTMLResponse("Session expirée. Veuillez recharger l'application.")
 
     try:
-        # 1. Récupérer et activer la charge
         charge = shopify.ApplicationCharge.find(charge_id)
         if charge.status == 'accepted':
             charge.activate()
             
-            # 2. Calculer les crédits à ajouter
             credits_to_add = 0
             if pack_id == 'pack_discovery': credits_to_add = 10
             elif pack_id == 'pack_standard': credits_to_add = 30
             elif pack_id == 'pack_business': credits_to_add = 100
             elif pack_id == 'pack_custom': credits_to_add = int(custom)
             
-            # 3. Ajouter à la base de données
             current = credits_db.get(shop, 0)
             credits_db[shop] = current + credits_to_add
             
-            # 4. Rediriger vers l'app
             return RedirectResponse(f"https://{shop}/admin/apps/{SHOPIFY_API_KEY}")
         else:
             return HTMLResponse("Paiement refusé ou annulé.")
@@ -200,19 +195,11 @@ def charge_callback(shop: str, charge_id: str, pack_id: str, custom: int = 0):
 def generate_image(data: GenerateModel):
     shop = clean_shop_url(data.shop)
     
-    # 1. Vérification auth
-    # Note: Pour le mode "Client", vous devrez peut-être assouplir ça ou utiliser un autre système
-    if shop not in shop_sessions and shop != "demo": 
-         # Si c'est le mode admin, on veut vérifier
-         pass 
-
-    # 2. Vérification crédits
     current_credits = credits_db.get(shop, 0)
     if current_credits < 1 and shop != "demo":
         return {"error": "Crédits insuffisants"}
 
     try:
-        # 3. Appel à Replicate
         output = replicate.run(
             MODEL_ID,
             input={
@@ -222,7 +209,6 @@ def generate_image(data: GenerateModel):
             }
         )
         
-        # 4. Déduire un crédit
         if shop != "demo":
             credits_db[shop] = current_credits - 1
             
@@ -236,7 +222,6 @@ def generate_image(data: GenerateModel):
 @app.post("/webhooks/gdpr")
 async def gdpr_webhooks(request: Request):
     try:
-        # 1. Sécurité HMAC
         data = await request.body()
         hmac_header = request.headers.get('X-Shopify-Hmac-SHA256')
         topic = request.headers.get('X-Shopify-Topic')
@@ -252,7 +237,6 @@ async def gdpr_webhooks(request: Request):
             print("⛔ Signature invalide")
             return HTMLResponse(content="Unauthorized", status_code=401)
 
-        # 2. Traitement Logique
         try:
             payload = json.loads(data)
         except:
@@ -261,15 +245,12 @@ async def gdpr_webhooks(request: Request):
         print(f"✅ RGPD Webhook reçu : {topic}")
         
         if topic == "customers/data_request":
-            # Envoyer les données du client au marchand par email
             print(f"📩 Export demandé pour {payload.get('customer', {}).get('email')}")
             
         elif topic == "customers/redact":
-            # Supprimer les données du client
             print(f"🗑️ Suppression demandée pour {payload.get('customer', {}).get('email')}")
             
         elif topic == "shop/redact":
-            # Supprimer la boutique de la DB
             shop_domain = payload.get('shop_domain')
             print(f"🛑 Suppression boutique : {shop_domain}")
             if shop_domain in credits_db:
@@ -277,7 +258,6 @@ async def gdpr_webhooks(request: Request):
             if shop_domain in shop_sessions:
                 del shop_sessions[shop_domain]
 
-        # 3. Réponse obligatoire 200 OK
         return HTMLResponse(content="Webhook received", status_code=200)
 
     except Exception as e:
