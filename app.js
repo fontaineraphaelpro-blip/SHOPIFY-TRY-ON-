@@ -1,4 +1,4 @@
-document.addEventListener("DOMContentLoaded", function() {
+document.addEventListener("DOMContentLoaded", async function() {
     document.body.classList.add('loaded');
     
     const params = new URLSearchParams(window.location.search);
@@ -8,67 +8,59 @@ document.addEventListener("DOMContentLoaded", function() {
     
     if(shop) sessionStorage.setItem('shop', shop);
 
+    // --- INITIALISATION ---
     if (mode === 'client') {
         document.body.classList.add('client-mode');
-        const adminDash = document.getElementById('admin-dashboard');
-        const studioInt = document.getElementById('studio-interface');
-        const title = document.getElementById('client-title');
-        
-        if(adminDash) adminDash.style.display = 'none';
-        if(studioInt) studioInt.style.display = 'block';
-        if(title) title.style.display = 'block';
+        document.getElementById('admin-dashboard').style.display = 'none';
+        document.getElementById('studio-interface').style.display = 'block';
+        document.getElementById('client-title').style.display = 'block';
 
         if (autoProductImage) {
             const img = document.getElementById('prevC');
-            if(img) {
-                img.src = autoProductImage;
-                img.style.display = 'block';
-                if(img.parentElement) {
-                    img.parentElement.classList.add('has-image');
-                    const els = img.parentElement.querySelectorAll('i, .upload-text, .upload-icon, .upload-sub');
-                    els.forEach(el => el.style.display = 'none');
-                }
-            }
+            img.src = autoProductImage;
+            img.style.display = 'block';
+            img.parentElement.classList.add('has-image');
+            const els = img.parentElement.querySelectorAll('i, .upload-text, .upload-icon, .upload-sub');
+            els.forEach(el => el.style.display = 'none');
         }
     } else {
         if(shop) fetchCredits(shop);
     }
 
-    // --- FONCTION VITALE : AUTO-RECONNEXION AVEC SESSION TOKENS ---
+    // --- FONCTION RECUPERATION CREDITS ---
     async function fetchCredits(s) {
         try {
-            // RÉCUPÉRATION DU JETON (Condition Shopify)
             const token = await window.shopify.idToken();
-
             const res = await fetch(`/api/get-credits?shop=${s}`, {
                 headers: { "Authorization": `Bearer ${token}` }
             });
 
             if (res.status === 401) { 
-                console.log("Session lost, reconnecting...");
-                window.top.location.href = `/login?shop=${s}`; 
+                // Utilisation de la redirection App Bridge pour le login
+                window.location.href = `/login?shop=${s}`; 
                 return; 
             }
             const data = await res.json();
-            const el = document.getElementById('credits'); 
-            if(el) el.innerText = data.credits;
-        } catch(e) { console.error("API Error", e); }
+            document.getElementById('credits').innerText = data.credits;
+        } catch(e) { console.error("Erreur Credits:", e); }
     }
 
-    // --- PAIEMENT AVEC SESSION TOKENS ---
+    // --- FONCTION ACHAT (BOUTONS) ---
     window.buy = async function(packId) {
+        console.log("Tentative d'achat pack:", packId);
         if(!shop) return alert("Shop ID missing");
         
-        let btn;
-        if (event && event.target) btn = event.currentTarget.tagName === 'BUTTON' ? event.currentTarget : event.target.closest('button');
-        if (!btn) btn = document.querySelector('.custom-input-group button');
-        const oldText = btn ? btn.innerText : "Buy";
-        if(btn) { btn.innerText = "Redirecting..."; btn.disabled = true; }
+        // Gestion visuelle du bouton
+        let btn = event.currentTarget.tagName === 'BUTTON' ? event.currentTarget : event.target.closest('button');
+        const oldText = btn.innerText;
+        btn.innerText = "Redirecting...";
+        btn.disabled = true;
 
         try {
-            // RÉCUPÉRATION DU JETON (Condition Shopify)
+            // 1. On récupère le Session Token
             const token = await window.shopify.idToken();
-
+            
+            // 2. Appel API
             const res = await fetch('/api/buy-credits', {
                 method: 'POST', 
                 headers: {
@@ -79,45 +71,53 @@ document.addEventListener("DOMContentLoaded", function() {
             });
 
             if (res.status === 401) {
-                window.top.location.href = `/login?shop=${shop}`;
+                window.location.href = `/login?shop=${shop}`;
                 return;
             }
 
             const data = await res.json();
+            
             if(data.confirmation_url) {
-                window.top.location.href = data.confirmation_url;
+                console.log("URL de paiement reçue, redirection...");
+                // IMPORTANT: App Bridge 3.0 utilise window.open pour sortir de l'iframe
+                // vers une URL de confirmation de paiement Shopify
+                window.open(data.confirmation_url, "_top");
             } else {
-                alert("Error: " + (data.error || "Unknown"));
-                if(btn) { btn.innerText = oldText; btn.disabled = false; }
+                alert("Erreur: " + (data.error || "Inconnue"));
+                btn.innerText = oldText;
+                btn.disabled = false;
             }
         } catch(e) {
-            alert("Network Error");
-            if(btn) { btn.innerText = oldText; btn.disabled = false; }
+            console.error("Erreur Achat:", e);
+            alert("Erreur de connexion avec Shopify");
+            btn.innerText = oldText;
+            btn.disabled = false;
         }
-    }
+    };
 
+    // --- ACHAT PERSONNALISÉ ---
     window.buyCustom = async function() {
         const amount = document.getElementById('customAmount').value;
         if(amount < 200) return alert("Min 200 credits");
         
-        const token = await window.shopify.idToken();
+        try {
+            const token = await window.shopify.idToken();
+            const res = await fetch('/api/buy-credits', {
+                 method: 'POST', 
+                 headers: {
+                     'Content-Type': 'application/json',
+                     'Authorization': `Bearer ${token}`
+                 },
+                 body: JSON.stringify({ shop: shop, pack_id: 'pack_custom', custom_amount: parseInt(amount) })
+            });
+            
+            const data = await res.json();
+            if(data.confirmation_url) window.open(data.confirmation_url, "_top");
+            else alert(data.error);
+        } catch(e) { console.error(e); }
+    };
 
-        fetch('/api/buy-credits', {
-             method: 'POST', 
-             headers: {
-                 'Content-Type': 'application/json',
-                 'Authorization': `Bearer ${token}`
-             },
-             body: JSON.stringify({ shop: shop, pack_id: 'pack_custom', custom_amount: parseInt(amount) })
-        }).then(async r => {
-            if (r.status === 401) { window.top.location.href = `/login?shop=${shop}`; return; }
-            const d = await r.json();
-            if(d.confirmation_url) window.top.location.href = d.confirmation_url;
-            else alert(d.error);
-        });
-    }
-
-    // --- RESTE DU CODE (IA) ---
+    // --- IA GENERATION ---
     window.preview = function(inputId, imgId, txtId) {
         const file = document.getElementById(inputId).files[0];
         if (file) {
@@ -126,11 +126,9 @@ document.addEventListener("DOMContentLoaded", function() {
                 const img = document.getElementById(imgId);
                 img.src = e.target.result;
                 img.style.display = 'block';
-                if(img.parentElement) {
-                    img.parentElement.classList.add('has-image');
-                    const els = img.parentElement.querySelectorAll('i, .upload-text, .upload-icon, .upload-sub');
-                    els.forEach(el => el.style.display = 'none');
-                }
+                img.parentElement.classList.add('has-image');
+                const els = img.parentElement.querySelectorAll('i, .upload-text, .upload-icon, .upload-sub');
+                els.forEach(el => el.style.display = 'none');
             };
             reader.readAsDataURL(file);
         }
@@ -139,34 +137,36 @@ document.addEventListener("DOMContentLoaded", function() {
     window.generate = async function() {
         const u = document.getElementById('uImg').files[0];
         const cFile = document.getElementById('cImg').files[0];
-        if (!u || (!cFile && !autoProductImage)) return alert("Please upload your photo.");
-        const btn = document.getElementById('btnGo');
-        const resZone = document.getElementById('resZone');
-        const loader = document.getElementById('loader');
+        if (!u || (!cFile && !autoProductImage)) return alert("Please upload photos.");
         
+        const btn = document.getElementById('btnGo');
         btn.disabled = true; btn.innerHTML = 'Processing...';
-        if(resZone) resZone.style.display = 'flex';
-        if(loader) loader.style.display = 'block';
-        if(resZone) resZone.scrollIntoView({ behavior: 'smooth' });
+        document.getElementById('resZone').style.display = 'flex';
+        document.getElementById('loader').style.display = 'block';
+        document.getElementById('resZone').scrollIntoView({ behavior: 'smooth' });
         
         const to64 = f => new Promise(r => { const rd = new FileReader(); rd.readAsDataURL(f); rd.onload=()=>r(rd.result); });
 
         try {
             let garmentData = cFile ? await to64(cFile) : autoProductImage;
-            // Optionnel : Vous pourriez aussi envoyer le token ici pour être 100% sûr
             const res = await fetch('/api/generate', {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ shop: shop || "demo", person_image_url: await to64(u), clothing_image_url: garmentData, category: "upper_body" })
+                body: JSON.stringify({ 
+                    shop: shop || "demo", 
+                    person_image_url: await to64(u), 
+                    clothing_image_url: garmentData, 
+                    category: "upper_body" 
+                })
             });
             const data = await res.json();
             if(data.result_image_url) {
                 const ri = document.getElementById('resImg');
                 ri.src = data.result_image_url;
                 ri.style.display = 'block';
-                if(loader) loader.style.display = 'none';
+                document.getElementById('loader').style.display = 'none';
                 if(mode !== 'client') fetchCredits(shop);
             } else alert("AI Error: " + (data.error || "Unknown"));
         } catch(e) { alert("Error: " + e); }
-        finally { btn.disabled = false; btn.innerHTML = 'Test This Outfit Now <i class="fa-solid fa-wand-magic-sparkles"></i>'; }
+        finally { btn.disabled = false; btn.innerHTML = 'Test This Outfit Now'; }
     };
 });
