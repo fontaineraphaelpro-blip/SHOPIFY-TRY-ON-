@@ -7,7 +7,7 @@ application_url = "https://stylelab-vtonn.onrender.com"
 
 # Laissez votre client_id ici s'il est déjà présent. 
 # Sinon, le CLI le rajoutera automatiquement lors du déploiement.
-# client_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+# client_id = "85e1a9dba888450e33b84fbb067bc3a5"
 
 [access_scopes]
 # Permissions requises pour vos webhooks et votre logique
