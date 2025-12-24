@@ -1,92 +1,90 @@
-document.addEventListener("DOMContentLoaded", async () => {
-    document.body.classList.add("loaded");
-
+document.addEventListener("DOMContentLoaded", function() {
     const params = new URLSearchParams(window.location.search);
-    const shop = params.get("shop");
-    const token = params.get("token");
-
-    if(!shop || !token){
-        document.body.innerHTML="<h1>Erreur : App non authentifiée ou Shop manquant</h1>";
-        return;
+    const shop = params.get('shop') || sessionStorage.getItem('shop');
+    const autoProductImage = params.get('product_image'); 
+    
+    if(shop) {
+        sessionStorage.setItem('shop', shop);
+        fetchCredits(shop);
     }
 
-    async function fetchCredits(){
-        const res = await fetch(`/api/get-credits?shop=${shop}&token=${token}`);
-        const data = await res.json();
-        document.getElementById("credits").innerText = data.credits || 0;
+    // Auto-fill product image from Shopify
+    if (autoProductImage) {
+        const imgC = document.getElementById('prevC');
+        imgC.src = autoProductImage;
+        imgC.style.display = 'block';
+        imgC.parentElement.classList.add('has-image');
+        const labels = imgC.parentElement.querySelectorAll('i, .upload-text, .upload-sub');
+        labels.forEach(el => el.style.display = 'none');
     }
-    fetchCredits();
 
-    window.buy = async function(event, packId){
-        event.preventDefault();
-        const btn = event.currentTarget;
-        const oldText = btn.innerText;
-        btn.innerText = "Redirecting...";
+    window.preview = function(inputId, imgId) {
+        const file = document.getElementById(inputId).files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = e => {
+                const img = document.getElementById(imgId);
+                img.src = e.target.result;
+                img.style.display = 'block';
+                img.parentElement.classList.add('has-image');
+                const labels = img.parentElement.querySelectorAll('i, .upload-text, .upload-sub');
+                labels.forEach(el => el.style.display = 'none');
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
+    window.generate = async function() {
+        const uFile = document.getElementById('uImg').files[0];
+        const btn = document.getElementById('btnGo');
+        
+        if (!uFile || !autoProductImage) return alert("Please upload your photo.");
+
         btn.disabled = true;
-        try{
-            const res = await fetch("/api/buy-credits",{
-                method:"POST",
-                headers:{"Content-Type":"application/json"},
-                body: JSON.stringify({shop, token, pack_id: packId})
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> AI Processing...';
+        
+        document.getElementById('resZone').style.display = 'flex';
+        document.getElementById('loader').style.display = 'block';
+        document.getElementById('resImg').style.display = 'none';
+
+        // Utilisation de FormData pour envoyer vers le backend Metafield
+        const formData = new FormData();
+        formData.append("shop", shop);
+        formData.append("person_image", uFile);
+        formData.append("clothing_url", autoProductImage);
+
+        try {
+            const res = await fetch('/api/generate', {
+                method: 'POST',
+                body: formData
             });
             const data = await res.json();
-            if(data.confirmation_url) window.top.location.href = data.confirmation_url;
-            else throw new Error(data.error || "Unknown error");
-        }catch(e){
-            console.error(e);
-            btn.innerText = oldText;
+
+            if (data.result_image_url) {
+                document.getElementById('resImg').src = data.result_image_url;
+                document.getElementById('resImg').style.display = 'block';
+                document.getElementById('loader').style.display = 'none';
+                document.getElementById('credits').innerText = data.new_credits;
+            } else {
+                alert("Error: " + (data.error || "Unknown error"));
+                btn.disabled = false;
+            }
+        } catch (e) {
+            alert("Connection error");
             btn.disabled = false;
-            alert("Erreur achat pack");
+        } finally {
+            btn.innerHTML = 'Test This Outfit Now <i class="fa-solid fa-wand-magic-sparkles"></i>';
+            btn.disabled = false;
         }
     };
 
-    window.buyCustom = async function(){
-        const amount = parseInt(document.getElementById("customAmount").value);
-        if(isNaN(amount) || amount < 200) return alert("Montant min 200");
-        const res = await fetch("/api/buy-custom",{
-            method:"POST",
-            headers:{"Content-Type":"application/json"},
-            body: JSON.stringify({shop, token, amount})
-        });
-        const data = await res.json();
-        if(data.confirmation_url) window.top.location.href = data.confirmation_url;
-        else alert("Erreur custom pack");
-    };
-
-    // Preview upload
-    window.preview = function(inputId,imgId,txtId){
-        const file = document.getElementById(inputId).files[0];
-        if(!file) return;
-        const reader = new FileReader();
-        reader.onload = e => {
-            const img = document.getElementById(imgId);
-            const txt = document.getElementById(txtId);
-            img.src = e.target.result;
-            img.style.display = "block";
-            txt.style.display = "none";
-            document.getElementById(inputId).parentElement.classList.add("has-image");
-        }
-        reader.readAsDataURL(file);
-    }
-
-    // Virtual Try-On
-    window.generate = async function(){
-        const userFile = document.getElementById("uImg").files[0];
-        const garmentFile = document.getElementById("cImg").files[0];
-        if(!userFile || !garmentFile){alert("Upload both images"); return;}
-        const btn = document.getElementById("btnGo");
-        btn.disabled = true; btn.innerText="Processing...";
-        const formData = new FormData();
-        formData.append("user_image", userFile);
-        formData.append("garment_image", garmentFile);
-        try{
-            const res = await fetch("/api/generate-tryon",{method:"POST", body: formData});
-            if(!res.ok) throw new Error("AI generation failed");
+    async function fetchCredits(s) {
+        try {
+            const res = await fetch(`/api/get-credits?shop=${s}`);
             const data = await res.json();
-            document.getElementById("resImg").src = data.generated_image_url;
-            document.getElementById("resZone").style.display="block";
-            document.getElementById("loader").style.display="none";
-            btn.innerText="Test This Outfit Now ✨"; btn.disabled=false;
-        }catch(err){console.error(err); alert("Error generating try-on"); btn.innerText="Test This Outfit Now ✨"; btn.disabled=false;}
+            if(data.credits !== undefined) {
+                document.getElementById('credits').innerText = data.credits;
+            }
+        } catch(e) { console.log("Credit fetch failed"); }
     }
 });
