@@ -6,7 +6,7 @@ import json
 import shopify
 import requests
 import replicate
-from fastapi import FastAPI, Request, Header # AJOUT DE HEADER
+from fastapi import FastAPI, Request, Header
 from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -16,7 +16,7 @@ SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
 SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
 HOST = os.getenv("HOST") 
 SCOPES = ['read_products', 'write_products']
-API_VERSION = "2024-01"
+API_VERSION = "2025-01"
 
 MODEL_ID = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985"
 
@@ -30,9 +30,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- BASES DE DONNÉES (EN MÉMOIRE) ---
 shop_sessions = {}  
 credits_db = {}     
 
+# --- MODÈLES DE DONNÉES ---
 class BuyModel(BaseModel):
     shop: str
     pack_id: str
@@ -44,6 +46,7 @@ class GenerateModel(BaseModel):
     clothing_image_url: str
     category: str = "upper_body"
 
+# --- UTILITAIRES ---
 def clean_shop_url(url):
     if not url: return ""
     return url.replace("https://", "").replace("http://", "").strip("/")
@@ -56,6 +59,7 @@ def get_session(shop):
     shopify.ShopifyResource.activate_session(session)
     return session
 
+# --- ROUTES STATIQUES ---
 @app.get("/")
 def index():
     if os.path.exists('index.html'): return FileResponse('index.html')
@@ -71,6 +75,7 @@ def javascript():
     if os.path.exists('app.js'): return FileResponse('app.js')
     return HTMLResponse("")
 
+# --- AUTHENTIFICATION ---
 @app.get("/login")
 def login(shop: str, host: str = None):
     shop = clean_shop_url(shop)
@@ -100,10 +105,10 @@ def auth_callback(shop: str, code: str, host: str = None):
     except Exception as e:
         return HTMLResponse(content=f"Auth Error: {str(e)}", status_code=500)
 
-# --- API CRÉDITS & PAIEMENT (AVEC HEADER POUR VALIDATION) ---
+# --- API CRÉDITS & PAIEMENT ---
 
 @app.get("/api/get-credits")
-def get_credits(shop: str, authorization: str = Header(None)): # AJOUTÉ
+def get_credits(shop: str, authorization: str = Header(None)):
     shop = clean_shop_url(shop)
     if shop not in shop_sessions:
         return JSONResponse(content={"error": "Session lost"}, status_code=401)
@@ -112,7 +117,7 @@ def get_credits(shop: str, authorization: str = Header(None)): # AJOUTÉ
     return {"credits": count}
 
 @app.post("/api/buy-credits")
-def buy_credits(data: BuyModel, authorization: str = Header(None)): # AJOUTÉ
+def buy_credits(data: BuyModel, authorization: str = Header(None)):
     shop = clean_shop_url(data.shop)
     if not get_session(shop):
         return JSONResponse(content={"error": "Session expirée"}, status_code=401)
@@ -121,13 +126,14 @@ def buy_credits(data: BuyModel, authorization: str = Header(None)): # AJOUTÉ
         price = None
         name = ""
         
-        if data.pack_id == 'pack_discovery':
+        # HARMONISATION : pack_10 (HTML) -> Discovery
+        if data.pack_id in ['pack_10', 'pack_discovery']:
             price = 4.99
             name = "Discovery Pack (10 Credits)"
-        elif data.pack_id == 'pack_standard':
+        elif data.pack_id in ['pack_30', 'pack_standard']:
             price = 12.99
             name = "Standard Pack (30 Credits)"
-        elif data.pack_id == 'pack_business':
+        elif data.pack_id in ['pack_100', 'pack_business']:
             price = 29.99
             name = "Business Pack (100 Credits)"
         elif data.pack_id == 'pack_custom' and data.custom_amount:
@@ -136,8 +142,9 @@ def buy_credits(data: BuyModel, authorization: str = Header(None)): # AJOUTÉ
             name = f"Custom Pack ({amount} Credits)"
         
         if price is None:
-            return JSONResponse(content={"error": "Pack invalide"}, status_code=400)
+            return JSONResponse(content={"error": f"Pack inconnu: {data.pack_id}"}, status_code=400)
 
+        # Création de la charge Shopify
         charge = shopify.ApplicationCharge.create({
             "name": name,
             "price": price,
@@ -148,7 +155,7 @@ def buy_credits(data: BuyModel, authorization: str = Header(None)): # AJOUTÉ
         if charge.confirmation_url:
             return {"confirmation_url": charge.confirmation_url}
         else:
-            return {"error": "Erreur création charge Shopify"}
+            return {"error": "Erreur Shopify API"}
 
     except Exception as e:
         print(f"Erreur paiement: {e}")
@@ -166,9 +173,9 @@ def charge_callback(shop: str, charge_id: str, pack_id: str, custom: int = 0):
             charge.activate()
             
             credits_to_add = 0
-            if pack_id == 'pack_discovery': credits_to_add = 10
-            elif pack_id == 'pack_standard': credits_to_add = 30
-            elif pack_id == 'pack_business': credits_to_add = 100
+            if pack_id in ['pack_10', 'pack_discovery']: credits_to_add = 10
+            elif pack_id in ['pack_30', 'pack_standard']: credits_to_add = 30
+            elif pack_id in ['pack_100', 'pack_business']: credits_to_add = 100
             elif pack_id == 'pack_custom': credits_to_add = int(custom)
             
             current = credits_db.get(shop, 0)
@@ -181,8 +188,10 @@ def charge_callback(shop: str, charge_id: str, pack_id: str, custom: int = 0):
     except Exception as e:
         return HTMLResponse(f"Erreur validation paiement: {str(e)}")
 
+# --- API GÉNÉRATION IA ---
+
 @app.post("/api/generate")
-def generate_image(data: GenerateModel, authorization: str = Header(None)): # AJOUTÉ
+def generate_image(data: GenerateModel, authorization: str = Header(None)):
     shop = clean_shop_url(data.shop)
     
     current_credits = credits_db.get(shop, 0)
@@ -208,6 +217,7 @@ def generate_image(data: GenerateModel, authorization: str = Header(None)): # AJ
         print(f"Replicate Error: {e}")
         return {"error": str(e)}
 
+# --- WEBHOOKS RGPD (CONFORMITÉ) ---
 @app.post("/webhooks/gdpr")
 async def gdpr_webhooks(request: Request):
     try:
@@ -224,7 +234,7 @@ async def gdpr_webhooks(request: Request):
         if not hmac_header or not hmac.compare_digest(computed_hmac, hmac_header):
             return HTMLResponse(content="Unauthorized", status_code=401)
 
-        print(f"✅ RGPD Webhook reçu : {topic}")
+        print(f"✅ Webhook reçu : {topic}")
         return HTMLResponse(content="Webhook received", status_code=200)
 
     except Exception as e:
