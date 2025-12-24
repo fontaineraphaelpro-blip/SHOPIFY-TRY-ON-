@@ -1,3 +1,4 @@
+import json
 import os
 import hmac
 import hashlib
@@ -84,15 +85,16 @@ def auth_callback(shop: str, code: str, host: str = None):
 def get_credits(shop: str):
     return {"credits": 10} # Version simplifiée pour test
 
-# --- WEBHOOKS GDPR OBLIGATOIRES (La partie CRUCIALE) ---
+# --- WEBHOOKS GDPR OBLIGATOIRES ---
 @app.post("/webhooks/gdpr")
 async def gdpr_webhooks(request: Request):
     try:
-        # 1. Lire les données brutes
+        # 1. Lire les données brutes pour le HMAC
         data = await request.body()
         
-        # 2. Vérifier la signature HMAC (Obligatoire pour Shopify)
+        # 2. Vérifier la signature HMAC
         hmac_header = request.headers.get('X-Shopify-Hmac-SHA256')
+        topic = request.headers.get('X-Shopify-Topic') # <-- ON RÉCUPÈRE LE SUJET ICI
         
         if not SHOPIFY_API_SECRET:
             print("❌ Erreur: Secret API manquant")
@@ -101,13 +103,44 @@ async def gdpr_webhooks(request: Request):
         digest = hmac.new(SHOPIFY_API_SECRET.encode('utf-8'), data, hashlib.sha256).digest()
         computed_hmac = base64.b64encode(digest).decode()
 
-        # 3. Comparaison
+        # 3. Comparaison de sécurité
         if hmac_header and hmac.compare_digest(computed_hmac, hmac_header):
-            print("✅ Webhook validé et reçu.")
-            return HTMLResponse(content="OK", status_code=200)
+            
+            # 4. Traitement selon le sujet (Topic)
+            # On transforme les données brutes en dictionnaire Python
+            try:
+                payload = json.loads(data)
+            except:
+                payload = {}
+
+            print(f"✅ Webhook REÇU : {topic}")
+
+            if topic == "customers/data_request":
+                # EXEMPLE : Envoyer un email au marchand avec les données du client
+                # Payload contient : shop_domain, customer (email, id)
+                print(f"📩 Demande de données pour {payload.get('customer', {}).get('email')}")
+                # TODO: Implémenter la logique d'export ici
+
+            elif topic == "customers/redact":
+                # EXEMPLE : Supprimer ou anonymiser le client en DB
+                # Payload contient : shop_domain, customer (email, id)
+                print(f"🗑️ Demande d'effacement pour {payload.get('customer', {}).get('email')}")
+                # TODO: Implémenter la suppression ici
+
+            elif topic == "shop/redact":
+                # EXEMPLE : Supprimer toutes les données de la boutique (désinstallation)
+                # Payload contient : shop_domain, shop_id
+                print(f"🛑 Demande d'effacement complet pour la boutique {payload.get('shop_domain')}")
+                # TODO: Supprimer la boutique de votre base de données
+
+            # On répond 200 OK immédiatement à Shopify quoi qu'il arrive
+            return HTMLResponse(content="Webhook received", status_code=200)
+            
         else:
             print("⛔ Signature invalide.")
             return HTMLResponse(content="Unauthorized", status_code=401)
+            
     except Exception as e:
-        print(f"Erreur: {str(e)}")
-        return HTMLResponse(content="Error", status_code=500)
+        print(f"Erreur Webhook: {str(e)}")
+        # On renvoie 200 même en cas d'erreur de logique interne pour éviter que Shopify ne réessaie en boucle
+        return HTMLResponse(content="Error processed", status_code=200)
