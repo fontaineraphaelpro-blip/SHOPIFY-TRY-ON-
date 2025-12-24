@@ -1,120 +1,172 @@
-from fastapi import FastAPI, Request, Response, HTTPException
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, RedirectResponse
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
 import httpx
 import os
+import secrets
 
 app = FastAPI()
 
-SHOPIFY_API_VERSION = "2025-10"
 API_KEY = os.environ.get("SHOPIFY_API_KEY")
 API_SECRET = os.environ.get("SHOPIFY_API_SECRET")
+API_VERSION = "2025-10"
 
-# ---------------------------
-# Middleware pour CSP / iframe Shopify
-# ---------------------------
-@app.middleware("http")
-async def shopify_csp(request: Request, call_next):
-    response = await call_next(request)
-    response.headers["Content-Security-Policy"] = "frame-ancestors https://*.myshopify.com https://admin.shopify.com;"
-    return response
+# -------------------------------
+# Installation / OAuth
+# -------------------------------
+@app.get("/auth")
+async def install(shop: str):
+    if not shop:
+        raise HTTPException(status_code=400, detail="Missing shop param")
+    
+    state = secrets.token_urlsafe(16)
+    redirect_uri = "https://YOUR_DOMAIN/auth/callback"  # remplacer par ton domaine
+    scope = "read_products,write_products,read_metafields,write_metafields"
+    
+    install_url = (
+        f"https://{shop}/admin/oauth/authorize"
+        f"?client_id={API_KEY}&scope={scope}&redirect_uri={redirect_uri}&state={state}"
+    )
+    return RedirectResponse(install_url)
 
-# ---------------------------
-# Page principale
-# ---------------------------
+
+@app.get("/auth/callback")
+async def auth_callback(shop: str, code: str, state: str):
+    # Échange du code contre access_token
+    token_url = f"https://{shop}/admin/oauth/access_token"
+    payload = {
+        "client_id": API_KEY,
+        "client_secret": API_SECRET,
+        "code": code
+    }
+    async with httpx.AsyncClient() as client:
+        r = await client.post(token_url, json=payload)
+        if r.status_code != 200:
+            return JSONResponse({"error": r.text}, status_code=400)
+        access_token = r.json().get("access_token")
+    
+    # Initialiser credits à 0 si pas existant
+    metafield_payload = {
+        "metafield": {
+            "namespace": "custom_app",
+            "key": "credits",
+            "value": "0",
+            "type": "single_line_text_field"
+        }
+    }
+    async with httpx.AsyncClient() as client:
+        await client.post(
+            f"https://{shop}/admin/api/{API_VERSION}/metafields.json",
+            headers={"X-Shopify-Access-Token": access_token, "Content-Type": "application/json"},
+            json=metafield_payload
+        )
+    
+    # Stocker access_token temporairement dans session (ici sessionStorage via frontend)
+    redirect_app = f"https://{shop}/admin/apps/YOUR_APP_HANDLE?token={access_token}"
+    return RedirectResponse(redirect_app)
+
+
+# -------------------------------
+# Page principale (Admin Dashboard)
+# -------------------------------
 @app.get("/", response_class=HTMLResponse)
-async def index(shop: str = None, id_token: str = None):
-    if not shop or not id_token:
-        return HTMLResponse("<h1>Erreur : Shop ou id_token manquant</h1>")
+async def index(shop: str = None, token: str = None):
+    if not shop or not token:
+        return HTMLResponse("<h1>Erreur : Shop ou token manquant</h1>")
     html_path = os.path.join(os.path.dirname(__file__), "index.html")
     return FileResponse(html_path)
 
-# ---------------------------
-# Endpoint pour récupérer les crédits
-# ---------------------------
-@app.get("/api/get-credits")
-async def get_credits(shop: str, authorization: str = None):
-    if not authorization:
-        raise HTTPException(status_code=401, detail="Missing token")
 
-    token = authorization.replace("Bearer ", "")
-    
-    # On lit les metafields Shopify du shop pour récupérer les crédits
-    metafields_url = f"https://{shop}/admin/api/{SHOPIFY_API_VERSION}/metafields.json"
-    headers = {
-        "X-Shopify-Access-Token": token,
-        "Content-Type": "application/json"
-    }
+# -------------------------------
+# API : Get Credits
+# -------------------------------
+@app.get("/api/get-credits")
+async def get_credits(shop: str, token: str):
+    headers = {"X-Shopify-Access-Token": token}
     async with httpx.AsyncClient() as client:
-        r = await client.get(metafields_url, headers=headers)
+        r = await client.get(f"https://{shop}/admin/api/{API_VERSION}/metafields.json", headers=headers)
         if r.status_code != 200:
-            return JSONResponse({"credits": 10})  # fallback
-        data = r.json()
-        credits = 10  # default
-        for mf in data.get("metafields", []):
-            if mf.get("key") == "credits":
-                credits = int(mf.get("value", 10))
+            return JSONResponse({"credits": 0})
+        credits = 0
+        for mf in r.json().get("metafields", []):
+            if mf["namespace"] == "custom_app" and mf["key"] == "credits":
+                credits = int(mf["value"])
         return JSONResponse({"credits": credits})
 
-# ---------------------------
-# Endpoint pour acheter des crédits
-# ---------------------------
+
+# -------------------------------
+# API : Buy Packs
+# -------------------------------
+PACK_PRICES = {
+    "pack_10": 4.99,
+    "pack_30": 12.99,
+    "pack_100": 29.99
+}
+
 @app.post("/api/buy-credits")
-async def buy_credits(request: Request, authorization: str = None):
+async def buy_credits(request: Request):
     data = await request.json()
     shop = data.get("shop")
     pack_id = data.get("pack_id")
-
-    if not authorization:
-        raise HTTPException(status_code=401, detail="Missing token")
-    token = authorization.replace("Bearer ", "")
-
-    # Création d'un ApplicationCharge Shopify
+    token = data.get("token")  # access_token du shop
+    
+    if not shop or not token or not pack_id:
+        raise HTTPException(status_code=400, detail="Missing params")
+    
+    price = PACK_PRICES.get(pack_id, 5.0)
+    
     charge_payload = {
-        "recurring_application_charge": {
+        "application_charge": {
             "name": f"Pack {pack_id}",
-            "price": 5.0,  # tu peux adapter le prix selon le pack
-            "return_url": f"https://{shop}/admin/apps/your-app",
-            "test": True  # remove en prod
+            "price": price,
+            "return_url": f"https://{shop}/admin/apps/YOUR_APP_HANDLE",
+            "test": True
         }
     }
-
+    
     async with httpx.AsyncClient() as client:
         r = await client.post(
-            f"https://{shop}/admin/api/{SHOPIFY_API_VERSION}/recurring_application_charges.json",
+            f"https://{shop}/admin/api/{API_VERSION}/application_charges.json",
             headers={"X-Shopify-Access-Token": token, "Content-Type": "application/json"},
             json=charge_payload
         )
         if r.status_code not in [200, 201]:
             return JSONResponse({"error": r.text}, status_code=400)
-        charge = r.json().get("recurring_application_charge", {})
-        confirmation_url = charge.get("confirmation_url")
+        confirmation_url = r.json()["application_charge"]["confirmation_url"]
         return JSONResponse({"confirmation_url": confirmation_url})
 
-# ---------------------------
-# Endpoint pour créer / mettre à jour les metafields
-# ---------------------------
-@app.post("/api/set-metafield")
-async def set_metafield(shop: str, key: str, value: str, authorization: str = None):
-    if not authorization:
-        raise HTTPException(status_code=401, detail="Missing token")
-    token = authorization.replace("Bearer ", "")
 
-    # Création ou mise à jour du metafield
-    metafield_payload = {
-        "metafield": {
-            "namespace": "custom_app",
-            "key": key,
-            "value": value,
-            "type": "single_line_text_field"
+# -------------------------------
+# API : Buy Custom Pack
+# -------------------------------
+@app.post("/api/buy-custom")
+async def buy_custom(request: Request):
+    data = await request.json()
+    shop = data.get("shop")
+    amount = int(data.get("amount"))
+    token = data.get("token")
+    
+    if not shop or not token or not amount:
+        raise HTTPException(status_code=400, detail="Missing params")
+    
+    price_per_credit = 0.25
+    total_price = round(amount * price_per_credit, 2)
+    
+    charge_payload = {
+        "application_charge": {
+            "name": f"Custom Pack {amount} credits",
+            "price": total_price,
+            "return_url": f"https://{shop}/admin/apps/YOUR_APP_HANDLE",
+            "test": True
         }
     }
-
+    
     async with httpx.AsyncClient() as client:
         r = await client.post(
-            f"https://{shop}/admin/api/{SHOPIFY_API_VERSION}/metafields.json",
+            f"https://{shop}/admin/api/{API_VERSION}/application_charges.json",
             headers={"X-Shopify-Access-Token": token, "Content-Type": "application/json"},
-            json=metafield_payload
+            json=charge_payload
         )
         if r.status_code not in [200, 201]:
             return JSONResponse({"error": r.text}, status_code=400)
-        return JSONResponse({"success": True})
+        confirmation_url = r.json()["application_charge"]["confirmation_url"]
+        return JSONResponse({"confirmation_url": confirmation_url})
