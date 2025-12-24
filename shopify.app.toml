@@ -1,17 +1,15 @@
 # ======================================
-# shopify.app.toml - Configuration Complète
+# shopify.app.toml - Version Prête pour Déploiement
 # ======================================
 
+client_id = "85e1a9dba888450e33b84fbb067bc3a5"
 name = "Try-On StyleLab"
 application_url = "https://stylelab-vtonn.onrender.com"
-
-# Laissez votre client_id ici s'il est déjà présent. 
-# Sinon, le CLI le rajoutera automatiquement lors du déploiement.
-# client_id = "85e1a9dba888450e33b84fbb067bc3a5"
+embedded = true
 
 [access_scopes]
-# Permissions requises pour vos webhooks et votre logique
-scopes = "write_products,read_products,read_orders"
+# Note: J'ai aussi retiré 'read_orders' ici pour éviter tout conflit de validation
+scopes = "write_products,read_products"
 
 [auth]
 redirect_urls = [
@@ -23,18 +21,16 @@ redirect_urls = [
 [webhooks]
 api_version = "2025-01"
 
-# --- BLOC 1 : Webhooks Standards ---
-# Nous les envoyons vers /webhooks/gdpr car c'est la route qui répond 200 OK dans votre Python
+# --- Webhooks Standards ---
+# Retrait de orders/create pour éviter le blocage "Protected Customer Data"
 [[webhooks.subscriptions]]
 topics = [
   "app/uninstalled",
-  "products/update",
-  "orders/create"
+  "products/update"
 ]
 uri = "/webhooks/gdpr"
 
-# --- BLOC 2 : Webhooks de Conformité (RGPD) ---
-# Séparés obligatoirement sous "compliance_topics"
+# --- Webhooks RGPD (Obligatoires) ---
 [[webhooks.subscriptions]]
 compliance_topics = [
   "customers/data_request",
@@ -42,6 +38,3 @@ compliance_topics = [
   "shop/redact"
 ]
 uri = "/webhooks/gdpr"
-
-[pos]
-embedded = false
