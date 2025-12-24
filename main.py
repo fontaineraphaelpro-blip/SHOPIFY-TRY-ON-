@@ -3,43 +3,43 @@ document.addEventListener("DOMContentLoaded", async function() {
     const shop = params.get('shop') || sessionStorage.getItem('shop');
     if(shop) sessionStorage.setItem('shop', shop);
 
-    // Initialisation
-    async function fetchCredits(s) {
+    // 1. Affichage des crédits
+    async function fetchCredits() {
         try {
-            // Shopify injecte parfois le token dans l'URL, on le récupère en priorité
-            let token = new URLSearchParams(window.location.search).get('id_token');
-            if (!token && window.shopify) {
-                token = await window.shopify.idToken();
-            }
-
-            const res = await fetch(`/api/get-credits?shop=${s}`, {
-                headers: { "Authorization": `Bearer ${token}` }
-            });
+            const res = await fetch(`/api/get-credits?shop=${shop}`);
             const data = await res.json();
-            document.getElementById('credits').innerText = data.credits || 10;
-        } catch(e) { 
-            console.error(e);
-            document.getElementById('credits').innerText = "10"; // Fallback visuel
-        }
+            document.getElementById('credits').innerText = data.credits;
+        } catch(e) { document.getElementById('credits').innerText = "10"; }
     }
+    if(shop) fetchCredits();
 
-    if(shop) fetchCredits(shop);
-
+    // 2. Fonction d'achat
     window.buy = async function(packId) {
-        const btn = event.currentTarget.tagName === 'BUTTON' ? event.currentTarget : event.target.closest('button');
-        btn.innerText = "Redirecting...";
+        const btn = event.target.closest('button');
+        btn.innerText = "Chargement...";
         
         try {
+            // Récupération du token Shopify (indispensable pour la validation)
             const token = await window.shopify.idToken();
+            
             const res = await fetch('/api/buy-credits', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                 body: JSON.stringify({ shop: shop, pack_id: packId })
             });
+            
             const data = await res.json();
             if(data.confirmation_url) {
+                // REDIRECTION CRUCIALE : On force la fenêtre parente à changer d'URL
                 window.top.location.href = data.confirmation_url;
+            } else {
+                alert("Erreur de session. Veuillez recharger l'app.");
             }
-        } catch(e) { alert("Error: " + e); btn.innerText = "Select"; }
+        } catch(e) {
+            console.error(e);
+            alert("Erreur lors de la redirection.");
+        } finally {
+            btn.innerText = "Sélectionner";
+        }
     };
 });
