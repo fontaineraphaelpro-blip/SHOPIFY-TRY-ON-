@@ -6,6 +6,7 @@ import json
 import shopify
 import requests
 import replicate
+import sqlite3
 from fastapi import FastAPI, Request, Header
 from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,8 +18,20 @@ SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
 HOST = os.getenv("HOST") 
 SCOPES = ['read_products', 'write_products']
 API_VERSION = "2025-01"
-
 MODEL_ID = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985"
+
+# --- BASE DE DONNÉES (SQLITE) ---
+def get_db():
+    conn = sqlite3.connect('database.db')
+    conn.row_factory = sqlite3.Row
+    return conn
+
+# Initialisation des tables
+db = get_db()
+db.execute('CREATE TABLE IF NOT EXISTS sessions (shop TEXT PRIMARY KEY, token TEXT)')
+db.execute('CREATE TABLE IF NOT EXISTS credits (shop TEXT PRIMARY KEY, count INTEGER)')
+db.commit()
+db.close()
 
 app = FastAPI()
 
@@ -29,10 +42,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# --- BASES DE DONNÉES (EN MÉMOIRE) ---
-shop_sessions = {}  
-credits_db = {}     
 
 # --- MODÈLES DE DONNÉES ---
 class BuyModel(BaseModel):
@@ -52,10 +61,11 @@ def clean_shop_url(url):
     return url.replace("https://", "").replace("http://", "").strip("/")
 
 def get_session(shop):
-    token = shop_sessions.get(shop)
-    if not token:
-        return None
-    session = shopify.Session(shop, API_VERSION, token)
+    db = get_db()
+    row = db.execute('SELECT token FROM sessions WHERE shop = ?', (shop,)).fetchone()
+    db.close()
+    if not row: return None
+    session = shopify.Session(shop, API_VERSION, row['token'])
     shopify.ShopifyResource.activate_session(session)
     return session
 
@@ -92,15 +102,17 @@ def auth_callback(shop: str, code: str, host: str = None):
         
         if res.status_code == 200:
             token = res.json().get('access_token')
-            shop_sessions[shop] = token
-            if shop not in credits_db:
-                credits_db[shop] = 10 
-                
+            db = get_db()
+            db.execute('INSERT OR REPLACE INTO sessions (shop, token) VALUES (?, ?)', (shop, token))
+            # 10 crédits cadeaux si nouveau
+            check = db.execute('SELECT count FROM credits WHERE shop = ?', (shop,)).fetchone()
+            if not check:
+                db.execute('INSERT INTO credits (shop, count) VALUES (?, ?)', (shop, 10))
+            db.commit()
+            db.close()
+            
             shop_name = shop.replace(".myshopify.com", "")
-            if host:
-                return RedirectResponse(f"https://admin.shopify.com/store/{shop_name}/apps/{SHOPIFY_API_KEY}?host={host}")
-            else:
-                return RedirectResponse(f"https://{shop}/admin/apps/{SHOPIFY_API_KEY}")
+            return RedirectResponse(f"https://admin.shopify.com/store/{shop_name}/apps/{SHOPIFY_API_KEY}")
         return HTMLResponse(f"Token Error: {res.text}", status_code=400)
     except Exception as e:
         return HTMLResponse(content=f"Auth Error: {str(e)}", status_code=500)
@@ -110,11 +122,11 @@ def auth_callback(shop: str, code: str, host: str = None):
 @app.get("/api/get-credits")
 def get_credits(shop: str, authorization: str = Header(None)):
     shop = clean_shop_url(shop)
-    if shop not in shop_sessions:
-        return JSONResponse(content={"error": "Session lost"}, status_code=401)
-    
-    count = credits_db.get(shop, 0)
-    return {"credits": count}
+    db = get_db()
+    row = db.execute('SELECT count FROM credits WHERE shop = ?', (shop,)).fetchone()
+    db.close()
+    if not row: return JSONResponse(content={"error": "Session lost"}, status_code=401)
+    return {"credits": row['count']}
 
 @app.post("/api/buy-credits")
 def buy_credits(data: BuyModel, authorization: str = Header(None)):
@@ -122,50 +134,38 @@ def buy_credits(data: BuyModel, authorization: str = Header(None)):
     if not get_session(shop):
         return JSONResponse(content={"error": "Session expirée"}, status_code=401)
 
-    try:
-        price = None
-        name = ""
-        
-        # HARMONISATION : pack_10 (HTML) -> Discovery
-        if data.pack_id in ['pack_10', 'pack_discovery']:
-            price = 4.99
-            name = "Discovery Pack (10 Credits)"
-        elif data.pack_id in ['pack_30', 'pack_standard']:
-            price = 12.99
-            name = "Standard Pack (30 Credits)"
-        elif data.pack_id in ['pack_100', 'pack_business']:
-            price = 29.99
-            name = "Business Pack (100 Credits)"
-        elif data.pack_id == 'pack_custom' and data.custom_amount:
-            amount = int(data.custom_amount)
-            price = float(amount * 0.25)
-            name = f"Custom Pack ({amount} Credits)"
-        
-        if price is None:
-            return JSONResponse(content={"error": f"Pack inconnu: {data.pack_id}"}, status_code=400)
+    price = None
+    name = ""
+    if data.pack_id in ['pack_10', 'pack_discovery']:
+        price = 4.99
+        name = "Discovery Pack (10 Credits)"
+    elif data.pack_id in ['pack_30', 'pack_standard']:
+        price = 12.99
+        name = "Standard Pack (30 Credits)"
+    elif data.pack_id in ['pack_100', 'pack_business']:
+        price = 29.99
+        name = "Business Pack (100 Credits)"
+    elif data.pack_id == 'pack_custom' and data.custom_amount:
+        price = float(int(data.custom_amount) * 0.25)
+        name = f"Custom Pack ({data.custom_amount} Credits)"
+    
+    if price is None: return JSONResponse(content={"error": "Pack invalide"}, status_code=400)
 
-        # Création de la charge Shopify
+    try:
         charge = shopify.ApplicationCharge.create({
             "name": name,
             "price": price,
             "return_url": f"{HOST}/api/charge/callback?shop={shop}&pack_id={data.pack_id}&custom={data.custom_amount or 0}",
-            "test": True 
+            "test": False # <--- MODE RÉEL ACTIVÉ
         })
-
-        if charge.confirmation_url:
-            return {"confirmation_url": charge.confirmation_url}
-        else:
-            return {"error": "Erreur Shopify API"}
-
+        return {"confirmation_url": charge.confirmation_url}
     except Exception as e:
-        print(f"Erreur paiement: {e}")
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
 @app.get("/api/charge/callback")
 def charge_callback(shop: str, charge_id: str, pack_id: str, custom: int = 0):
     shop = clean_shop_url(shop)
-    if not get_session(shop):
-        return HTMLResponse("Session expirée. Veuillez recharger l'application.")
+    if not get_session(shop): return HTMLResponse("Session expirée.")
 
     try:
         charge = shopify.ApplicationCharge.find(charge_id)
@@ -178,24 +178,26 @@ def charge_callback(shop: str, charge_id: str, pack_id: str, custom: int = 0):
             elif pack_id in ['pack_100', 'pack_business']: credits_to_add = 100
             elif pack_id == 'pack_custom': credits_to_add = int(custom)
             
-            current = credits_db.get(shop, 0)
-            credits_db[shop] = current + credits_to_add
+            db = get_db()
+            db.execute('UPDATE credits SET count = count + ? WHERE shop = ?', (credits_to_add, shop))
+            db.commit()
+            db.close()
             
             return RedirectResponse(f"https://{shop}/admin/apps/{SHOPIFY_API_KEY}")
-        else:
-            return HTMLResponse("Paiement refusé ou annulé.")
-            
+        return HTMLResponse("Paiement refusé.")
     except Exception as e:
-        return HTMLResponse(f"Erreur validation paiement: {str(e)}")
+        return HTMLResponse(f"Erreur: {str(e)}")
 
 # --- API GÉNÉRATION IA ---
 
 @app.post("/api/generate")
 def generate_image(data: GenerateModel, authorization: str = Header(None)):
     shop = clean_shop_url(data.shop)
+    db = get_db()
+    row = db.execute('SELECT count FROM credits WHERE shop = ?', (shop,)).fetchone()
     
-    current_credits = credits_db.get(shop, 0)
-    if current_credits < 1 and shop != "demo":
+    if (not row or row['count'] < 1) and shop != "demo":
+        db.close()
         return {"error": "Crédits insuffisants"}
 
     try:
@@ -209,33 +211,36 @@ def generate_image(data: GenerateModel, authorization: str = Header(None)):
         )
         
         if shop != "demo":
-            credits_db[shop] = current_credits - 1
-            
+            db.execute('UPDATE credits SET count = count - 1 WHERE shop = ?', (shop,))
+            db.commit()
+        db.close()
         return {"result_image_url": output}
-        
     except Exception as e:
-        print(f"Replicate Error: {e}")
+        db.close()
         return {"error": str(e)}
 
-# --- WEBHOOKS RGPD (CONFORMITÉ) ---
+# --- WEBHOOKS RGPD ---
 @app.post("/webhooks/gdpr")
 async def gdpr_webhooks(request: Request):
     try:
         data = await request.body()
         hmac_header = request.headers.get('X-Shopify-Hmac-SHA256')
         topic = request.headers.get('X-Shopify-Topic')
-        
-        if not SHOPIFY_API_SECRET:
-            return HTMLResponse(content="Config Error", status_code=500)
-
         digest = hmac.new(SHOPIFY_API_SECRET.encode('utf-8'), data, hashlib.sha256).digest()
         computed_hmac = base64.b64encode(digest).decode()
 
         if not hmac_header or not hmac.compare_digest(computed_hmac, hmac_header):
             return HTMLResponse(content="Unauthorized", status_code=401)
 
-        print(f"✅ Webhook reçu : {topic}")
-        return HTMLResponse(content="Webhook received", status_code=200)
+        if topic == "shop/redact":
+            payload = json.loads(data)
+            db = get_db()
+            db.execute('DELETE FROM credits WHERE shop = ?', (payload.get('shop_domain'),))
+            db.execute('DELETE FROM sessions WHERE shop = ?', (payload.get('shop_domain'),))
+            db.commit()
+            db.close()
 
-    except Exception as e:
-        return HTMLResponse(content="Error processed", status_code=200)
+        print(f"✅ Webhook {topic} traité")
+        return HTMLResponse(content="OK", status_code=200)
+    except:
+        return HTMLResponse(content="Error", status_code=200)
