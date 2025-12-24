@@ -1,58 +1,33 @@
-document.addEventListener("DOMContentLoaded", async () => {
-    const params = new URLSearchParams(window.location.search);
-    const shop = params.get('shop') || sessionStorage.getItem('shop');
-    if (!shop) {
-        document.body.innerHTML = "<h2>Missing shop parameter. Open from Shopify Admin</h2>";
+document.addEventListener("DOMContentLoaded", () => {
+    document.body.classList.add("loaded");
+
+    // --- Vérifie si embedded et récupère id_token ---
+    const urlParams = new URLSearchParams(window.location.search);
+    const idToken = urlParams.get("id_token");
+    const shop = urlParams.get("shop");
+
+    if (!idToken || !shop) {
+        document.body.innerHTML = "<h1>Erreur : app non authentifiée</h1>";
         return;
     }
-    sessionStorage.setItem('shop', shop);
 
-    const AppBridge = window['app-bridge'];
-    const createApp = AppBridge.default;
-    const app = createApp({
-        apiKey: "TON_API_KEY_SHOPIFY",
-        shopOrigin: shop,
-        forceRedirect: true
+    // --- Exemple fetch pour récupérer crédits ---
+    fetch(`/api/get-credits?shop=${shop}`, {
+        headers: {
+            "Authorization": `Bearer ${idToken}`
+        }
+    })
+    .then(res => res.json())
+    .then(data => {
+        document.body.innerHTML = `
+            <div style="padding:20px; max-width:600px; margin:auto;">
+                <h1>Bienvenue dans VTON Magic</h1>
+                <p>Crédits disponibles : <strong>${data.credits}</strong></p>
+            </div>
+        `;
+    })
+    .catch(err => {
+        console.error(err);
+        document.body.innerHTML = "<h1>Erreur de récupération des crédits</h1>";
     });
-
-    const getSessionToken = window['app-bridge-utils'].getSessionToken;
-
-    async function fetchCredits() {
-        try {
-            const token = await getSessionToken(app);
-            const res = await fetch(`/api/get-credits?shop=${shop}`, {
-                headers: { "Authorization": `Bearer ${token}` }
-            });
-            const data = await res.json();
-            document.getElementById('credits').innerText = data.credits;
-        } catch(e) {
-            console.error("Erreur crédits:", e);
-            document.getElementById('credits').innerText = "Error"; 
-        }
-    }
-
-    await fetchCredits();
-
-    window.buy = async function(packId) {
-        const token = await getSessionToken(app);
-
-        try {
-            const res = await fetch('/api/buy-credits', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({ shop: shop, pack_id: packId })
-            });
-            const data = await res.json();
-            if(data.confirmation_url) {
-                window.top.location.href = data.confirmation_url;
-            } else {
-                alert("Erreur achat");
-            }
-        } catch(e) {
-            console.error("Erreur Achat:", e);
-        }
-    };
 });
