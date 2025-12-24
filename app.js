@@ -1,59 +1,164 @@
-let app;
-let getSessionToken;
-let shop;
+import os, time, jwt, requests, shopify
+from fastapi import FastAPI, Header, HTTPException
+from fastapi.responses import RedirectResponse, FileResponse, JSONResponse
+from pydantic import BaseModel
 
-document.addEventListener("DOMContentLoaded", async () => {
-    const params = new URLSearchParams(window.location.search);
-    shop = params.get("shop");
+# ---------- CONFIG ----------
+SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
+SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
+HOST = os.getenv("HOST")
+API_VERSION = "2024-04"
+APP_HANDLE = "vton-magic"
 
-    app = window["app-bridge"].createApp({
-        apiKey: "TON_API_KEY_SHOPIFY",
-        shopOrigin: shop,
-        forceRedirect: true
-    });
+SCOPES = [
+    "read_metafields",
+    "write_metafields"
+]
 
-    getSessionToken = window["app-bridge-utils"].getSessionToken;
+app = FastAPI()
+shop_sessions = {}
+pending_charges = {}
 
-    fetchCredits();
-});
+# ---------- CSP / IFRAME FIX ----------
+@app.middleware("http")
+async def shopify_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = (
+        "frame-ancestors https://admin.shopify.com https://*.myshopify.com"
+    )
+    response.headers.pop("X-Frame-Options", None)
+    return response
 
-async function getToken() {
-    return await getSessionToken(app);
-}
+# ---------- AUTH ----------
+def verify_token(auth: str, shop: str):
+    if not auth:
+        raise HTTPException(401, "Missing token")
 
-async function fetchCredits() {
-    const token = await getToken();
+    token = auth.replace("Bearer ", "")
+    decoded = jwt.decode(
+        token,
+        SHOPIFY_API_SECRET,
+        algorithms=["HS256"],
+        audience=SHOPIFY_API_KEY
+    )
 
-    const res = await fetch(`/api/get-credits?shop=${shop}`, {
-        headers: {
-            Authorization: `Bearer ${token}`
+    if decoded["iss"] != f"https://{shop}":
+        raise HTTPException(401, "Invalid issuer")
+
+    if decoded["exp"] < time.time():
+        raise HTTPException(401, "Expired token")
+
+def activate_session(shop: str):
+    token = shop_sessions.get(shop)
+    if not token:
+        raise HTTPException(401, "No session")
+    session = shopify.Session(shop, API_VERSION, token)
+    shopify.ShopifyResource.activate_session(session)
+
+# ---------- METAFIELDS ----------
+def get_credits():
+    shop = shopify.Shop.current()
+    for m in shop.metafields():
+        if m.namespace == "vton_magic" and m.key == "credits":
+            return int(m.value)
+    return 10
+
+def set_credits(value: int):
+    shop = shopify.Shop.current()
+    metafield = shopify.Metafield({
+        "namespace": "vton_magic",
+        "key": "credits",
+        "type": "number_integer",
+        "value": value,
+        "owner_resource": "shop",
+        "owner_id": shop.id
+    })
+    metafield.save()
+
+# ---------- STATIC ----------
+@app.get("/")
+def index():
+    return FileResponse("index.html")
+
+@app.get("/app.js")
+def js():
+    return FileResponse("app.js")
+
+@app.get("/styles.css")
+def css():
+    return FileResponse("styles.css")
+
+# ---------- OAUTH ----------
+@app.get("/login")
+def login(shop: str):
+    return RedirectResponse(
+        f"https://{shop}/admin/oauth/authorize"
+        f"?client_id={SHOPIFY_API_KEY}"
+        f"&scope={','.join(SCOPES)}"
+        f"&redirect_uri={HOST}/auth/callback"
+    )
+
+@app.get("/auth/callback")
+def callback(shop: str, code: str):
+    res = requests.post(
+        f"https://{shop}/admin/oauth/access_token",
+        json={
+            "client_id": SHOPIFY_API_KEY,
+            "client_secret": SHOPIFY_API_SECRET,
+            "code": code
         }
-    });
+    )
 
-    const data = await res.json();
-    document.getElementById("credits").innerText = data.credits;
-}
+    token = res.json()["access_token"]
+    shop_sessions[shop] = token
 
-window.buy = async function (packId) {
-    const token = await getToken();
+    return RedirectResponse(
+        f"https://admin.shopify.com/store/{shop.replace('.myshopify.com','')}/apps/{APP_HANDLE}"
+    )
 
-    const res = await fetch("/api/buy-credits", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({
-            shop: shop,
-            pack_id: packId
-        })
-    });
+# ---------- API ----------
+@app.get("/api/get-credits")
+def credits(shop: str, authorization: str = Header(None)):
+    verify_token(authorization, shop)
+    activate_session(shop)
+    return {"credits": get_credits()}
 
-    const data = await res.json();
+class Buy(BaseModel):
+    shop: str
+    pack_id: str
 
-    if (data.confirmation_url) {
-        window.top.location.href = data.confirmation_url;
-    } else {
-        alert("Payment error");
+@app.post("/api/buy-credits")
+def buy(data: Buy, authorization: str = Header(None)):
+    verify_token(authorization, data.shop)
+    activate_session(data.shop)
+
+    prices = {
+        "pack_10": 4.99,
+        "pack_30": 12.99,
+        "pack_100": 29.99
     }
-};
+
+    charge = shopify.RecurringApplicationCharge.create({
+        "name": f"Credits {data.pack_id}",
+        "price": prices[data.pack_id],
+        "return_url": f"{HOST}/api/charge/callback?shop={data.shop}",
+        "test": True
+    })
+
+    pending_charges[str(charge.id)] = data.pack_id
+    return {"confirmation_url": charge.confirmation_url}
+
+@app.get("/api/charge/callback")
+def charge_callback(shop: str, charge_id: str):
+    activate_session(shop)
+    charge = shopify.RecurringApplicationCharge.find(charge_id)
+
+    if charge.status == "accepted":
+        charge.activate()
+        pack = pending_charges.get(charge_id)
+        bonus = {"pack_10": 10, "pack_30": 30, "pack_100": 100}
+        set_credits(get_credits() + bonus.get(pack, 0))
+
+    return RedirectResponse(
+        f"https://admin.shopify.com/store/{shop.replace('.myshopify.com','')}/apps/{APP_HANDLE}"
+    )
