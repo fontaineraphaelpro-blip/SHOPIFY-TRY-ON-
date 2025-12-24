@@ -19,7 +19,7 @@ async def install(shop: str):
     if not shop:
         raise HTTPException(400, "Missing shop param")
     state = secrets.token_urlsafe(16)
-    redirect_uri = "https://YOUR_DOMAIN/auth/callback"
+    redirect_uri = "https://stylelab-vtonn.onrender.com/auth/callback"
     scope = "read_products,write_products,read_metafields,write_metafields"
     install_url = f"https://{shop}/admin/oauth/authorize?client_id={API_KEY}&scope={scope}&redirect_uri={redirect_uri}&state={state}"
     return RedirectResponse(install_url)
@@ -142,3 +142,4 @@ async def generate_tryon(user_image: UploadFile = File(...), garment_image: Uplo
     # TODO: appeler ton AI
     generated_image_url = "https://via.placeholder.com/400x600.png?text=Virtual+Try-On"
     return {"generated_image_url": generated_image_url}
+
