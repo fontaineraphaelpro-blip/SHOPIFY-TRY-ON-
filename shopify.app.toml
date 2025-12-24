@@ -1,19 +1,47 @@
-# Configuration de l'application
-client_id = "85e1a9dba888450e33b84fbb067bc3a5"
-name = "StyleLab"
+# ======================================
+# shopify.app.toml - Configuration Complète
+# ======================================
+
+name = "Try-On StyleLab"
 application_url = "https://stylelab-vtonn.onrender.com"
-embedded = true
+
+# Laissez votre client_id ici s'il est déjà présent. 
+# Sinon, le CLI le rajoutera automatiquement lors du déploiement.
+# client_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+[access_scopes]
+# Permissions requises pour vos webhooks et votre logique
+scopes = "write_products,read_products,read_orders"
 
 [auth]
 redirect_urls = [
   "https://stylelab-vtonn.onrender.com/auth/callback",
+  "https://stylelab-vtonn.onrender.com/auth/shopify/callback",
   "https://stylelab-vtonn.onrender.com/api/auth/callback"
 ]
 
 [webhooks]
-api_version = "2024-10"
+api_version = "2025-01"
 
-# Les 3 webhooks RGPD obligatoires
+# --- BLOC 1 : Webhooks Standards ---
+# Nous les envoyons vers /webhooks/gdpr car c'est la route qui répond 200 OK dans votre Python
 [[webhooks.subscriptions]]
-topics = ["customers/data_request", "customers/redact", "shop/redact"]
-uri = "https://stylelab-vtonn.onrender.com/webhooks/gdpr"
+topics = [
+  "app/uninstalled",
+  "products/update",
+  "orders/create"
+]
+uri = "/webhooks/gdpr"
+
+# --- BLOC 2 : Webhooks de Conformité (RGPD) ---
+# Séparés obligatoirement sous "compliance_topics"
+[[webhooks.subscriptions]]
+compliance_topics = [
+  "customers/data_request",
+  "customers/redact",
+  "shop/redact"
+]
+uri = "/webhooks/gdpr"
+
+[pos]
+embedded = false
