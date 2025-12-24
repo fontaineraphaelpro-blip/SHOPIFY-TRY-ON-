@@ -4,10 +4,16 @@ name = "StyleLab"
 application_url = "https://stylelab-vtonn.onrender.com"
 embedded = true
 
+[auth]
+redirect_urls = [
+  "https://stylelab-vtonn.onrender.com/auth/callback",
+  "https://stylelab-vtonn.onrender.com/api/auth/callback"
+]
+
 [webhooks]
 api_version = "2024-10"
 
-# Les 3 webhooks RGPD obligatoires (remplacent les cases de l'interface)
+# Les 3 webhooks RGPD obligatoires
 [[webhooks.subscriptions]]
 topics = ["customers/data_request", "customers/redact", "shop/redact"]
 uri = "https://stylelab-vtonn.onrender.com/webhooks/gdpr"
