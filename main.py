@@ -21,6 +21,19 @@ MODEL_ID = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b4852855943
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
+# --- COUPE ET COLLE CE BLOC ICI ---
+@app.get("/styles.css")
+async def get_css():
+    return FileResponse("styles.css", media_type="text/css")
+
+@app.get("/app.js")
+async def get_js():
+    return FileResponse("app.js", media_type="text/javascript")
+# ----------------------------------
+
+@app.get("/")
+async def index(shop: str = None):
+    return FileResponse('index.html')
 # Simulation de stockage des tokens (À remplacer par une DB en prod réelle pour les tokens)
 # Mais les CRÉDITS sont 100% sur Shopify Metafields
 shop_sessions = {} 
@@ -147,3 +160,4 @@ async def generate(
         return {"result_image_url": output, "new_credits": new_total}
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
