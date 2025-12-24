@@ -1,32 +1,110 @@
 document.addEventListener("DOMContentLoaded", function() {
-    // 1. Initialisation des variables
+    document.body.classList.add('loaded');
+    
     const params = new URLSearchParams(window.location.search);
-    let shop = params.get('shop') || sessionStorage.getItem('shop');
+    const mode = params.get('mode');
+    const shop = params.get('shop') || sessionStorage.getItem('shop');
     const autoProductImage = params.get('product_image'); 
     
-    if(shop) {
-        sessionStorage.setItem('shop', shop);
-        fetchCredits(shop);
+    if(shop) sessionStorage.setItem('shop', shop);
+
+    // MODE CLIENT
+    if (mode === 'client') {
+        document.body.classList.add('client-mode');
+        const adminDash = document.getElementById('admin-dashboard');
+        const studioInt = document.getElementById('studio-interface');
+        const title = document.getElementById('client-title');
+        
+        if(adminDash) adminDash.style.display = 'none';
+        if(studioInt) studioInt.style.display = 'block';
+        if(title) title.style.display = 'block';
+
+        if (autoProductImage) {
+            const img = document.getElementById('prevC');
+            if(img) {
+                img.src = autoProductImage;
+                img.style.display = 'block';
+                if(img.parentElement) {
+                    img.parentElement.classList.add('has-image');
+                    const els = img.parentElement.querySelectorAll('i, .upload-text, .upload-icon, .upload-sub');
+                    els.forEach(el => el.style.display = 'none');
+                }
+            }
+        }
+    } else {
+        // MODE ADMIN
+        if(shop) fetchCredits(shop);
     }
 
-    // 2. Auto-remplissage du vêtement (Si venant d'une fiche produit Shopify)
-    if (autoProductImage) {
-        const imgC = document.getElementById('prevC');
-        const cardC = document.getElementById('card-garment');
-        if (imgC) {
-            imgC.src = autoProductImage;
-            imgC.style.display = 'block';
-            imgC.parentElement.classList.add('has-image');
-            // Cache les textes d'upload par défaut
-            const labels = imgC.parentElement.querySelectorAll('i, .upload-text, .upload-icon, .upload-sub');
-            labels.forEach(el => el.style.display = 'none');
+    // --- FONCTION VITALE : AUTO-RECONNEXION ---
+    async function fetchCredits(s) {
+        try {
+            const res = await fetch(`/api/get-credits?shop=${s}`);
+            // SI CLÉ PERDUE (401) -> ON RECHARGE POUR SE RECONNECTER
+            if (res.status === 401) { 
+                console.log("Session lost, reconnecting...");
+                window.top.location.href = `/login?shop=${s}`; 
+                return; 
+            }
+            const data = await res.json();
+            const el = document.getElementById('credits'); 
+            if(el) el.innerText = data.credits;
+        } catch(e) { console.error("API Error", e); }
+    }
+
+    // --- PAIEMENT ---
+    window.buy = async function(packId) {
+        if(!shop) return alert("Shop ID missing");
+        
+        let btn;
+        if (event && event.target) btn = event.currentTarget.tagName === 'BUTTON' ? event.currentTarget : event.target.closest('button');
+        if (!btn) btn = document.querySelector('.custom-input-group button');
+        const oldText = btn ? btn.innerText : "Buy";
+        if(btn) { btn.innerText = "Redirecting..."; btn.disabled = true; }
+
+        try {
+            const res = await fetch('/api/buy-credits', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ shop: shop, pack_id: packId })
+            });
+
+            // ICI C'EST CRUCIAL : Si 401, on reconnecte au lieu d'afficher "Unknown"
+            if (res.status === 401) {
+                window.top.location.href = `/login?shop=${shop}`;
+                return;
+            }
+
+            const data = await res.json();
+            if(data.confirmation_url) {
+                window.top.location.href = data.confirmation_url;
+            } else {
+                alert("Error: " + (data.error || "Unknown"));
+                if(btn) { btn.innerText = oldText; btn.disabled = false; }
+            }
+        } catch(e) {
+            alert("Network Error");
+            if(btn) { btn.innerText = oldText; btn.disabled = false; }
         }
     }
 
-    // --- FONCTIONS ACCESSIBLES PAR LE HTML (window.) ---
+    window.buyCustom = function() {
+        const amount = document.getElementById('customAmount').value;
+        if(amount < 200) return alert("Min 200 credits");
+        
+        // On utilise la même logique pour le custom
+        fetch('/api/buy-credits', {
+             method: 'POST', headers: {'Content-Type': 'application/json'},
+             body: JSON.stringify({ shop: shop, pack_id: 'pack_custom', custom_amount: parseInt(amount) })
+        }).then(async r => {
+            if (r.status === 401) { window.top.location.href = `/login?shop=${shop}`; return; }
+            const d = await r.json();
+            if(d.confirmation_url) window.top.location.href = d.confirmation_url;
+            else alert(d.error);
+        });
+    }
 
-    // Prévisualisation des images uploadées
-    window.preview = function(inputId, imgId) {
+    // --- RESTE DU CODE (IA) ---
+    window.preview = function(inputId, imgId, txtId) {
         const file = document.getElementById(inputId).files[0];
         if (file) {
             const reader = new FileReader();
@@ -34,122 +112,46 @@ document.addEventListener("DOMContentLoaded", function() {
                 const img = document.getElementById(imgId);
                 img.src = e.target.result;
                 img.style.display = 'block';
-                img.parentElement.classList.add('has-image');
-                const labels = img.parentElement.querySelectorAll('i, .upload-text, .upload-icon, .upload-sub');
-                labels.forEach(el => el.style.display = 'none');
+                if(img.parentElement) {
+                    img.parentElement.classList.add('has-image');
+                    const els = img.parentElement.querySelectorAll('i, .upload-text, .upload-icon, .upload-sub');
+                    els.forEach(el => el.style.display = 'none');
+                }
             };
             reader.readAsDataURL(file);
         }
     };
 
-    // Lancement de la génération IA
     window.generate = async function() {
-        const uFile = document.getElementById('uImg').files[0];
-        const btn = document.getElementById('btnGo');
-        const currentShop = sessionStorage.getItem('shop');
-        
-        // Sécurité : On vérifie les deux images
-        if (!uFile) return alert("Please upload your photo first.");
-        if (!autoProductImage && !document.getElementById('cImg').files[0]) {
-            return alert("Please select a garment first.");
-        }
-
-        // UI : Mode chargement
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> AI Magic...';
-        
-        document.getElementById('resZone').style.display = 'flex';
-        document.getElementById('loader').style.display = 'block';
-        document.getElementById('resImg').style.display = 'none';
-
-        // Préparation des données (Multipart pour la rapidité)
-        const formData = new FormData();
-        formData.append("shop", currentShop);
-        formData.append("person_image", uFile);
-        
-        // On envoie soit l'URL auto, soit le fichier si l'utilisateur en a mis un autre
+        const u = document.getElementById('uImg').files[0];
         const cFile = document.getElementById('cImg').files[0];
-        formData.append("clothing_url", cFile ? cFile : autoProductImage);
+        if (!u || (!cFile && !autoProductImage)) return alert("Please upload your photo.");
+        const btn = document.getElementById('btnGo');
+        const resZone = document.getElementById('resZone');
+        const loader = document.getElementById('loader');
+        
+        btn.disabled = true; btn.innerHTML = 'Processing...';
+        if(resZone) resZone.style.display = 'flex';
+        if(loader) loader.style.display = 'block';
+        if(resZone) resZone.scrollIntoView({ behavior: 'smooth' });
+        
+        const to64 = f => new Promise(r => { const rd = new FileReader(); rd.readAsDataURL(f); rd.onload=()=>r(rd.result); });
 
         try {
+            let garmentData = cFile ? await to64(cFile) : autoProductImage;
             const res = await fetch('/api/generate', {
-                method: 'POST',
-                body: formData
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ shop: shop || "demo", person_image_url: await to64(u), clothing_image_url: garmentData, category: "upper_body" })
             });
             const data = await res.json();
-
-            if (data.result_image_url) {
-                const resImg = document.getElementById('resImg');
-                resImg.src = data.result_image_url;
-                resImg.style.display = 'block';
-                document.getElementById('loader').style.display = 'none';
-                
-                // Mise à jour des crédits affichés
-                if(data.new_credits !== undefined) {
-                    document.getElementById('credits').innerText = data.new_credits;
-                }
-            } else {
-                alert("AI Error: " + (data.error || "Unknown error"));
-                resetUI();
-            }
-        } catch (e) {
-            alert("Connection error to server");
-            resetUI();
-        } finally {
-            btn.innerHTML = 'Test This Outfit Now <i class="fa-solid fa-wand-magic-sparkles"></i>';
-            btn.disabled = false;
-        }
+            if(data.result_image_url) {
+                const ri = document.getElementById('resImg');
+                ri.src = data.result_image_url;
+                ri.style.display = 'block';
+                if(loader) loader.style.display = 'none';
+                if(mode !== 'client') fetchCredits(shop);
+            } else alert("AI Error: " + (data.error || "Unknown"));
+        } catch(e) { alert("Error: " + e); }
+        finally { btn.disabled = false; btn.innerHTML = 'Test This Outfit Now <i class="fa-solid fa-wand-magic-sparkles"></i>'; }
     };
-
-    // Gestion des achats de crédits
-    window.buy = async function(packId, customAmount = 0) {
-        const currentShop = sessionStorage.getItem('shop');
-        if(!currentShop) return alert("Shop session lost. Please reload the app.");
-
-        try {
-            const res = await fetch('/api/buy-credits', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ 
-                    shop: currentShop, 
-                    pack_id: packId, 
-                    custom_amount: parseInt(customAmount) 
-                })
-            });
-            const data = await res.json();
-            if(data.confirmation_url) {
-                window.top.location.href = data.confirmation_url;
-            } else {
-                alert("Shopify Error: " + data.error);
-            }
-        } catch(e) {
-            alert("Payment connection error");
-        }
-    };
-
-    window.buyCustom = function() {
-        const amount = document.getElementById('customAmount').value;
-        if(amount < 200) return alert("Minimum 200 credits for custom packs.");
-        window.buy('pack_custom', amount);
-    };
-
-    // --- FONCTIONS INTERNES ---
-
-    async function fetchCredits(s) {
-        try {
-            const res = await fetch(`/api/get-credits?shop=${s}`);
-            const data = await res.json();
-            const creditEl = document.getElementById('credits');
-            if(data.credits !== undefined && creditEl) {
-                creditEl.innerText = data.credits;
-            }
-        } catch(e) {
-            console.error("Could not load credits from Shopify Metafields");
-        }
-    }
-
-    function resetUI() {
-        document.getElementById('resZone').style.display = 'none';
-        document.getElementById('loader').style.display = 'none';
-    }
 });
