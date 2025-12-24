@@ -8,7 +8,6 @@ document.addEventListener("DOMContentLoaded", function() {
     
     if(shop) sessionStorage.setItem('shop', shop);
 
-    // MODE CLIENT
     if (mode === 'client') {
         document.body.classList.add('client-mode');
         const adminDash = document.getElementById('admin-dashboard');
@@ -32,15 +31,19 @@ document.addEventListener("DOMContentLoaded", function() {
             }
         }
     } else {
-        // MODE ADMIN
         if(shop) fetchCredits(shop);
     }
 
-    // --- FONCTION VITALE : AUTO-RECONNEXION ---
+    // --- FONCTION VITALE : AUTO-RECONNEXION AVEC SESSION TOKENS ---
     async function fetchCredits(s) {
         try {
-            const res = await fetch(`/api/get-credits?shop=${s}`);
-            // SI CLÉ PERDUE (401) -> ON RECHARGE POUR SE RECONNECTER
+            // RÉCUPÉRATION DU JETON (Condition Shopify)
+            const token = await window.shopify.idToken();
+
+            const res = await fetch(`/api/get-credits?shop=${s}`, {
+                headers: { "Authorization": `Bearer ${token}` }
+            });
+
             if (res.status === 401) { 
                 console.log("Session lost, reconnecting...");
                 window.top.location.href = `/login?shop=${s}`; 
@@ -52,7 +55,7 @@ document.addEventListener("DOMContentLoaded", function() {
         } catch(e) { console.error("API Error", e); }
     }
 
-    // --- PAIEMENT ---
+    // --- PAIEMENT AVEC SESSION TOKENS ---
     window.buy = async function(packId) {
         if(!shop) return alert("Shop ID missing");
         
@@ -63,12 +66,18 @@ document.addEventListener("DOMContentLoaded", function() {
         if(btn) { btn.innerText = "Redirecting..."; btn.disabled = true; }
 
         try {
+            // RÉCUPÉRATION DU JETON (Condition Shopify)
+            const token = await window.shopify.idToken();
+
             const res = await fetch('/api/buy-credits', {
-                method: 'POST', headers: {'Content-Type': 'application/json'},
+                method: 'POST', 
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
                 body: JSON.stringify({ shop: shop, pack_id: packId })
             });
 
-            // ICI C'EST CRUCIAL : Si 401, on reconnecte au lieu d'afficher "Unknown"
             if (res.status === 401) {
                 window.top.location.href = `/login?shop=${shop}`;
                 return;
@@ -87,13 +96,18 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
 
-    window.buyCustom = function() {
+    window.buyCustom = async function() {
         const amount = document.getElementById('customAmount').value;
         if(amount < 200) return alert("Min 200 credits");
         
-        // On utilise la même logique pour le custom
+        const token = await window.shopify.idToken();
+
         fetch('/api/buy-credits', {
-             method: 'POST', headers: {'Content-Type': 'application/json'},
+             method: 'POST', 
+             headers: {
+                 'Content-Type': 'application/json',
+                 'Authorization': `Bearer ${token}`
+             },
              body: JSON.stringify({ shop: shop, pack_id: 'pack_custom', custom_amount: parseInt(amount) })
         }).then(async r => {
             if (r.status === 401) { window.top.location.href = `/login?shop=${shop}`; return; }
@@ -139,6 +153,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
         try {
             let garmentData = cFile ? await to64(cFile) : autoProductImage;
+            // Optionnel : Vous pourriez aussi envoyer le token ici pour être 100% sûr
             const res = await fetch('/api/generate', {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ shop: shop || "demo", person_image_url: await to64(u), clothing_image_url: garmentData, category: "upper_body" })
