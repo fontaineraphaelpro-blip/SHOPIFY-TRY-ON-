@@ -1,9 +1,9 @@
 import os
-import shopify
-import requests
 import hmac
 import hashlib
 import base64
+import shopify
+import requests
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,6 +11,7 @@ from pydantic import BaseModel
 import replicate
 
 # --- CONFIGURATION ---
+# Récupération des variables d'environnement
 SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
 SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
 HOST = os.getenv("HOST")
@@ -36,13 +37,20 @@ def clean_shop_url(url):
 
 # --- ROUTES STATIQUES ---
 @app.get("/")
-def index(): return FileResponse('index.html')
+def index():
+    if os.path.exists('index.html'):
+        return FileResponse('index.html')
+    return HTMLResponse("<h1>StyleLab App is Running</h1>")
 
 @app.get("/styles.css")
-def styles(): return FileResponse('styles.css')
+def styles():
+    if os.path.exists('styles.css'): return FileResponse('styles.css')
+    return HTMLResponse("")
 
 @app.get("/app.js")
-def javascript(): return FileResponse('app.js')
+def javascript():
+    if os.path.exists('app.js'): return FileResponse('app.js')
+    return HTMLResponse("")
 
 # --- AUTHENTIFICATION ---
 @app.get("/login")
@@ -71,135 +79,35 @@ def auth_callback(shop: str, code: str, host: str = None):
     except Exception as e:
         return HTMLResponse(content=f"Auth Error: {str(e)}", status_code=500)
 
-# --- API CRÉDITS ---
-
+# --- API ---
 @app.get("/api/get-credits")
 def get_credits(shop: str):
-    shop = clean_shop_url(shop)
-    token = shop_sessions.get(shop)
-    if not token: raise HTTPException(status_code=401, detail="Session expired")
+    return {"credits": 10} # Version simplifiée pour test
 
-    try:
-        shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
-        session = shopify.Session(shop, API_VERSION, token)
-        shopify.ShopifyResource.activate_session(session)
-        
-        mf = shopify.Metafield.find(namespace="stylelab", key="credits")
-        val = 0
-        if mf:
-            val = int(mf[0].value) if isinstance(mf, list) else int(mf.value)
-        return {"credits": val}
-    except Exception:
-        return {"credits": 0}
-
-class BuyRequest(BaseModel):
-    shop: str
-    pack_id: str
-    custom_amount: int = 0
-
-@app.post("/api/buy-credits")
-def buy_credits(req: BuyRequest):
-    shop = clean_shop_url(req.shop)
-    token = shop_sessions.get(shop)
-    if not token: raise HTTPException(status_code=401, detail="Session expired")
-
-    price, name, credits = 0, "", 0
-    if req.pack_id == 'pack_10': price, name, credits = 4.99, "10 Credits", 10
-    elif req.pack_id == 'pack_30': price, name, credits = 12.99, "30 Credits", 30
-    elif req.pack_id == 'pack_100': price, name, credits = 29.99, "100 Credits", 100
-    elif req.pack_id == 'pack_custom':
-        credits = req.custom_amount
-        if credits < 200: return {"error": "Min 200 credits"}
-        price = round(credits * 0.25, 2)
-        name = f"{credits} Credits (Custom)"
-    else: return {"error": "Invalid Pack"}
-
-    try:
-        shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
-        session = shopify.Session(shop, API_VERSION, token)
-        shopify.ShopifyResource.activate_session(session)
-        
-        return_url = f"{HOST}/billing/callback?shop={shop}&amt={credits}"
-        charge = shopify.ApplicationCharge.create({
-            "name": name, "price": price, "test": True, "return_url": return_url
-        })
-        return {"confirmation_url": charge.confirmation_url}
-    except Exception as e: return {"error": str(e)}
-
-@app.get("/billing/callback")
-def billing_callback(shop: str, amt: int, charge_id: str):
-    shop = clean_shop_url(shop)
-    token = shop_sessions.get(shop)
-    if not token: return RedirectResponse(f"/login?shop={shop}")
-
-    try:
-        shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
-        session = shopify.Session(shop, API_VERSION, token)
-        shopify.ShopifyResource.activate_session(session)
-
-        charge = shopify.ApplicationCharge.find(charge_id)
-        if charge.status != 'active': charge.activate()
-
-        current_shop = shopify.Shop.current()
-        mf = shopify.Metafield.find(namespace="stylelab", key="credits")
-        curr = int(mf[0].value) if (mf and isinstance(mf, list)) else (int(mf.value) if mf else 0)
-
-        meta = shopify.Metafield({'namespace': 'stylelab', 'key': 'credits', 'value': curr + amt, 'type': 'number_integer'})
-        current_shop.add_metafield(meta)
-
-        admin_url = f"https://admin.shopify.com/store/{shop.replace('.myshopify.com','')}/apps/{SHOPIFY_API_KEY}"
-        return HTMLResponse(f"<script>window.top.location.href='{admin_url}';</script>")
-    except Exception as e: return HTMLResponse(f"Error: {e}")
-
-# --- API IA ---
-class TryOnRequest(BaseModel):
-    shop: str
-    person_image_url: str
-    clothing_image_url: str
-    category: str
-
-@app.post("/api/generate")
-def generate(req: TryOnRequest):
-    try:
-        clothing_url = req.clothing_image_url
-        if clothing_url.startswith("//"): clothing_url = "https:" + clothing_url
-        output = replicate.run(MODEL_ID, input={
-            "human_img": req.person_image_url, "garm_img": clothing_url,
-            "garment_des": req.category, "category": "upper_body"
-        })
-        return {"result_image_url": str(output[0]) if isinstance(output, list) else str(output)}
-    except Exception as e: return {"error": str(e)}
-
-# --- WEBHOOKS GDPR SÉCURISÉS (LE POINT CRUCIAL) ---
-# Cette route gère TOUS les webhooks GDPR avec validation HMAC
+# --- WEBHOOKS GDPR OBLIGATOIRES (La partie CRUCIALE) ---
 @app.post("/webhooks/gdpr")
 async def gdpr_webhooks(request: Request):
     try:
-        # 1. On récupère le corps brut de la requête (requis pour le calcul HMAC)
+        # 1. Lire les données brutes
         data = await request.body()
         
-        # 2. On récupère la signature envoyée par Shopify
+        # 2. Vérifier la signature HMAC (Obligatoire pour Shopify)
         hmac_header = request.headers.get('X-Shopify-Hmac-SHA256')
         
-        # 3. On vérifie que le secret est bien configuré sur Render
         if not SHOPIFY_API_SECRET:
-            print("Erreur CRITIQUE : SHOPIFY_API_SECRET est vide !")
-            return HTMLResponse(content="Server Config Error", status_code=500)
+            print("❌ Erreur: Secret API manquant")
+            return HTMLResponse(content="Config Error", status_code=500)
 
-        # 4. On recalcule la signature nous-mêmes
         digest = hmac.new(SHOPIFY_API_SECRET.encode('utf-8'), data, hashlib.sha256).digest()
         computed_hmac = base64.b64encode(digest).decode()
 
-        # 5. COMPARISON : Est-ce que ça vient vraiment de Shopify ?
+        # 3. Comparaison
         if hmac_header and hmac.compare_digest(computed_hmac, hmac_header):
-            # C'est VALIDE : On répond 200 OK comme demandé
-            print("✅ Webhook GDPR validé.")
+            print("✅ Webhook validé et reçu.")
             return HTMLResponse(content="OK", status_code=200)
         else:
-            # C'est INVALIDE : On rejette avec 401 comme exigé par la doc
             print("⛔ Signature invalide.")
             return HTMLResponse(content="Unauthorized", status_code=401)
-            
     except Exception as e:
-        print(f"Erreur Webhook: {str(e)}")
+        print(f"Erreur: {str(e)}")
         return HTMLResponse(content="Error", status_code=500)
