@@ -1,25 +1,59 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <title>VTON Magic</title>
-
-    <!-- SHOPIFY APP BRIDGE (OBLIGATOIRE) -->
-    <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
-    <script src="https://unpkg.com/@shopify/app-bridge-utils@3"></script>
-
-    <link rel="stylesheet" href="/styles.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VTON Magic Admin</title>
+<link rel="stylesheet" href="/styles.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
-    <div class="container">
-        <h2>Credits</h2>
-        <div id="credits">...</div>
 
-        <button onclick="buy('pack_10')">Buy 10</button>
-        <button onclick="buy('pack_30')">Buy 30</button>
-        <button onclick="buy('pack_100')">Buy 100</button>
+<div class="container">
+
+    <div id="admin-dashboard">
+        <div class="admin-header">
+            <div class="brand"><i class="fa-solid fa-bolt"></i> VTON Magic Admin</div>
+            <div style="background:#dcfce7; color:#166534; padding:5px 15px; border-radius:20px; font-weight:bold; font-size:0.85rem">● System Active</div>
+        </div>
+
+        <div class="dashboard-grid">
+            <div class="credit-card">
+                <div style="text-transform:uppercase; letter-spacing:2px; font-size:0.8rem; font-weight:700; opacity:0.7">Remaining Credits</div>
+                <div class="credit-amount" id="credits">...</div>
+                <div style="font-size:0.95rem; opacity:0.9; margin-top:10px;">
+                    <i class="fa-solid fa-infinity"></i> Credits stored in Shopify
+                </div>
+            </div>
+
+            <div class="packs-container">
+                <div class="pack-card" onclick="buy('pack_10')">
+                    <div class="pack-title">Discovery</div>
+                    <div class="pack-credits">10</div>
+                    <div class="pack-price">4.99€</div>
+                    <button class="pack-btn btn-outline">Select</button>
+                </div>
+
+                <div class="pack-card popular" onclick="buy('pack_30')">
+                    <div class="pack-title">Standard</div>
+                    <div class="pack-credits">30</div>
+                    <div class="pack-price">12.99€</div>
+                    <button class="pack-btn btn-fill">Top Up Now</button>
+                </div>
+
+                <div class="pack-card" onclick="buy('pack_100')">
+                    <div class="pack-title">Business</div>
+                    <div class="pack-credits">100</div>
+                    <div class="pack-price">29.99€</div>
+                    <button class="pack-btn btn-outline">Select</button>
+                </div>
+            </div>
+        </div>
     </div>
 
-    <script src="/app.js"></script>
+</div>
+
+<script src="/app.js"></script>
 </body>
 </html>
