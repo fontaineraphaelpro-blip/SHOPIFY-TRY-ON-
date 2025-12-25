@@ -1,21 +1,35 @@
-# Fichiers et dossiers généraux à ignorer
+# --- SYSTÈME & IDE ---
 .DS_Store
 .vscode/
-.env
+.idea/
 
-# Fichiers temporaires Python
+# --- SÉCURITÉ (CRUCIAL) ---
+.env
+.env.local
+
+# --- PYTHON ---
 __pycache__/
 *.pyc
 *.pyo
-
-# Dépendances gérées (à ne pas uploader manuellement)
+*.pyd
 /venv
 /env
+/bin
+/lib
+/include
 
-# Fichiers de log, de test ou d'upload
+# --- BASE DE DONNÉES (POUR ÉVITER LES CONFLITS) ---
+*.db
+*.sqlite3
+local_shops.db
+
+# --- LOGS & DEBUG ---
 *.log
-/tests/
+celerybeat-schedule
 
-# Fichiers de données ou de session générés localement
+# --- FICHIERS GÉNÉRÉS PAR L'APP (IMAGES) ---
+# On ne veut pas envoyer les photos des clients sur GitHub
 /uploads/
 /results/
+/static/uploads/
+/static/results/
