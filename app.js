@@ -15,16 +15,17 @@ document.addEventListener("DOMContentLoaded", function() {
     } catch(e) {}
 
     async function getSessionToken() {
-        return null; // On utilise le token côté serveur avec FastAPI / SQLite
+        if (window.shopify && window.shopify.id) return await shopify.id.getToken();
+        return null;
     }
 
     async function authenticatedFetch(url, options = {}) {
         try {
-            const res = await fetch(url, options);
-            if(res.status === 401 && shop && mode !== 'client') {
-                window.top.location.href = `/login?shop=${shop}`;
-                return null;
-            }
+            const token = await getSessionToken();
+            const headers = options.headers || {};
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            const res = await fetch(url, { ...options, headers });
+            if (res.status === 401 && shop && mode !== 'client') { window.top.location.href = `/login?shop=${shop}`; return null; }
             return res;
         } catch (error) { throw error; }
     }
@@ -34,14 +35,17 @@ document.addEventListener("DOMContentLoaded", function() {
         else initAdminMode(shop);
     }
 
-    // --- DASHBOARD ADMIN ---
+    // --- DASHBOARD ---
     async function initAdminMode(s) {
         const res = await authenticatedFetch(`/api/get-data?shop=${s}`);
-        if(res && res.ok) {
+        if (res && res.ok) {
             const data = await res.json();
+
+            // Affichage Stats
             updateDashboardStats(data.credits || 0);
             updateVIPStatus(data.lifetime || 0);
 
+            // Compteurs simples
             const tryEl = document.getElementById('stat-tryons');
             const atcEl = document.getElementById('stat-atc');
             if(tryEl) tryEl.innerText = data.usage || 0;
@@ -112,9 +116,7 @@ document.addEventListener("DOMContentLoaded", function() {
         finally { btn.disabled = false; }
     };
 
-    // --- TRACK ATC ---
     window.trackATC = async function() {
-        alert("Redirecting to Checkout..."); 
         if(shop) {
             try {
                 await fetch('/api/track-atc', {
@@ -140,7 +142,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
     window.preview = function(inputId, imgId) {
         const file = document.getElementById(inputId).files[0];
-        if (file) {
+        if(file) {
             const reader = new FileReader();
             reader.onload = e => {
                 const img = document.getElementById(imgId);
@@ -164,40 +166,40 @@ document.addEventListener("DOMContentLoaded", function() {
             const span = btn.querySelector('span');
             if(span) span.innerText = text;
         }
-    };
+    }
 
     window.generate = async function() {
         const uFile = document.getElementById('uImg').files[0];
         const cFile = document.getElementById('cImg').files[0];
         const btn = document.getElementById('btnGo');
-        
         if (!uFile) return alert("Please upload your photo.");
         if (!autoProductImage && !cFile) return alert("Please upload a garment.");
 
         const oldText = btn.innerHTML;
         btn.disabled = true; 
-        
+        btn.innerHTML = "Generating...";
+
         document.getElementById('resZone').style.display = 'block';
         document.getElementById('loader').style.display = 'block';
         document.getElementById('resImg').style.display = 'none';
         document.getElementById('post-actions').style.display = 'none';
 
         const textEl = document.getElementById('loader-text');
-        textEl.innerText = "Initializing...";
-
         const texts = ["Analyzing silhouette...", "Matching fabrics...", "Simulating drape...", "Rendering lighting..."];
         let step = 0;
-        const interval = setInterval(() => { if(step < texts.length) { textEl.innerText = texts[step]; step++; } }, 2500);
+        const interval = setInterval(() => { if(step < texts.length) textEl.innerText = texts[step++]; }, 2500);
 
         try {
             const formData = new FormData();
-            formData.append("shop", shop || "demo");
+            formData.append("shop", shop);
             formData.append("person_image", uFile);
-            if (cFile) formData.append("clothing_file", cFile); 
-            else formData.append("clothing_url", autoProductImage); 
+            if(cFile) formData.append("clothing_file", cFile);
+            else formData.append("clothing_url", autoProductImage);
             formData.append("category", "upper_body");
 
-            let res = await fetch('/api/generate', { method: 'POST', body: formData });
+            let res;
+            if (mode === 'client') res = await fetch('/api/generate', { method: 'POST', body: formData });
+            else res = await authenticatedFetch('/api/generate', { method: 'POST', body: formData });
 
             clearInterval(interval);
 
@@ -207,38 +209,12 @@ document.addEventListener("DOMContentLoaded", function() {
             if (!res.ok) throw new Error("Server Error");
 
             const data = await res.json();
-            if(data.result_image_url) {
+            if(data.result_image_url){
                 const ri = document.getElementById('resImg');
                 ri.src = data.result_image_url;
-                ri.onload = () => {
-                    ri.style.display = 'block';
-                    document.getElementById('loader').style.display = 'none';
-                    document.getElementById('post-actions').style.display = 'block';
-                };
-                if(data.new_credits !== undefined && mode !== 'client') {
-                    const cel = document.getElementById('credits');
-                    if(cel) cel.innerText = data.new_credits;
-                }
-            } else {
-                alert("Error: " + (data.error || "Unknown")); document.getElementById('loader').style.display = 'none';
-            }
-        } catch(e) { 
-            clearInterval(interval); console.error(e); alert("Network Error"); document.getElementById('loader').style.display = 'none';
-        } finally { 
-            btn.disabled = false; btn.innerHTML = oldText; 
-        }
+                ri.onload = () => { ri.style.display = 'block'; document.getElementById('loader').style.display = 'none'; document.getElementById('post-actions').style.display = 'block'; };
+            } else { alert("Error: " + (data.error || "Unknown")); document.getElementById('loader').style.display = 'none'; }
+        } catch(e) { clearInterval(interval); console.error(e); alert("Network Error"); document.getElementById('loader').style.display = 'none'; }
+        finally { btn.disabled = false; btn.innerHTML = oldText; }
     };
-
-    window.buy = async function(packId, customAmount = 0, btnElement = null) {
-        if(!shop) return alert("Shop ID missing.");
-        const body = { shop: shop, pack_id: packId, custom_amount: customAmount };
-        try {
-            const res = await authenticatedFetch('/api/buy-credits', {
-                method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
-            });
-            const data = await res.json();
-            if(data.confirmation_url) window.top.location.href = data.confirmation_url;
-        } catch(e) { console.error(e); }
-    };
-    window.buyCustom = function(btn) { window.buy('pack_custom', parseInt(document.getElementById('customAmount').value), btn); };
 });
