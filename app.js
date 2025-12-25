@@ -152,51 +152,48 @@ document.addEventListener("DOMContentLoaded", function() {
 
     // --- 6. BUY ---
     window.buy = async function(packId, customAmount = 0) {
-        if(!shop) return alert("Shop ID missing");
+    if(!shop) return alert("Shop ID missing");
+    
+    // UI : Bouton en attente
+    let btn = event.target.tagName === 'BUTTON' ? event.target : event.target.closest('button');
+    // Fallback si le clic vient d'ailleurs
+    if (!btn && packId === 'pack_custom') btn = document.querySelector('.custom-input-group button');
+    
+    const oldText = btn ? btn.innerText : "...";
+    if(btn) { btn.innerText = "Wait..."; btn.disabled = true; }
+
+    try {
+        const token = await getSessionToken();
+        const headers = {'Content-Type': 'application/json'};
+        if(token) headers['Authorization'] = `Bearer ${token}`;
+
+        const body = { shop: shop, pack_id: packId };
+        if(customAmount > 0) body.custom_amount = customAmount;
+
+        const res = await fetch('/api/buy-credits', {
+            method: 'POST', headers: headers, body: JSON.stringify(body)
+        });
+
+        // CAS CRITIQUE : Session perdue (401)
+        if (res.status === 401) {
+            console.log("Session perdue, redirection vers le login...");
+            // Force la redirection sur la fenêtre principale
+            window.top.location.href = `/login?shop=${shop}`;
+            return;
+        }
+
+        const data = await res.json();
         
-        // Petit effet UI sur le bouton cliqué
-        let btn;
-        if (event && event.target) btn = event.currentTarget.tagName === 'BUTTON' ? event.currentTarget : event.target.closest('button');
-        if (!btn && packId === 'pack_custom') btn = document.querySelector('.custom-input-group button');
-        
-        const oldText = btn ? btn.innerText : "...";
-        if(btn) { btn.innerText = "Wait..."; btn.disabled = true; }
-
-        try {
-            const token = await getSessionToken();
-            const headers = {'Content-Type': 'application/json'};
-            if(token) headers['Authorization'] = `Bearer ${token}`;
-
-            const body = { shop: shop, pack_id: packId };
-            if(customAmount > 0) body.custom_amount = customAmount;
-
-            const res = await fetch('/api/buy-credits', {
-                method: 'POST', headers: headers, body: JSON.stringify(body)
-            });
-
-            if (res.status === 401) {
-                window.top.location.href = `/login?shop=${shop}`;
-                return;
-            }
-
-            const data = await res.json();
-            if(data.confirmation_url) {
-                // Redirection App Bridge pour paiement
-                // Si App Bridge est actif, il interceptera peut-être, sinon top location
-                window.top.location.href = data.confirmation_url;
-            } else {
-                alert("Error: " + (data.error || "Unknown"));
-                if(btn) { btn.innerText = oldText; btn.disabled = false; }
-            }
-        } catch(e) {
-            alert("Network Error");
+        if(data.confirmation_url) {
+            // Redirection vers le paiement Shopify
+            window.top.location.href = data.confirmation_url;
+        } else {
+            alert("Error: " + (data.error || "Unknown"));
             if(btn) { btn.innerText = oldText; btn.disabled = false; }
         }
-    };
-
-    window.buyCustom = function() {
-        const amount = document.getElementById('customAmount').value;
-        if(amount < 200) return alert("Min 200 credits");
-        window.buy('pack_custom', parseInt(amount));
+    } catch(e) {
+        console.error(e);
+        alert("Erreur réseau ou configuration API.");
+        if(btn) { btn.innerText = oldText; btn.disabled = false; }
     }
-});
+};
