@@ -133,8 +133,8 @@ body.loaded { opacity: 1; }
 .vip-next { color: #94a3b8; font-size: 0.8rem; }
 .vip-next strong { color: #fbbf24; }
 .vip-progress-bar { height: 8px; background: rgba(255,255,255,0.1); border-radius: 10px; position: relative; }
-.vip-fill { height: 100%; background: linear-gradient(90deg, #fbbf24, #f59e0b); border-radius: 10px; box-shadow: 0 0 10px rgba(251, 191, 36, 0.5); width: 0%; transition: width 1.5s cubic-bezier(0.4, 0, 0.2, 1); }
-.vip-marker { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 20px; height: 20px; background: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #f59e0b; font-size: 0.7rem; box-shadow: 0 2px 5px rgba(0,0,0,0.2); left: 0%; transition: left 1.5s cubic-bezier(0.4, 0, 0.2, 1); }
+.vip-fill { height: 100%; background: linear-gradient(90deg, #fbbf24, #f59e0b); border-radius: 10px; box-shadow: 0 0 10px rgba(251, 191, 36, 0.5); }
+.vip-marker { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 20px; height: 20px; background: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #f59e0b; font-size: 0.7rem; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
 
 /* Pricing Cards Row */
 .pricing-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 25px; margin-bottom: 20px; }
