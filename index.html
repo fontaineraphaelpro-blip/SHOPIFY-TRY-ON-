@@ -7,129 +7,121 @@
     <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js" data-api-key="{{ api_key }}"></script>
     <link rel="stylesheet" href="/styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
 
-    <div class="main-wrapper">
+    <div class="app-container">
         
-        <header class="top-bar">
-            <div class="logo-area">
-                <i class="fa-solid fa-bolt text-purple"></i> 
-                <h1>VTON Magic Admin</h1>
+        <header class="glass-header">
+            <div class="brand">
+                <div class="logo-icon"><i class="fa-solid fa-wand-magic-sparkles"></i></div>
+                <div class="logo-text">
+                    <h1>VTON<span>AI</span></h1>
+                    <span class="badge-beta">PRO</span>
+                </div>
             </div>
-            <div class="status-badge">
-                <span class="dot"></span> System Active
+            <div class="system-status">
+                <span class="pulse-dot"></span> System Operational
             </div>
         </header>
 
-        <div class="info-banner">
-            <div class="icon-box">
-                <i class="fa-solid fa-triangle-exclamation"></i>
-            </div>
-            <p>
-                <strong>Stop losing money on returns.</strong> Letting customers <a href="#">test products virtually</a> removes doubt. This slashes refunds and boosts conversion by <span class="text-green">2.5x</span> instantly.
-            </p>
-        </div>
-
-        <div id="billing-section" class="dashboard-grid">
+        <div class="main-content">
             
-            <div class="card dark-card">
-                <div class="card-content">
-                    <p class="label-credits">REMAINING CREDITS</p>
-                    <div class="credits-display">
-                        <span id="credits"><i class="fa-solid fa-spinner fa-spin"></i></span>
+            <div id="billing-section" class="stats-grid">
+                
+                <div class="stat-card credit-card-style">
+                    <div class="card-bg-glow"></div>
+                    <div class="card-top">
+                        <span class="card-label">AVAILABLE BALANCE</span>
+                        <i class="fa-brands fa-cc-stripe"></i>
                     </div>
-                    <div class="infinity-loop">
-                        <i class="fa-solid fa-infinity"></i> Credits never expire
+                    <div class="credits-count">
+                        <span id="credits">--</span>
+                    </div>
+                    <div class="card-bottom">
+                        <span><i class="fa-solid fa-infinity"></i> No Expiration</span>
+                        <button onclick="document.querySelector('.pricing-row').scrollIntoView({behavior: 'smooth'})" class="btn-xs-glass">Top Up</button>
                     </div>
                 </div>
-            </div>
 
-            <div class="card pricing-card">
-                <h3>Discovery</h3>
-                <div class="big-number">10</div>
-                <p class="subtext">Start offering Virtual Testing</p>
-                <div class="price">4.99€</div>
-                <button onclick="buy('pack_10', 0, this)" class="btn-outline">Select</button>
-            </div>
+                <div class="stat-card info-card">
+                    <div class="info-icon"><i class="fa-solid fa-chart-line"></i></div>
+                    <h3>Boost Conversion</h3>
+                    <p>Virtual Try-On increases add-to-cart rates by an average of <strong>2.5x</strong>.</p>
+                </div>
 
-            <div class="card pricing-card featured">
-                <div class="badge-best-seller"><i class="fa-solid fa-fire"></i> BEST SELLER</div>
-                <div class="badge-save">SAVE 15%</div>
-                <h3 class="text-purple">Standard</h3>
-                <div class="big-number text-purple">30</div>
-                <p class="subtext">Turn visitors into buyers</p>
-                <div class="price">12.99€</div>
-                <button onclick="buy('pack_30', 0, this)" class="btn-primary-purple">Top Up Now</button>
-            </div>
-
-            <div class="card pricing-card">
-                <div class="badge-roi">BEST ROI</div>
-                <h3>Business</h3>
-                <div class="big-number">100</div>
-                <p class="subtext">Slash return rates by 30%</p>
-                <div class="price">29.99€</div>
-                <button onclick="buy('pack_100', 0, this)" class="btn-outline">Select</button>
-            </div>
-
-        </div>
-
-        <div class="high-volume-bar">
-            <div class="hv-left">
-                <i class="fa-solid fa-building"></i>
-                <div>
-                    <strong>High Volume Store?</strong>
-                    <p>Get our lowest rate (<strong>€0.25 / try-on</strong>) for bulk orders.</p>
+                <div class="stat-card quick-buy">
+                    <h3>High Volume?</h3>
+                    <div class="input-wrapper">
+                        <input type="number" id="customAmount" placeholder="200" value="200">
+                        <button onclick="buyCustom(this)" class="btn-arrow"><i class="fa-solid fa-arrow-right"></i></button>
+                    </div>
+                    <small>Get bulk rates from €0.25/try</small>
                 </div>
             </div>
-            <div class="hv-right custom-input-group">
-                <input type="number" id="customAmount" placeholder="200" value="200">
-                <button onclick="buyCustom(this)" class="btn-dark-small">Get Custom Pack</button>
-            </div>
-        </div>
 
-        <div class="preview-header">
-            MOBILE PREVIEW (CUSTOMER VIEW)
-        </div>
-
-        <div class="upload-section">
-            <label for="uImg" class="upload-box">
-                <div class="badge-step">1</div>
-                <img id="prevU" src="" style="display:none;">
-                <div class="upload-content">
-                    <i class="fa-solid fa-camera fa-2x"></i>
-                    <p><strong>Upload your photo</strong><br>Selfie or full body</p>
+            <div class="pricing-row" id="billing-section">
+                <div class="pricing-item" onclick="buy('pack_10', 0, this)">
+                    <span class="p-name">Starter</span>
+                    <span class="p-amount">10</span>
+                    <span class="p-price">4.99€</span>
                 </div>
-                <input type="file" id="uImg" accept="image/*" onchange="preview('uImg', 'prevU')">
-            </label>
-
-            <label for="cImg" class="upload-box">
-                <div class="badge-step">2</div>
-                <img id="prevC" src="" style="display:none;">
-                <div class="upload-content">
-                    <i class="fa-solid fa-shirt fa-2x"></i>
-                    <p><strong>Upload the garment</strong><br>On white or neutral background</p>
+                <div class="pricing-item featured-item" onclick="buy('pack_30', 0, this)">
+                    <div class="popular-tag">MOST POPULAR</div>
+                    <span class="p-name">Growth</span>
+                    <span class="p-amount">30</span>
+                    <span class="p-price">12.99€</span>
                 </div>
-                <input type="file" id="cImg" accept="image/*" onchange="preview('cImg', 'prevC')">
-            </label>
-        </div>
-
-        <div class="action-footer">
-            <button id="btnGo" onclick="generate()" class="btn-mega-black">
-                Test This Outfit Now <i class="fa-solid fa-wand-magic-sparkles"></i>
-            </button>
-        </div>
-
-        <div id="resZone" style="display:none;" class="result-container">
-            <h3>Résultat</h3>
-            <div id="loader" style="display:none;">
-                <i class="fa-solid fa-spinner fa-spin fa-2x"></i>
-                <p>IA en cours de génération...</p>
+                <div class="pricing-item" onclick="buy('pack_100', 0, this)">
+                    <span class="p-name">Business</span>
+                    <span class="p-amount">100</span>
+                    <span class="p-price">29.99€</span>
+                </div>
             </div>
-            <img id="resImg" src="" style="display:none;">
-        </div>
 
+            <div class="divider">
+                <span>PREVIEW TOOL</span>
+            </div>
+
+            <div class="studio-grid">
+                <label for="uImg" class="studio-box">
+                    <div class="step-number">01</div>
+                    <img id="prevU" src="" style="display:none;">
+                    <div class="empty-state">
+                        <div class="icon-circle"><i class="fa-solid fa-user"></i></div>
+                        <span>Upload Model</span>
+                    </div>
+                    <input type="file" id="uImg" accept="image/*" onchange="preview('uImg', 'prevU')">
+                </label>
+
+                <label for="cImg" class="studio-box">
+                    <div class="step-number">02</div>
+                    <img id="prevC" src="" style="display:none;">
+                    <div class="empty-state">
+                        <div class="icon-circle"><i class="fa-solid fa-shirt"></i></div>
+                        <span>Upload Garment</span>
+                    </div>
+                    <input type="file" id="cImg" accept="image/*" onchange="preview('cImg', 'prevC')">
+                </label>
+            </div>
+
+            <div class="action-area">
+                <button id="btnGo" onclick="generate()" class="btn-magic">
+                    <span class="btn-content">Generate Try-On <i class="fa-solid fa-wand-magic-sparkles"></i></span>
+                    <div class="btn-glow"></div>
+                </button>
+            </div>
+
+            <div id="resZone" style="display:none;" class="result-display">
+                <div id="loader" style="display:none;">
+                    <div class="spinner-modern"></div>
+                    <p>AI is weaving pixels...</p>
+                </div>
+                <img id="resImg" src="" style="display:none;">
+            </div>
+
+        </div>
     </div>
 
     <script src="/app.js"></script>
