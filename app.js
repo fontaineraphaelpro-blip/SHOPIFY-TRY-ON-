@@ -1,85 +1,82 @@
 document.addEventListener("DOMContentLoaded", function() {
     
-    // --- 1. UI INIT ---
+    // UI Init
     document.body.classList.add('loaded');
     document.body.style.opacity = "1";
 
-    // --- 2. TOKEN HELPER (Avec attente de App Bridge) ---
+    // --- 1. TOKEN HELPER ---
     async function getSessionToken() {
-        // On attend jusqu'à 2 secondes que window.shopify soit prêt
-        let retries = 10;
-        while (retries > 0) {
-            if (window.shopify && window.shopify.id) {
-                return await shopify.id.getToken();
-            }
-            await new Promise(r => setTimeout(r, 200)); // Attendre 200ms
-            retries--;
+        if (window.shopify && window.shopify.id) {
+            return await shopify.id.getToken();
         }
-        console.warn("⚠️ App Bridge non détecté après attente.");
         return null;
     }
 
-    // --- 3. CONFIG & INITIALISATION ---
+    // --- 2. CONFIG ---
     const params = new URLSearchParams(window.location.search);
     const mode = params.get('mode');
     let shop = params.get('shop') || sessionStorage.getItem('shop');
     const autoProductImage = params.get('product_image');
 
-    // Sauvegarde du shop pour ne pas le perdre
-    if(shop) sessionStorage.setItem('shop', shop);
-
-    // Initialisation selon le mode
-    if (mode === 'client') {
-        initClientMode();
-    } else {
-        // Mode Admin : On charge les crédits
-        if(shop) fetchCredits(shop);
-    }
-
-    // --- 4. FONCTIONS DE RÉPARATION DE SESSION ---
-    function handleSessionExpired() {
-        console.log("🔄 Session expirée (Server Reset). Reconnexion auto...");
-        // On redirige immédiatement pour régénérer le token en RAM
-        if (shop) {
-            window.top.location.href = `/login?shop=${shop}`;
+    if(shop) {
+        sessionStorage.setItem('shop', shop);
+        if (mode === 'client') {
+            initClientMode();
         } else {
-            alert("Erreur de session. Veuillez recharger l'application depuis Shopify.");
+            // On charge les crédits, avec retry auto
+            fetchCredits(shop); 
         }
     }
 
-    // --- 5. FETCH CREDITS (Modifié pour auto-réparation) ---
-    async function fetchCredits(s) {
+    // --- 3. FONCTION MAGIQUE : FETCH AVEC RETRY ---
+    // Cette fonction remplace fetch() classique. 
+    // Si elle voit une erreur 401, elle redirige vers login et attend.
+    async function authenticatedFetch(url, options = {}) {
         try {
             const token = await getSessionToken();
-            const headers = token ? {'Authorization': `Bearer ${token}`} : {};
+            const headers = options.headers || {};
+            if (token) headers['Authorization'] = `Bearer ${token}`;
             
-            const res = await fetch(`/api/get-credits?shop=${s}`, { headers });
-            
-            // SI ERREUR 401 AU CHARGEMENT -> ON RÉPARE TOUT DE SUITE
+            const res = await fetch(url, { ...options, headers });
+
+            // Si session expirée (401)
             if (res.status === 401) {
-                handleSessionExpired();
-                return;
+                console.log("🔄 Session expirée (401). Tentative de réparation...");
+                
+                // On force le re-login via Shopify App Bridge
+                // Rediriger le TOP frame vers /login va recharger l'app
+                // C'est le seul moyen fiable à 100% sur Render gratuit
+                if (shop) {
+                     // Astuce : On redirige, l'utilisateur verra un chargement rapide
+                     // C'est mieux que de devoir cliquer deux fois.
+                     window.top.location.href = `/login?shop=${shop}`; 
+                     return null; // On arrête tout ici car la page va changer
+                }
             }
-            
+            return res;
+        } catch (error) {
+            console.error("Network error:", error);
+            throw error;
+        }
+    }
+
+    // --- 4. FETCH CREDITS ---
+    async function fetchCredits(s) {
+        const res = await authenticatedFetch(`/api/get-credits?shop=${s}`);
+        if (res && res.ok) {
             const data = await res.json();
             const el = document.getElementById('credits');
             if(el) el.innerText = data.credits;
-
-        } catch(e) { 
-            console.error("Err Credits", e); 
         }
     }
 
-    // --- 6. MODE WIDGET (Client) ---
+    // --- 5. INITIALISATION CLIENT ---
     function initClientMode() {
         document.body.classList.add('client-mode');
         const adminDash = document.getElementById('admin-dashboard');
         if(adminDash) adminDash.style.display = 'none';
-        
-        // Cache la section facturation en mode client
         const billing = document.getElementById('billing-section');
         if(billing) billing.style.display = 'none';
-
         const title = document.getElementById('client-title');
         if(title) title.style.display = 'block';
 
@@ -93,7 +90,7 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
 
-    // --- 7. PREVIEW ---
+    // --- 6. PREVIEW IMAGES ---
     window.preview = function(inputId, imgId) {
         const file = document.getElementById(inputId).files[0];
         if (file) {
@@ -109,7 +106,7 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     };
 
-    // --- 8. GENERATE (IA) ---
+    // --- 7. GENERATE (IA) ---
     window.generate = async function() {
         const uFile = document.getElementById('uImg').files[0];
         const cFile = document.getElementById('cImg').files[0];
@@ -118,8 +115,8 @@ document.addEventListener("DOMContentLoaded", function() {
         if (!uFile) return alert("Photo manquante.");
         if (!autoProductImage && !cFile) return alert("Vêtement manquant.");
 
-        btn.disabled = true; 
         const oldText = btn.innerHTML;
+        btn.disabled = true; 
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Traitement...';
         
         document.getElementById('resZone').style.display = 'block';
@@ -127,7 +124,6 @@ document.addEventListener("DOMContentLoaded", function() {
         document.getElementById('resImg').style.display = 'none';
 
         try {
-            const token = await getSessionToken();
             const formData = new FormData();
             formData.append("shop", shop || "demo");
             formData.append("person_image", uFile);
@@ -135,24 +131,21 @@ document.addEventListener("DOMContentLoaded", function() {
             else formData.append("clothing_url", autoProductImage); 
             formData.append("category", "upper_body");
 
-            const headers = {};
-            if(token) headers['Authorization'] = `Bearer ${token}`;
-
-            const res = await fetch('/api/generate', {
+            // Utilisation de notre fetch sécurisé
+            const res = await authenticatedFetch('/api/generate', {
                 method: 'POST',
-                headers: headers,
                 body: formData
             });
 
-            if (res.status === 401) {
-                handleSessionExpired();
-                return;
-            }
+            if (!res) return; // Si null, c'est qu'on est en train de rediriger pour auth
+
             if (res.status === 402) {
                 alert("Crédits insuffisants !");
                 btn.disabled = false; btn.innerHTML = oldText;
                 return;
             }
+
+            if (!res.ok) throw new Error("Erreur serveur");
 
             const data = await res.json();
             
@@ -173,7 +166,7 @@ document.addEventListener("DOMContentLoaded", function() {
             }
         } catch(e) { 
             console.error(e);
-            alert("Erreur réseau"); 
+            alert("Une erreur est survenue (ou session expirée)."); 
             document.getElementById('loader').style.display = 'none';
         } finally { 
             btn.disabled = false; 
@@ -181,7 +174,7 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     };
 
-    // --- 9. BUY (Achat Crédits) ---
+    // --- 8. BUY (Achat Crédits) ---
     window.buy = async function(packId, customAmount = 0, btnElement = null) {
         if(!shop) return alert("Erreur Shop ID. Rechargez la page.");
         
@@ -190,20 +183,16 @@ document.addEventListener("DOMContentLoaded", function() {
         if(btn) { btn.innerText = "Wait..."; btn.disabled = true; }
 
         try {
-            const token = await getSessionToken();
-            const headers = {'Content-Type': 'application/json'};
-            if(token) headers['Authorization'] = `Bearer ${token}`;
-
             const body = { shop: shop, pack_id: packId, custom_amount: customAmount };
 
-            const res = await fetch('/api/buy-credits', {
-                method: 'POST', headers: headers, body: JSON.stringify(body)
+            // Utilisation de notre fetch sécurisé
+            const res = await authenticatedFetch('/api/buy-credits', {
+                method: 'POST', 
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
             });
 
-            if (res.status === 401) {
-                handleSessionExpired();
-                return;
-            }
+            if (!res) return; // Redirection auth en cours
 
             const data = await res.json();
             if(data.confirmation_url) {
