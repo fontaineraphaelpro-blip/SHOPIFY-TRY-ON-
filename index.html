@@ -201,13 +201,26 @@
                     </div>
                 </div>
 
-                <div class="bulk-link">
-                    Need more? <span onclick="document.getElementById('customAmountWrapper').style.display='flex'">Order Custom Volume</span>
-                    <div id="customAmountWrapper" style="display:none; margin-top:10px; gap:10px; justify-content:center;">
-                        <input type="number" id="customAmount" placeholder="200" value="200" style="padding:5px; border-radius:5px; border:1px solid #ccc; width:80px;">
-                        <button onclick="buyCustom(this)" class="btn-xs-glass" style="background:#333; color:white;">Go</button>
+                <div class="bulk-order-section">
+                    <p class="bulk-text">
+                        Need massive volume for a big launch?
+                        <span class="bulk-trigger" onclick="document.getElementById('custom-panel').style.display='flex'">
+                            Open Custom Order <i class="fa-solid fa-chevron-down"></i>
+                        </span>
+                    </p>
+                    
+                    <div id="custom-panel" class="custom-order-panel" style="display:none;">
+                        <div class="custom-input-group-pro">
+                            <span class="input-prefix"><i class="fa-solid fa-layer-group"></i></span>
+                            <input type="number" id="customAmount" placeholder="Ex: 500" value="500">
+                            <span class="input-suffix">credits</span>
+                        </div>
+                        <button onclick="buyCustom(this)" class="btn-custom-action">
+                            Get Pack Now <i class="fa-solid fa-arrow-right"></i>
+                        </button>
                     </div>
                 </div>
+
             </div>
 
             <div class="divider">
@@ -252,9 +265,7 @@
                     <div class="spinner-modern"></div>
                     <p id="loader-text" class="fashion-loader-text">Analyzing silhouette...</p>
                 </div>
-
                 <img id="resImg" src="" style="display:none;">
-                
                 <div id="post-actions" style="display:none;" class="post-result-actions">
                     <button class="btn-shop-now" onclick="alert('Redirecting to Checkout...')">
                         Shop This Look <i class="fa-solid fa-bag-shopping"></i>
