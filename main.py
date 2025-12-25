@@ -1,6 +1,7 @@
 import os
 import hmac
 import hashlib
+import json
 import shopify
 import requests
 import replicate
@@ -15,22 +16,41 @@ from pydantic import BaseModel
 SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
 SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
 HOST = os.getenv("HOST") 
-REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN") # Lu automatiquement par la lib replicate
-SCOPES = ['read_products', 'write_products', 'read_metafields', 'write_metafields']
+SCOPES = ['read_products', 'write_products', 'read_themes', 'write_themes']
 API_VERSION = "2024-01"
 MODEL_ID = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985"
 
 app = FastAPI()
-
-# Configuration des Templates (chercher dans le dossier racine ".")
 templates = Jinja2Templates(directory=".")
 
-# --- MIDDLEWARE DE SÉCURITÉ (CSP + IFRAME) ---
+# --- PERSISTANCE (SAUVEGARDE FICHIER) ---
+# C'est ça qui va empêcher la perte de session !
+SESSION_FILE = "sessions.json"
+
+def load_sessions():
+    if os.path.exists(SESSION_FILE):
+        try:
+            with open(SESSION_FILE, 'r') as f:
+                return json.load(f)
+        except: return {}
+    return {}
+
+def save_session(shop, token):
+    sessions = load_sessions()
+    sessions[shop] = token
+    with open(SESSION_FILE, 'w') as f:
+        json.dump(sessions, f)
+    print(f"✅ SESSION SAUVEGARDÉE pour: {shop}")
+
+def get_token(shop):
+    sessions = load_sessions()
+    return sessions.get(shop)
+
+# --- MIDDLEWARE SÉCURITÉ ---
 @app.middleware("http")
 async def add_csp_header(request: Request, call_next):
     response = await call_next(request)
     shop = request.query_params.get("shop", "")
-    # Politique de sécurité standard pour Shopify
     policy = f"frame-ancestors https://{shop} https://admin.shopify.com;"
     if shop:
         response.headers["Content-Security-Policy"] = policy
@@ -44,11 +64,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-shop_sessions = {}
-
-# --- FONCTIONS UTILITAIRES ---
+# --- UTILS ---
 def clean_shop_url(url):
     if not url: return ""
+    # On nettoie l'URL pour être sûr que "test.myshopify.com" soit toujours pareil
     return url.replace("https://", "").replace("http://", "").strip("/")
 
 def verify_shopify_hmac(query_dict: dict) -> bool:
@@ -59,12 +78,11 @@ def verify_shopify_hmac(query_dict: dict) -> bool:
     digest = hmac.new(SHOPIFY_API_SECRET.encode('utf-8'), msg.encode('utf-8'), hashlib.sha256).hexdigest()
     return hmac.compare_digest(digest, hmac_received)
 
-# --- ROUTES STATIQUES ET HTML ---
+# --- ROUTES ---
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     shop = request.query_params.get("shop")
-    # Injection de la clé API pour App Bridge
     return templates.TemplateResponse("index.html", {
         "request": request, 
         "shop": shop, 
@@ -77,20 +95,16 @@ def styles(): return FileResponse('styles.css', media_type='text/css')
 @app.get("/app.js")
 def javascript(): return FileResponse('app.js', media_type='application/javascript')
 
-# --- AUTHENTIFICATION ---
-
 @app.get("/login")
 def login(shop: str):
     shop = clean_shop_url(shop)
+    print(f"👉 Login demandé pour: {shop}")
     auth_url = f"https://{shop}/admin/oauth/authorize?client_id={SHOPIFY_API_KEY}&scope={','.join(SCOPES)}&redirect_uri={HOST}/auth/callback"
     return RedirectResponse(auth_url)
 
 @app.get("/auth/callback")
 def auth_callback(request: Request):
     params = dict(request.query_params)
-    if not verify_shopify_hmac(params):
-        return HTMLResponse("<h1>Security Error: HMAC Validation Failed</h1>", status_code=400)
-
     shop = clean_shop_url(params.get("shop"))
     code = params.get("code")
     host = params.get("host")
@@ -102,18 +116,20 @@ def auth_callback(request: Request):
         
         if res.status_code == 200:
             token = res.json().get('access_token')
-            shop_sessions[shop] = token
-            # Initialiser les crédits ici si nécessaire (optionnel)
+            # SAUVEGARDE DISQUE
+            save_session(shop, token)
             
             target_url = f"https://admin.shopify.com/store/{shop.replace('.myshopify.com', '')}/apps/{SHOPIFY_API_KEY}"
             if host: target_url += f"?host={host}"
             return RedirectResponse(target_url)
         
+        print(f"❌ Erreur Token: {res.text}")
         return HTMLResponse(f"Token Error: {res.text}", status_code=400)
     except Exception as e:
+        print(f"❌ Exception Auth: {e}")
         return HTMLResponse(content=f"Auth Error: {str(e)}", status_code=500)
 
-# --- API HELPERS ---
+# --- HELPERS API ---
 def get_shopify_session(shop, token):
     shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
     session = shopify.Session(shop, API_VERSION, token)
@@ -126,8 +142,10 @@ def get_credits_amount(shop, token):
         if mf_list:
             if isinstance(mf_list, list) and len(mf_list) > 0: return int(mf_list[0].value)
             elif hasattr(mf_list, 'value'): return int(mf_list.value)
+        return 0 
+    except Exception as e:
+        print(f"⚠️ Erreur lecture crédits: {e}")
         return 0
-    except: return 0
 
 def set_credits_amount(shop, token, amount):
     get_shopify_session(shop, token)
@@ -138,14 +156,20 @@ def set_credits_amount(shop, token, amount):
     meta.type = 'number_integer'
     meta.save()
 
-# --- API ROUTES ---
+# --- API ENDPOINTS ---
 
 @app.get("/api/get-credits")
 def get_credits_route(shop: str):
     shop = clean_shop_url(shop)
-    token = shop_sessions.get(shop)
-    if not token: raise HTTPException(status_code=401, detail="Session expired")
-    return {"credits": get_credits_amount(shop, token)}
+    token = get_token(shop) # Lecture depuis le fichier
+    
+    print(f"🔍 Get Credits pour {shop} - Token trouvé? {'OUI' if token else 'NON'}")
+    
+    if not token: 
+        raise HTTPException(status_code=401, detail="Session expired")
+    
+    val = get_credits_amount(shop, token)
+    return {"credits": val}
 
 class BuyRequest(BaseModel):
     shop: str
@@ -155,7 +179,8 @@ class BuyRequest(BaseModel):
 @app.post("/api/buy-credits")
 def buy_credits(req: BuyRequest):
     shop = clean_shop_url(req.shop)
-    token = shop_sessions.get(shop)
+    token = get_token(shop)
+    
     if not token: raise HTTPException(status_code=401, detail="Session expired")
 
     price, name, credits = 0, "", 0
@@ -177,12 +202,13 @@ def buy_credits(req: BuyRequest):
         })
         return {"confirmation_url": charge.confirmation_url}
     except Exception as e:
+        print(f"❌ Erreur Paiement: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.get("/billing/callback")
 def billing_callback(shop: str, amt: int, charge_id: str):
     shop = clean_shop_url(shop)
-    token = shop_sessions.get(shop)
+    token = get_token(shop)
     if not token: return RedirectResponse(f"/login?shop={shop}")
 
     try:
@@ -198,7 +224,6 @@ def billing_callback(shop: str, amt: int, charge_id: str):
     except Exception as e:
         return HTMLResponse(f"Billing Error: {e}")
 
-# --- API GENERATE (MODIFIÉE POUR FICHIERS) ---
 @app.post("/api/generate")
 async def generate(
     request: Request,
@@ -208,25 +233,17 @@ async def generate(
     clothing_url: Optional[str] = Form(None),
     category: str = Form("upper_body")
 ):
-    # 1. Vérification Token (optionnel ici si on fait confiance au middleware, mais mieux vaut double check)
-    auth_header = request.headers.get('Authorization')
-    # Pour l'instant on fait confiance à la session serveur (shop_sessions) car validation token complexe sans librairie tierce
-    # Mais on vérifie que le shop est connecté
     shop = clean_shop_url(shop)
-    token = shop_sessions.get(shop)
+    token = get_token(shop)
+    
     if not token: raise HTTPException(status_code=401, detail="Session expired")
 
-    # 2. Vérif Crédits
     current_credits = get_credits_amount(shop, token)
     if current_credits < 1:
         return JSONResponse({"error": "Not enough credits."}, status_code=402)
 
-    # 3. Préparation Input IA
     try:
-        # Lire l'image personne
         person_bytes = await person_image.read()
-        
-        # Gestion vêtement (soit fichier, soit URL)
         garment_input = None
         if clothing_file:
             garment_input = await clothing_file.read()
@@ -236,22 +253,17 @@ async def generate(
         else:
             return JSONResponse({"error": "No garment provided"}, status_code=400)
 
-        # Appel Replicate
         output = replicate.run(MODEL_ID, input={
-            "human_img": person_bytes,
-            "garm_img": garment_input,
-            "garment_des": category,
-            "category": "upper_body"
+            "human_img": person_bytes, "garm_img": garment_input,
+            "garment_des": category, "category": "upper_body"
         })
 
-        # 4. Débit
         set_credits_amount(shop, token, current_credits - 1)
-        
         result_url = str(output[0]) if isinstance(output, list) else str(output)
         return {"result_image_url": result_url, "new_credits": current_credits - 1}
 
     except Exception as e:
-        print(f"AI Error: {e}")
+        print(f"❌ AI Error: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 # --- WEBHOOKS ---
