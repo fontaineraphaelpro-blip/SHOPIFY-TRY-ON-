@@ -53,7 +53,6 @@ document.addEventListener("DOMContentLoaded", function() {
 
     function initClientMode() {
         document.body.classList.add('client-mode');
-        // On s'assure que la zone admin est cachée
         const adminZone = document.getElementById('admin-only-zone');
         if(adminZone) adminZone.style.display = 'none';
 
@@ -82,7 +81,6 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     };
 
-    // --- GENERATE AVEC STORYTELLING ---
     window.generate = async function() {
         const uFile = document.getElementById('uImg').files[0];
         const cFile = document.getElementById('cImg').files[0];
@@ -91,11 +89,9 @@ document.addEventListener("DOMContentLoaded", function() {
         if (!uFile) return alert("Please upload your photo.");
         if (!autoProductImage && !cFile) return alert("Please upload a garment.");
 
-        // Animation bouton
         const oldText = btn.innerHTML;
         btn.disabled = true; 
         
-        // Affichage Loader
         document.getElementById('resZone').style.display = 'block';
         document.getElementById('loader').style.display = 'block';
         document.getElementById('resImg').style.display = 'none';
@@ -122,7 +118,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
             const res = await authenticatedFetch('/api/generate', { method: 'POST', body: formData });
 
-            clearInterval(interval); // Stop le texte
+            clearInterval(interval);
 
             if (!res) return;
             if (res.status === 402) { alert("Not enough credits!"); btn.disabled = false; btn.innerHTML = oldText; return; }
@@ -136,7 +132,6 @@ document.addEventListener("DOMContentLoaded", function() {
                 ri.onload = () => {
                     ri.style.display = 'block';
                     document.getElementById('loader').style.display = 'none';
-                    // Afficher le bouton d'achat
                     document.getElementById('post-actions').style.display = 'block';
                 };
                 if(data.new_credits !== undefined) {
@@ -182,5 +177,25 @@ document.addEventListener("DOMContentLoaded", function() {
         const amount = document.getElementById('customAmount').value;
         if(amount < 200) return alert("Min 200 credits");
         window.buy('pack_custom', parseInt(amount), btnElement);
+    }
+
+    // --- WIDGET STUDIO PREVIEW LOGIC ---
+    window.updateWidgetPreview = function() {
+        const text = document.getElementById('ws-text').value;
+        const color = document.getElementById('ws-color').value;
+        const textColor = document.getElementById('ws-text-color').value;
+
+        // Update Values Display
+        document.getElementById('ws-color-val').innerText = color;
+        document.getElementById('ws-text-color-val').innerText = textColor;
+
+        // Update Preview Button
+        const btn = document.getElementById('ws-preview-btn');
+        if(btn) {
+            btn.style.backgroundColor = color;
+            btn.style.color = textColor;
+            const span = btn.querySelector('span');
+            if(span) span.innerText = text;
+        }
     }
 });
