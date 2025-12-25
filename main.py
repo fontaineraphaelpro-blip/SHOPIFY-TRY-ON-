@@ -12,11 +12,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-# --- CONFIGURATION STRICTE ---
+# --- CONFIGURATION ---
 SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
 SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
-HOST = os.getenv("HOST", "https://ton-app.onrender.com").rstrip('/')
+HOST = os.getenv("HOST", "").rstrip('/')
 SCOPES = ['read_products', 'write_products', 'read_themes', 'write_themes']
 API_VERSION = "2024-10"
 MODEL_ID = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985"
@@ -25,28 +25,31 @@ app = FastAPI()
 templates = Jinja2Templates(directory=".")
 RATE_LIMIT_DB: Dict[str, Dict] = {}
 
-# --- PERSISTANCE SQLITE (TOKEN RELAIS) ---
+# --- 1. BASE DE DONNÉES (POUR LE TOKEN) ---
 def init_db():
-    with sqlite3.connect("database.db") as conn:
-        conn.execute("CREATE TABLE IF NOT EXISTS shops (domain TEXT PRIMARY KEY, token TEXT)")
-        conn.commit()
+    conn = sqlite3.connect("database.db")
+    conn.execute("CREATE TABLE IF NOT EXISTS shops (domain TEXT PRIMARY KEY, token TEXT)")
+    conn.commit()
+    conn.close()
 init_db()
 
 def save_token_db(shop, token):
-    with sqlite3.connect("database.db") as conn:
-        conn.execute("INSERT OR REPLACE INTO shops (domain, token) VALUES (?, ?)", (shop, token))
-        conn.commit()
+    conn = sqlite3.connect("database.db")
+    conn.execute("INSERT OR REPLACE INTO shops (domain, token) VALUES (?, ?)", (shop, token))
+    conn.commit()
+    conn.close()
 
 def get_token_db(shop):
     try:
-        with sqlite3.connect("database.db") as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT token FROM shops WHERE domain = ?", (shop,))
-            row = cur.fetchone()
-            return row[0] if row else None
+        conn = sqlite3.connect("database.db")
+        cur = conn.cursor()
+        cur.execute("SELECT token FROM shops WHERE domain = ?", (shop,))
+        row = cur.fetchone()
+        conn.close()
+        return row[0] if row else None
     except: return None
 
-# --- LOGIQUE SHOPIFY METAFIELDS ---
+# --- 2. LOGIQUE SHOPIFY (METAFIELDS) ---
 def get_shopify_session(shop, token):
     shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
     session = shopify.Session(shop, API_VERSION, token)
@@ -70,10 +73,10 @@ def set_meta(namespace, key, value, vtype="integer"):
         m.value = value
         m.type = vtype
         m.save()
-    except Exception as e: print(f"⚠️ Metafield Error: {e}")
+    except Exception as e: print(f"⚠️ Erreur Metafield: {e}")
 
 # --- MIDDLEWARES ---
-def clean_shop(url):
+def clean_shop_url(url):
     return url.replace("https://", "").replace("http://", "").strip("/") if url else ""
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -85,31 +88,31 @@ async def add_csp_header(request: Request, call_next):
     response.headers["Content-Security-Policy"] = f"frame-ancestors https://{shop} https://admin.shopify.com;"
     return response
 
-# --- ROUTES AUTH ---
-@app.get("/", response_class=HTMLResponse)
+# --- ROUTES D'AUTH ---
+@app.get("/")
 async def index(request: Request):
     shop = request.query_params.get("shop")
     return templates.TemplateResponse("index.html", {"request": request, "shop": shop, "api_key": SHOPIFY_API_KEY})
 
 @app.get("/login")
 def login(shop: str):
-    shop = clean_shop(shop)
+    shop = clean_shop_url(shop)
     auth_url = f"https://{shop}/admin/oauth/authorize?client_id={SHOPIFY_API_KEY}&scope={','.join(SCOPES)}&redirect_uri={HOST}/auth/callback"
     return RedirectResponse(auth_url)
 
 @app.get("/auth/callback")
 def auth_callback(shop: str, code: str):
-    shop = clean_shop(shop)
+    shop = clean_shop_url(shop)
     url = f"https://{shop}/admin/oauth/access_token"
     res = requests.post(url, json={"client_id": SHOPIFY_API_KEY, "client_secret": SHOPIFY_API_SECRET, "code": code})
     token = res.json().get('access_token')
-    save_token_db(shop, token)
+    save_token_db(shop, token) # Sauvegarde CRUCIALE pour le widget
     return RedirectResponse(f"https://admin.shopify.com/store/{shop.replace('.myshopify.com','')}/apps/{SHOPIFY_API_KEY}")
 
-# --- ROUTES API (DATA & SETTINGS) ---
+# --- ROUTES API (DATA) ---
 @app.get("/api/get-data")
 def get_data(shop: str):
-    shop = clean_shop(shop)
+    shop = clean_shop_url(shop)
     token = get_token_db(shop)
     if not token: raise HTTPException(status_code=401)
     get_shopify_session(shop, token)
@@ -123,26 +126,26 @@ def get_data(shop: str):
             "bg": get_meta("vton_widget", "btn_bg", "#000000"),
             "color": get_meta("vton_widget", "btn_text_color", "#ffffff")
         },
-        "security": {"max_tries": get_meta("vton_security", "max_tries_per_user", 5)}
+        "security": {"max_tries": get_meta("vton_security", "max_tries", 5)}
     }
 
 @app.post("/api/save-settings")
 async def save_settings(request: Request):
     data = await request.json()
-    shop = clean_shop(data.get("shop"))
+    shop = clean_shop_url(data.get("shop"))
     token = get_token_db(shop)
     if token:
         get_shopify_session(shop, token)
         set_meta("vton_widget", "btn_text", data.get("text"), "single_line_text_field")
         set_meta("vton_widget", "btn_bg", data.get("bg"), "color")
         set_meta("vton_widget", "btn_text_color", data.get("color"), "color")
-        set_meta("vton_security", "max_tries_per_user", data.get("max_tries"), "integer")
+        set_meta("vton_security", "max_tries", data.get("max_tries"), "integer")
     return {"ok": True}
 
 @app.post("/api/track-atc")
 async def track_atc(request: Request):
     data = await request.json()
-    shop = clean_shop(data.get("shop"))
+    shop = clean_shop_url(data.get("shop"))
     token = get_token_db(shop)
     if token:
         get_shopify_session(shop, token)
@@ -157,23 +160,23 @@ async def generate(
     person_image: UploadFile = File(...),
     clothing_url: Optional[str] = Form(None)
 ):
-    shop_domain = clean_shop(shop)
+    shop_domain = clean_shop_url(shop)
     token = get_token_db(shop_domain)
-    if not token: return JSONResponse({"error": "Init required"}, status_code=401)
+    if not token: return JSONResponse({"error": "Admin must login once"}, status_code=401)
 
     try:
         get_shopify_session(shop_domain, token)
         credits = get_meta("virtual_try_on", "wallet")
         if credits < 1: return JSONResponse({"error": "No credits"}, status_code=402)
 
-        # Rate Limit IP
+        # Check Limite IP
         client_ip = request.client.host
         user_stats = RATE_LIMIT_DB.get(client_ip, {"count": 0, "reset": time.time()})
         if time.time() - user_stats["reset"] > 86400: user_stats = {"count": 0, "reset": time.time()}
-        if user_stats["count"] >= get_meta("vton_security", "max_tries_per_user", 5):
+        if user_stats["count"] >= get_meta("vton_security", "max_tries", 5):
             return JSONResponse({"error": "Daily limit reached"}, status_code=429)
 
-        # Replicate
+        # IA Replicate
         p_content = await person_image.read()
         output = replicate.run(MODEL_ID, input={
             "human_img": io.BytesIO(p_content),
@@ -181,7 +184,7 @@ async def generate(
             "category": "upper_body"
         })
         
-        # Shopify Update
+        # Updates
         set_meta("virtual_try_on", "wallet", credits - 1)
         set_meta("virtual_try_on", "total_tryons", get_meta("virtual_try_on", "total_tryons") + 1)
         user_stats["count"] += 1
@@ -189,8 +192,7 @@ async def generate(
 
         res_url = str(output[0]) if isinstance(output, list) else str(output)
         return {"result_image_url": res_url}
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+    except Exception as e: return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.get("/styles.css")
 def styles(): return FileResponse('styles.css')
