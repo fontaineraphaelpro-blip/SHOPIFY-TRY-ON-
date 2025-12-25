@@ -1,15 +1,15 @@
 document.addEventListener("DOMContentLoaded", function() {
     console.log("App started...");
 
-    // --- 1. FONCTION TOKEN ---
+    // 1. Fonction Token
     async function getSessionToken() {
         if (window.shopify && window.shopify.id) {
             return await shopify.id.getToken();
         }
-        return null; // Si test hors iframe
+        return null;
     }
 
-    // --- 2. INITIALISATION ---
+    // 2. Initialisation
     const params = new URLSearchParams(window.location.search);
     const mode = params.get('mode');
     let shop = params.get('shop') || sessionStorage.getItem('shop');
@@ -17,11 +17,10 @@ document.addEventListener("DOMContentLoaded", function() {
     
     if(shop) {
         sessionStorage.setItem('shop', shop);
-        // Si on est en admin (pas en mode client), on charge les crédits
         if (mode !== 'client') fetchCredits(shop);
     }
 
-    // GESTION MODE CLIENT (Widget)
+    // Gestion Mode Client
     if (mode === 'client') {
         document.body.classList.add('client-mode');
         const adminDash = document.getElementById('admin-dashboard');
@@ -35,26 +34,23 @@ document.addEventListener("DOMContentLoaded", function() {
             if(img) {
                 img.src = autoProductImage;
                 img.style.display = 'block';
-                if(img.parentElement) {
-                    img.parentElement.classList.add('has-image');
-                    const els = img.parentElement.querySelectorAll('i, .upload-text, .upload-icon, .upload-sub');
-                    els.forEach(el => el.style.display = 'none');
-                }
+                img.parentElement.classList.add('has-image');
+                const els = img.parentElement.querySelectorAll('i, .upload-text, .upload-icon, .upload-sub');
+                els.forEach(el => el.style.display = 'none');
             }
         }
     }
 
-    // --- 3. FETCH CREDITS ---
+    // 3. Récupérer les Crédits
     async function fetchCredits(s) {
         try {
             const token = await getSessionToken();
             const headers = token ? {'Authorization': `Bearer ${token}`} : {};
             
             const res = await fetch(`/api/get-credits?shop=${s}`, { headers });
+            
             if (res.status === 401) {
-                // Redirection login gérée par main.py ou App Bridge
-                // window.top.location.href = `/login?shop=${s}`; 
-                console.log("Session expirée pour les crédits");
+                console.log("Session expirée.");
                 return; 
             }
             const data = await res.json();
@@ -63,7 +59,7 @@ document.addEventListener("DOMContentLoaded", function() {
         } catch(e) { console.error("API Error", e); }
     }
 
-    // --- 4. PREVIEW IMAGE ---
+    // 4. Preview Image
     window.preview = function(inputId, imgId, txtId) {
         const file = document.getElementById(inputId).files[0];
         if (file) {
@@ -72,17 +68,15 @@ document.addEventListener("DOMContentLoaded", function() {
                 const img = document.getElementById(imgId);
                 img.src = e.target.result;
                 img.style.display = 'block';
-                if(img.parentElement) {
-                    img.parentElement.classList.add('has-image');
-                    const els = img.parentElement.querySelectorAll('i, .upload-text, .upload-icon, .upload-sub');
-                    els.forEach(el => el.style.display = 'none');
-                }
+                img.parentElement.classList.add('has-image');
+                const els = img.parentElement.querySelectorAll('i, .upload-text, .upload-icon, .upload-sub');
+                els.forEach(el => el.style.display = 'none');
             };
             reader.readAsDataURL(file);
         }
     };
 
-    // --- 5. GENERATE (AVEC TOKEN + FICHIERS) ---
+    // 5. Génération IA
     window.generate = async function() {
         const uFile = document.getElementById('uImg').files[0];
         const cFile = document.getElementById('cImg').files[0];
@@ -98,25 +92,20 @@ document.addEventListener("DOMContentLoaded", function() {
 
         try {
             const token = await getSessionToken();
-            
             const formData = new FormData();
             formData.append("shop", shop || "demo");
             formData.append("person_image", uFile);
             
-            if (cFile) {
-                formData.append("clothing_file", cFile); 
-            } else {
-                formData.append("clothing_url", autoProductImage); 
-            }
+            if (cFile) formData.append("clothing_file", cFile); 
+            else formData.append("clothing_url", autoProductImage); 
+            
             formData.append("category", "upper_body");
 
             const headers = {};
             if(token) headers['Authorization'] = `Bearer ${token}`;
 
             const res = await fetch('/api/generate', {
-                method: 'POST',
-                headers: headers,
-                body: formData
+                method: 'POST', headers: headers, body: formData
             });
 
             if (res.status === 401) {
@@ -130,8 +119,6 @@ document.addEventListener("DOMContentLoaded", function() {
                 ri.src = data.result_image_url;
                 ri.style.display = 'block';
                 document.getElementById('loader').style.display = 'none';
-                
-                // Refresh credits si en mode admin
                 if(data.new_credits !== undefined) {
                     const cel = document.getElementById('credits');
                     if(cel) cel.innerText = data.new_credits;
@@ -150,16 +137,14 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     };
 
-    // --- 6. BUY ---
+    // 6. Achat de Crédits
     window.buy = async function(packId, customAmount = 0) {
         if(!shop) return alert("Shop ID missing");
         
-        // UI : Bouton en attente
         let btn;
         if(event && event.target) {
-             btn = event.target.tagName === 'BUTTON' ? event.target : event.target.closest('button');
+            btn = event.target.tagName === 'BUTTON' ? event.target : event.target.closest('button');
         }
-        // Fallback si le clic vient d'ailleurs
         if (!btn && packId === 'pack_custom') btn = document.querySelector('.custom-input-group button');
         
         const oldText = btn ? btn.innerText : "...";
@@ -177,17 +162,14 @@ document.addEventListener("DOMContentLoaded", function() {
                 method: 'POST', headers: headers, body: JSON.stringify(body)
             });
 
-            // CAS CRITIQUE : Session perdue (401)
             if (res.status === 401) {
-                console.log("Session perdue, redirection vers le login...");
+                console.log("Session 401, redirecting...");
                 window.top.location.href = `/login?shop=${shop}`;
                 return;
             }
 
             const data = await res.json();
-            
             if(data.confirmation_url) {
-                // Redirection vers le paiement Shopify
                 window.top.location.href = data.confirmation_url;
             } else {
                 alert("Error: " + (data.error || "Unknown"));
@@ -195,16 +177,15 @@ document.addEventListener("DOMContentLoaded", function() {
             }
         } catch(e) {
             console.error(e);
-            alert("Erreur réseau ou configuration API.");
+            alert("Network/Config Error");
             if(btn) { btn.innerText = oldText; btn.disabled = false; }
         }
     };
 
-    // --- 7. BUY CUSTOM (MANQUAIT DANS TON CODE) ---
     window.buyCustom = function() {
         const amount = document.getElementById('customAmount').value;
         if(amount < 200) return alert("Min 200 credits");
         window.buy('pack_custom', parseInt(amount));
     }
 
-}); // <--- C'EST ICI QUE TU AVAIS OUBLIÉ DE FERMER LE FICHIER
+}); // Fin du script
