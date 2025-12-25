@@ -20,6 +20,7 @@ document.addEventListener("DOMContentLoaded", function() {
             const headers = options.headers || {};
             if (token) headers['Authorization'] = `Bearer ${token}`;
             const res = await fetch(url, { ...options, headers });
+            // AUTO-RECONNECT: Si erreur 401, on recharge pour se reloguer
             if (res.status === 401 && shop) { window.top.location.href = `/login?shop=${shop}`; return null; }
             return res;
         } catch (error) { throw error; }
@@ -36,8 +37,7 @@ document.addEventListener("DOMContentLoaded", function() {
         if (res && res.ok) {
             const data = await res.json();
             
-            // --- CORRECTION DU BUG NaN ---
-            // On vérifie chaque donnée. Si elle n'existe pas, on met 0 par défaut.
+            // PROTECTION CONTRE NaN/UNDEFINED
             const safeCredits = data.credits !== undefined ? data.credits : 0;
             const safeLifetime = data.lifetime !== undefined ? data.lifetime : 0;
             const safeUsage = data.usage !== undefined ? data.usage : 0;
@@ -51,10 +51,7 @@ document.addEventListener("DOMContentLoaded", function() {
                 document.getElementById('ws-text').value = data.widget.text || "Try It On Now ✨";
                 document.getElementById('ws-color').value = data.widget.bg || "#000000";
                 document.getElementById('ws-text-color').value = data.widget.color || "#ffffff";
-                
-                if(data.security) {
-                    document.getElementById('ws-limit').value = data.security.max_tries || 5;
-                }
+                if(data.security) document.getElementById('ws-limit').value = data.security.max_tries || 5;
                 window.updateWidgetPreview();
             }
         }
@@ -64,7 +61,6 @@ document.addEventListener("DOMContentLoaded", function() {
         const uEl = document.getElementById('roi-tryons');
         const rEl = document.getElementById('roi-revenue');
         if(uEl) uEl.innerText = usage;
-        // On formate proprement en euros pour éviter les bugs d'affichage
         if(rEl) rEl.innerText = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(revenue);
     }
 
@@ -98,10 +94,8 @@ document.addEventListener("DOMContentLoaded", function() {
         const marker = document.querySelector('.vip-marker');
         let percent = (lifetime / 500) * 100;
         if(percent > 100) percent = 100;
-
         if(fill) fill.style.width = percent + "%";
         if(marker) marker.style.left = percent + "%";
-        
         if(lifetime >= 500) {
             const title = document.querySelector('.vip-title strong');
             if(title) title.innerText = "Gold Member";
@@ -111,7 +105,6 @@ document.addEventListener("DOMContentLoaded", function() {
     window.saveSettings = async function(btn) {
         const oldText = btn.innerText;
         btn.innerText = "Saving..."; btn.disabled = true;
-
         const settings = {
             shop: shop,
             text: document.getElementById('ws-text').value,
@@ -119,15 +112,12 @@ document.addEventListener("DOMContentLoaded", function() {
             color: document.getElementById('ws-text-color').value,
             max_tries: parseInt(document.getElementById('ws-limit').value) || 5
         };
-
         try {
             const res = await authenticatedFetch('/api/save-settings', {
                 method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(settings)
             });
-            if(res.ok) {
-                btn.innerText = "Saved! ✅";
-                setTimeout(() => btn.innerText = oldText, 2000);
-            } else { alert("Save failed"); }
+            if(res.ok) { btn.innerText = "Saved! ✅"; setTimeout(() => btn.innerText = oldText, 2000); } 
+            else { alert("Save failed"); }
         } catch(e) { console.error(e); alert("Error saving"); }
         finally { btn.disabled = false; }
     };
@@ -147,7 +137,6 @@ document.addEventListener("DOMContentLoaded", function() {
         document.body.classList.add('client-mode');
         const adminZone = document.getElementById('admin-only-zone');
         if(adminZone) adminZone.style.display = 'none';
-
         if (autoProductImage) {
             const img = document.getElementById('prevC');
             if(img) {
@@ -202,7 +191,7 @@ document.addEventListener("DOMContentLoaded", function() {
         document.getElementById('resImg').style.display = 'none';
         document.getElementById('post-actions').style.display = 'none';
 
-        const texts = ["Analyzing silhouette...", "Matching fabrics...", "Simulating drape..."];
+        const texts = ["Analyzing silhouette...", "Matching fabrics...", "Simulating drape...", "Rendering lighting..."];
         let step = 0;
         const textEl = document.getElementById('loader-text');
         const interval = setInterval(() => { if(step < texts.length) { textEl.innerText = texts[step]; step++; } }, 2500);
@@ -219,6 +208,7 @@ document.addEventListener("DOMContentLoaded", function() {
             clearInterval(interval);
 
             if (!res) return;
+            if (res.status === 429) { alert("Daily limit reached."); document.getElementById('loader').style.display = 'none'; return; }
             if (res.status === 402) { alert("Not enough credits!"); btn.disabled = false; btn.innerHTML = oldText; return; }
             if (!res.ok) throw new Error("Server Error");
 
