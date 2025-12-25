@@ -7,7 +7,6 @@ document.addEventListener("DOMContentLoaded", function() {
     const mode = params.get('mode');
     let shop = params.get('shop') || sessionStorage.getItem('shop');
     const autoProductImage = params.get('product_image');
-    const productPrice = parseFloat(params.get('price')) || 0;
 
     async function getSessionToken() {
         if (window.shopify && window.shopify.id) return await shopify.id.getToken();
@@ -20,7 +19,6 @@ document.addEventListener("DOMContentLoaded", function() {
             const headers = options.headers || {};
             if (token) headers['Authorization'] = `Bearer ${token}`;
             const res = await fetch(url, { ...options, headers });
-            // AUTO-RECONNECT: Si erreur 401, on recharge pour se reloguer
             if (res.status === 401 && shop) { window.top.location.href = `/login?shop=${shop}`; return null; }
             return res;
         } catch (error) { throw error; }
@@ -37,15 +35,21 @@ document.addEventListener("DOMContentLoaded", function() {
         if (res && res.ok) {
             const data = await res.json();
             
-            // PROTECTION CONTRE NaN/UNDEFINED
             const safeCredits = data.credits !== undefined ? data.credits : 0;
             const safeLifetime = data.lifetime !== undefined ? data.lifetime : 0;
+            
+            // --- COMPTEURS SIMPLES (+1) ---
             const safeUsage = data.usage !== undefined ? data.usage : 0;
-            const safeRevenue = data.revenue !== undefined ? data.revenue : 0;
+            const safeATC = data.atc !== undefined ? data.atc : 0;
 
             updateDashboardStats(safeCredits);
             updateVIPStatus(safeLifetime);
-            updateROIStats(safeUsage, safeRevenue);
+            
+            // Affichage simple (pas de €)
+            const tryEl = document.getElementById('stat-tryons');
+            const atcEl = document.getElementById('stat-atc');
+            if(tryEl) tryEl.innerText = safeUsage;
+            if(atcEl) atcEl.innerText = safeATC;
 
             if(data.widget) {
                 document.getElementById('ws-text').value = data.widget.text || "Try It On Now ✨";
@@ -55,13 +59,6 @@ document.addEventListener("DOMContentLoaded", function() {
                 window.updateWidgetPreview();
             }
         }
-    }
-
-    function updateROIStats(usage, revenue) {
-        const uEl = document.getElementById('roi-tryons');
-        const rEl = document.getElementById('roi-revenue');
-        if(uEl) uEl.innerText = usage;
-        if(rEl) rEl.innerText = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(revenue);
     }
 
     function updateDashboardStats(credits) {
@@ -122,12 +119,15 @@ document.addEventListener("DOMContentLoaded", function() {
         finally { btn.disabled = false; }
     };
 
-    window.trackConversion = async function() {
-        alert("Redirecting to Checkout..."); 
-        if(shop && productPrice > 0) {
+    // --- NOUVEAU TRACKING SIMPLE (+1) ---
+    window.trackATC = async function() {
+        // Redirection réelle vers le panier (ou alerte)
+        alert("Redirecting to Cart..."); 
+        if(shop) {
             try {
-                await authenticatedFetch('/api/track-conversion', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ shop: shop, amount: productPrice })
+                // On notifie juste qu'il y a eu un clic
+                await authenticatedFetch('/api/track-atc', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ shop: shop })
                 });
             } catch(e) { console.error("Tracking Error", e); }
         }
