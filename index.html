@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VTON Magic Admin</title>
+    <title>Virtual Try-On</title>
     <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js" data-api-key="{{ api_key }}"></script>
     <link rel="stylesheet" href="/styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -13,84 +13,83 @@
 
     <div class="app-container">
         
-        <header class="glass-header">
-            <div class="brand">
-                <div class="logo-icon"><i class="fa-solid fa-wand-magic-sparkles"></i></div>
-                <div class="logo-text">
-                    <h1>VTON<span>AI</span></h1>
-                    <span class="badge-beta">PRO</span>
+        <div id="admin-only-zone">
+            <header class="glass-header">
+                <div class="brand">
+                    <div class="logo-icon"><i class="fa-solid fa-wand-magic-sparkles"></i></div>
+                    <div class="logo-text">
+                        <h1>VTON<span>AI</span></h1>
+                        <span class="badge-beta">ADMIN</span>
+                    </div>
+                </div>
+                <div class="system-status">
+                    <span class="pulse-dot"></span> System Active
+                </div>
+            </header>
+
+            <div id="billing-section">
+                <div class="stats-grid">
+                    <div class="stat-card credit-card-style">
+                        <div class="card-bg-glow"></div>
+                        <div class="card-top">
+                            <span class="card-label">BALANCE</span>
+                            <i class="fa-brands fa-cc-stripe"></i>
+                        </div>
+                        <div class="credits-count">
+                            <span id="credits">--</span>
+                        </div>
+                        <div class="card-bottom">
+                            <span><i class="fa-solid fa-infinity"></i> No Expiry</span>
+                            <button onclick="document.querySelector('.pricing-row').scrollIntoView({behavior: 'smooth'})" class="btn-xs-glass">Top Up</button>
+                        </div>
+                    </div>
+                    <div class="stat-card info-card">
+                        <div class="info-icon"><i class="fa-solid fa-chart-line"></i></div>
+                        <h3>Boost Sales</h3>
+                        <p>Virtual Try-On increases conversion by <strong>2.5x</strong>.</p>
+                    </div>
+                    <div class="stat-card quick-buy">
+                        <h3>Bulk Order?</h3>
+                        <div class="input-wrapper">
+                            <input type="number" id="customAmount" placeholder="200" value="200">
+                            <button onclick="buyCustom(this)" class="btn-arrow"><i class="fa-solid fa-arrow-right"></i></button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pricing-row">
+                    <div class="pricing-item" onclick="buy('pack_10', 0, this)">
+                        <span class="p-name">Starter</span>
+                        <span class="p-amount">10</span>
+                        <span class="p-price">4.99€</span>
+                    </div>
+                    <div class="pricing-item featured-item" onclick="buy('pack_30', 0, this)">
+                        <div class="popular-tag">POPULAR</div>
+                        <span class="p-name">Growth</span>
+                        <span class="p-amount">30</span>
+                        <span class="p-price">12.99€</span>
+                    </div>
+                    <div class="pricing-item" onclick="buy('pack_100', 0, this)">
+                        <span class="p-name">Business</span>
+                        <span class="p-amount">100</span>
+                        <span class="p-price">29.99€</span>
+                    </div>
+                </div>
+
+                <div class="divider">
+                    <span>TRY-ON PREVIEW</span>
                 </div>
             </div>
-            <div class="system-status">
-                <span class="pulse-dot"></span> System Operational
-            </div>
-        </header>
-
+        </div>
         <div class="main-content">
             
-            <div id="billing-section" class="stats-grid">
-                
-                <div class="stat-card credit-card-style">
-                    <div class="card-bg-glow"></div>
-                    <div class="card-top">
-                        <span class="card-label">AVAILABLE BALANCE</span>
-                        <i class="fa-brands fa-cc-stripe"></i>
-                    </div>
-                    <div class="credits-count">
-                        <span id="credits">--</span>
-                    </div>
-                    <div class="card-bottom">
-                        <span><i class="fa-solid fa-infinity"></i> No Expiration</span>
-                        <button onclick="document.querySelector('.pricing-row').scrollIntoView({behavior: 'smooth'})" class="btn-xs-glass">Top Up</button>
-                    </div>
-                </div>
-
-                <div class="stat-card info-card">
-                    <div class="info-icon"><i class="fa-solid fa-chart-line"></i></div>
-                    <h3>Boost Conversion</h3>
-                    <p>Virtual Try-On increases add-to-cart rates by an average of <strong>2.5x</strong>.</p>
-                </div>
-
-                <div class="stat-card quick-buy">
-                    <h3>High Volume?</h3>
-                    <div class="input-wrapper">
-                        <input type="number" id="customAmount" placeholder="200" value="200">
-                        <button onclick="buyCustom(this)" class="btn-arrow"><i class="fa-solid fa-arrow-right"></i></button>
-                    </div>
-                    <small>Get bulk rates from €0.25/try</small>
-                </div>
-            </div>
-
-            <div class="pricing-row" id="billing-section">
-                <div class="pricing-item" onclick="buy('pack_10', 0, this)">
-                    <span class="p-name">Starter</span>
-                    <span class="p-amount">10</span>
-                    <span class="p-price">4.99€</span>
-                </div>
-                <div class="pricing-item featured-item" onclick="buy('pack_30', 0, this)">
-                    <div class="popular-tag">MOST POPULAR</div>
-                    <span class="p-name">Growth</span>
-                    <span class="p-amount">30</span>
-                    <span class="p-price">12.99€</span>
-                </div>
-                <div class="pricing-item" onclick="buy('pack_100', 0, this)">
-                    <span class="p-name">Business</span>
-                    <span class="p-amount">100</span>
-                    <span class="p-price">29.99€</span>
-                </div>
-            </div>
-
-            <div class="divider">
-                <span>PREVIEW TOOL</span>
-            </div>
-
             <div class="studio-grid">
                 <label for="uImg" class="studio-box">
                     <div class="step-number">01</div>
                     <img id="prevU" src="" style="display:none;">
                     <div class="empty-state">
-                        <div class="icon-circle"><i class="fa-solid fa-user"></i></div>
-                        <span>Upload Model</span>
+                        <div class="icon-circle"><i class="fa-solid fa-camera"></i></div>
+                        <span>Your Photo</span>
                     </div>
                     <input type="file" id="uImg" accept="image/*" onchange="preview('uImg', 'prevU')">
                 </label>
@@ -100,7 +99,7 @@
                     <img id="prevC" src="" style="display:none;">
                     <div class="empty-state">
                         <div class="icon-circle"><i class="fa-solid fa-shirt"></i></div>
-                        <span>Upload Garment</span>
+                        <span>The Product</span>
                     </div>
                     <input type="file" id="cImg" accept="image/*" onchange="preview('cImg', 'prevC')">
                 </label>
@@ -108,7 +107,7 @@
 
             <div class="action-area">
                 <button id="btnGo" onclick="generate()" class="btn-magic">
-                    <span class="btn-content">Generate Try-On <i class="fa-solid fa-wand-magic-sparkles"></i></span>
+                    <span class="btn-content">Try It On Now <i class="fa-solid fa-wand-magic-sparkles"></i></span>
                     <div class="btn-glow"></div>
                 </button>
             </div>
@@ -116,7 +115,7 @@
             <div id="resZone" style="display:none;" class="result-display">
                 <div id="loader" style="display:none;">
                     <div class="spinner-modern"></div>
-                    <p>AI is weaving pixels...</p>
+                    <p>Creating your look...</p>
                 </div>
                 <img id="resImg" src="" style="display:none;">
             </div>
