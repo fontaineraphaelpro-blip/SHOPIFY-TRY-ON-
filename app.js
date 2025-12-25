@@ -1,47 +1,48 @@
 document.addEventListener("DOMContentLoaded", function() {
     
-    // --- 1. CORRECTION PAGE BLANCHE (CRUCIAL) ---
-    // On ajoute la classe qui passe l'opacité de 0 à 1
+    // --- 1. APPARITION EN DOUCEUR ---
     document.body.classList.add('loaded');
-    console.log("App started & Visible");
+    document.body.style.opacity = "1"; // Force l'opacité si la classe CSS manque
+    console.log("🚀 App started & Visible");
 
-    // --- 2. FONCTION TOKEN ---
-    // Récupère le jeton de session pour authentifier les requêtes vers Python
+    // --- 2. FONCTION TOKEN (App Bridge 3) ---
     async function getSessionToken() {
         if (window.shopify && window.shopify.id) {
             return await shopify.id.getToken();
+        } else {
+            console.warn("⚠️ App Bridge non détecté. Assurez-vous d'être dans Shopify Admin.");
+            return null; 
         }
-        return null; // Retourne null si on teste hors de l'iframe Shopify
     }
 
-    // --- 3. INITIALISATION & PARAMÈTRES ---
+    // --- 3. INITIALISATION ---
     const params = new URLSearchParams(window.location.search);
-    const mode = params.get('mode'); // 'client' ou null
+    const mode = params.get('mode'); 
     let shop = params.get('shop') || sessionStorage.getItem('shop');
     const autoProductImage = params.get('product_image'); 
     
-    // On sauvegarde le shop pour ne pas le perdre au rechargement
     if(shop) {
         sessionStorage.setItem('shop', shop);
-        // Si on est en mode Admin (pas client), on charge les crédits
+        // On charge les crédits SEULEMENT si on n'est pas en mode client (widget)
         if (mode !== 'client') {
             fetchCredits(shop);
+        } else {
+            // En mode client, on cache la section facturation
+            const billingSec = document.getElementById('billing-section');
+            if(billingSec) billingSec.style.display = 'none';
         }
     }
 
-    // --- 4. GESTION MODE WIDGET (CLIENT) ---
+    // --- 4. MODE WIDGET (CLIENT) ---
     if (mode === 'client') {
         document.body.classList.add('client-mode');
         
-        // On cache le dashboard admin
         const adminDash = document.getElementById('admin-dashboard');
         if(adminDash) adminDash.style.display = 'none';
         
-        // On affiche le titre client
         const title = document.getElementById('client-title');
         if(title) title.style.display = 'block';
 
-        // Si une image produit est passée dans l'URL (depuis le bouton "Essayer"), on l'affiche
         if (autoProductImage) {
             const img = document.getElementById('prevC');
             if(img) {
@@ -49,24 +50,24 @@ document.addEventListener("DOMContentLoaded", function() {
                 img.style.display = 'block';
                 if(img.parentElement) {
                     img.parentElement.classList.add('has-image');
-                    // On cache les textes d'upload
-                    const els = img.parentElement.querySelectorAll('i, .upload-text, .upload-icon, .upload-sub');
+                    const els = img.parentElement.querySelectorAll('i, .upload-text, .upload-content');
                     els.forEach(el => el.style.display = 'none');
                 }
             }
         }
     }
 
-    // --- 5. RÉCUPÉRATION DES CRÉDITS ---
+    // --- 5. FETCH CRÉDITS ---
     async function fetchCredits(s) {
         try {
             const token = await getSessionToken();
+            // Important : Toujours avoir des headers valides
             const headers = token ? {'Authorization': `Bearer ${token}`} : {};
             
             const res = await fetch(`/api/get-credits?shop=${s}`, { headers });
             
             if (res.status === 401) {
-                console.warn("Session expirée (401) lors du chargement des crédits.");
+                console.warn("Session expirée (401).");
                 return; 
             }
             
@@ -78,9 +79,8 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
 
-    // --- 6. FONCTION DE PRÉVISUALISATION DES IMAGES ---
-    // Appelée par le onchange des input file dans le HTML
-    window.preview = function(inputId, imgId, txtId) {
+    // --- 6. PREVIEW IMAGE ---
+    window.preview = function(inputId, imgId) {
         const file = document.getElementById(inputId).files[0];
         if (file) {
             const reader = new FileReader();
@@ -88,47 +88,41 @@ document.addEventListener("DOMContentLoaded", function() {
                 const img = document.getElementById(imgId);
                 img.src = e.target.result;
                 img.style.display = 'block';
-                // Style pour cacher l'icône de fond
-                if(img.parentElement) {
-                    img.parentElement.classList.add('has-image');
-                    const els = img.parentElement.querySelectorAll('i, .upload-text, .upload-icon, .upload-sub');
-                    els.forEach(el => el.style.display = 'none');
-                }
+                // Cache les textes d'upload
+                const contentDiv = img.parentElement.querySelector('.upload-content');
+                if(contentDiv) contentDiv.style.display = 'none';
             };
             reader.readAsDataURL(file);
         }
     };
 
-    // --- 7. FONCTION PRINCIPALE : GÉNÉRER L'ESSAYAGE (IA) ---
+    // --- 7. GÉNÉRATION IA ---
     window.generate = async function() {
         const uFile = document.getElementById('uImg').files[0];
         const cFile = document.getElementById('cImg').files[0];
         const btn = document.getElementById('btnGo');
         
-        // Vérifications
-        if (!uFile) return alert("Please upload your photo.");
-        if (!autoProductImage && !cFile) return alert("Please select a garment.");
+        if (!uFile) return alert("Veuillez ajouter votre photo.");
+        if (!autoProductImage && !cFile) return alert("Veuillez ajouter un vêtement.");
 
-        // UI : Mode Chargement
+        // UI Loading
         btn.disabled = true; 
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing...';
-        document.getElementById('resZone').style.display = 'flex';
+        const oldBtnText = btn.innerHTML;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Traitement...';
+        
+        document.getElementById('resZone').style.display = 'block'; // Block au lieu de flex pour eviter layout bizarre
         document.getElementById('loader').style.display = 'block';
         document.getElementById('resImg').style.display = 'none';
 
         try {
             const token = await getSessionToken();
-            
-            // On utilise FormData pour envoyer des fichiers
             const formData = new FormData();
             formData.append("shop", shop || "demo");
             formData.append("person_image", uFile);
             
-            if (cFile) {
-                formData.append("clothing_file", cFile); 
-            } else {
-                formData.append("clothing_url", autoProductImage); 
-            }
+            if (cFile) formData.append("clothing_file", cFile); 
+            else formData.append("clothing_url", autoProductImage); 
+            
             formData.append("category", "upper_body");
 
             const headers = {};
@@ -140,56 +134,57 @@ document.addEventListener("DOMContentLoaded", function() {
                 body: formData
             });
 
-            // Gestion session expirée
             if (res.status === 401) {
-                if(shop && mode !== 'client') window.top.location.href = `/login?shop=${shop}`;
-                else alert("Session expired. Please refresh.");
+                alert("Session expirée. Veuillez rafraîchir la page.");
+                return;
+            }
+            if (res.status === 402) {
+                alert("Crédits insuffisants !");
                 return;
             }
 
             const data = await res.json();
             
             if(data.result_image_url) {
-                // Succès !
                 const ri = document.getElementById('resImg');
                 ri.src = data.result_image_url;
-                ri.style.display = 'block';
-                document.getElementById('loader').style.display = 'none';
                 
-                // Si on a reçu le nouveau solde de crédits, on met à jour
+                // On attend que l'image charge pour cacher le loader
+                ri.onload = () => {
+                    ri.style.display = 'block';
+                    document.getElementById('loader').style.display = 'none';
+                };
+                
                 if(data.new_credits !== undefined) {
                     const cel = document.getElementById('credits');
                     if(cel) cel.innerText = data.new_credits;
                 }
             } else {
-                // Erreur IA (crédits insuffisants ou autre)
-                alert("AI Error: " + (data.error || "Unknown error"));
-                document.getElementById('resZone').style.display = 'none';
+                alert("Erreur IA : " + (data.error || "Erreur inconnue"));
+                document.getElementById('loader').style.display = 'none';
             }
         } catch(e) { 
             console.error(e);
-            alert("Connection Error: " + e); 
-            document.getElementById('resZone').style.display = 'none';
+            alert("Erreur de connexion : " + e); 
+            document.getElementById('loader').style.display = 'none';
         } finally { 
-            // On remet le bouton normal quoi qu'il arrive
             btn.disabled = false; 
-            btn.innerHTML = 'Test This Outfit Now <i class="fa-solid fa-wand-magic-sparkles"></i>'; 
+            btn.innerHTML = oldBtnText; 
         }
     };
 
-    // --- 8. FONCTION ACHAT (BUY) ---
-    window.buy = async function(packId, customAmount = 0) {
-        if(!shop) return alert("Shop ID missing. Please reload.");
+    // --- 8. FONCTION ACHAT (Corrigée) ---
+    // On ajoute un 3ème argument 'btnElement' pour éviter l'erreur 'event'
+    window.buy = async function(packId, customAmount = 0, btnElement = null) {
+        if(!shop) return alert("Shop ID introuvable. Rechargez la page.");
         
-        // Gestion UI du bouton cliqué
-        let btn;
-        if(event && event.target) {
-            btn = event.target.tagName === 'BUTTON' ? event.target : event.target.closest('button');
-        }
-        if (!btn && packId === 'pack_custom') btn = document.querySelector('.custom-input-group button');
-        
+        const btn = btnElement;
         const oldText = btn ? btn.innerText : "...";
-        if(btn) { btn.innerText = "Wait..."; btn.disabled = true; }
+        
+        if(btn) { 
+            btn.innerText = "Patientez..."; 
+            btn.disabled = true; 
+        }
 
         try {
             const token = await getSessionToken();
@@ -206,7 +201,7 @@ document.addEventListener("DOMContentLoaded", function() {
             });
 
             if (res.status === 401) {
-                console.log("Session perdue, redirection login...");
+                // Redirection login
                 window.top.location.href = `/login?shop=${shop}`;
                 return;
             }
@@ -214,24 +209,24 @@ document.addEventListener("DOMContentLoaded", function() {
             const data = await res.json();
             
             if(data.confirmation_url) {
-                // Redirection vers la page de paiement Shopify
+                // Redirection paiement Shopify (Sortir de l'iframe)
                 window.top.location.href = data.confirmation_url;
             } else {
-                alert("Error: " + (data.error || "Unknown"));
+                alert("Erreur : " + (data.error || "Inconnue"));
                 if(btn) { btn.innerText = oldText; btn.disabled = false; }
             }
         } catch(e) {
             console.error(e);
-            alert("Network Error");
+            alert("Erreur Réseau");
             if(btn) { btn.innerText = oldText; btn.disabled = false; }
         }
     };
 
-    // Fonction intermédiaire pour le champ input custom
-    window.buyCustom = function() {
+    // Wrapper pour le bouton custom qui passe 'this' correctement
+    window.buyCustom = function(btnElement) {
         const amount = document.getElementById('customAmount').value;
-        if(amount < 200) return alert("Min 200 credits");
-        window.buy('pack_custom', parseInt(amount));
+        if(amount < 200) return alert("Minimum 200 crédits");
+        window.buy('pack_custom', parseInt(amount), btnElement);
     }
 
-}); // Fin du DOMContentLoaded
+});
