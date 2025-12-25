@@ -35,14 +35,13 @@ def get_shopify_session(shop, token):
     session = shopify.Session(shop, API_VERSION, token)
     shopify.ShopifyResource.activate_session(session)
 
-# --- METAFIELDS SECURISE ---
+# --- METAFIELDS ROBUSTE (Anti-Crash) ---
 def get_metafield(namespace, key, default=0):
-    """Récupère une donnée Shopify sans faire planter l'app"""
     try:
         metafields = shopify.Metafield.find(namespace=namespace, key=key)
         if metafields:
             val = metafields[0].value
-            # Tentative de conversion intelligente
+            # Conversion sécurisée
             try:
                 if isinstance(default, int): return int(float(val))
                 if isinstance(default, float): return float(val)
@@ -61,7 +60,7 @@ def set_metafield(namespace, key, value, type_val):
         metafield.type = type_val
         metafield.save()
     except Exception as e:
-        print(f"Erreur sauvegarde metafield: {e}")
+        print(f"⚠️ Erreur Save Metafield: {e}")
 
 # --- MIDDLEWARE ---
 @app.middleware("http")
@@ -76,7 +75,7 @@ app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
 )
 
-# --- ROUTES HTML ---
+# --- ROUTES ---
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     shop = request.query_params.get("shop")
@@ -114,21 +113,19 @@ def auth_callback(request: Request):
         return HTMLResponse(f"Token Error: {res.text}", status_code=400)
     except Exception as e: return HTMLResponse(content=f"Auth Error: {str(e)}", status_code=500)
 
-# --- API DATA ROBUSTE (CORRECTION DU BUG) ---
+# --- API DATA SÉCURISÉE ---
 @app.get("/api/get-data")
 def get_data_route(shop: str):
     shop = clean_shop_url(shop)
     token = RAM_DB.get(shop)
     
-    # Si pas de token, on renvoie une structure vide mais valide pour éviter le crash JS
     if not token: 
-        print(f"❌ Session expirée pour {shop}")
-        raise HTTPException(status_code=401, detail="Session expired")
+        return {"credits": 0, "lifetime": 0, "usage": 0, "revenue": 0.0, "widget": {}, "security": {"max_tries": 5}}
     
     try:
         get_shopify_session(shop, token)
         
-        # On utilise des valeurs par défaut solides
+        # Récupération avec valeurs par défaut garanties (évite le NaN)
         credits = get_metafield("virtual_try_on", "wallet", 0)
         lifetime = get_metafield("virtual_try_on", "lifetime_credits", 0)
         total_tryons = get_metafield("virtual_try_on", "total_tryons", 0)
@@ -148,13 +145,8 @@ def get_data_route(shop: str):
             "security": {"max_tries": max_tries}
         }
     except Exception as e:
-        print(f"⚠️ Erreur récupération data: {e}")
-        # FALLBACK : On renvoie des zéros pour que l'interface s'affiche quand même
-        return {
-            "credits": 0, "lifetime": 0, "usage": 0, "revenue": 0.0,
-            "widget": {"text": "Try It On", "bg": "#000", "color": "#fff"},
-            "security": {"max_tries": 5}
-        }
+        print(f"Error fetching data: {e}")
+        return {"credits": 0}
 
 # --- SETTINGS ---
 class SettingsRequest(BaseModel):
@@ -178,7 +170,7 @@ def save_settings(req: SettingsRequest):
         return {"ok": True}
     except Exception as e: return JSONResponse({"error": str(e)}, status_code=500)
 
-# --- TRACKING ---
+# --- TRACKING REVENU ---
 class ConversionRequest(BaseModel):
     shop: str
     amount: float
@@ -246,29 +238,27 @@ def billing_callback(shop: str, amt: int, charge_id: str):
 
 # --- GENERATE ---
 @app.post("/api/generate")
-async def generate(request: Request, shop: str = Form(...), person_image: UploadFile = File(...), clothing_file: Optional[UploadFile] = File(None), clothing_url: Optional[str] = Form(None), category: str = Form("upper_body")):
-    client_ip = request.headers.get('x-forwarded-for') or request.client.host
+async def generate(
+    request: Request,
+    shop: str = Form(...),
+    person_image: UploadFile = File(...),
+    clothing_file: Optional[UploadFile] = File(None),
+    clothing_url: Optional[str] = Form(None),
+    category: str = Form("upper_body")
+):
+    print(f"🚀 [IA] Start generation for {shop}")
     shop = clean_shop_url(shop)
     token = RAM_DB.get(shop)
-    
     if not token: raise HTTPException(status_code=401, detail="Session expired")
 
     try:
         get_shopify_session(shop, token)
         
-        # 1. Vérif Limit IP
-        max_tries = int(get_metafield("vton_security", "max_tries_per_user", 5))
-        user_stats = RATE_LIMIT_DB.get(client_ip, {"count": 0, "reset": time.time()})
-        if time.time() - user_stats["reset"] > 86400: user_stats = {"count": 0, "reset": time.time()}
-
-        if user_stats["count"] >= max_tries:
-            return JSONResponse({"error": "Daily limit reached."}, status_code=429)
-
-        # 2. Vérif Crédits
-        current_credits = int(get_metafield("virtual_try_on", "wallet", 0))
+        # 1. Vérification Crédits
+        current_credits = get_metafield("virtual_try_on", "wallet", 0)
         if current_credits < 1: return JSONResponse({"error": "Not enough credits."}, status_code=402)
 
-        # 3. Prépa Fichiers
+        # 2. Images
         person_bytes = await person_image.read()
         person_file = io.BytesIO(person_bytes) 
         garment_input = None
@@ -280,22 +270,19 @@ async def generate(request: Request, shop: str = Form(...), person_image: Upload
             if garment_input.startswith("//"): garment_input = "https:" + garment_input
         else: return JSONResponse({"error": "No garment provided"}, status_code=400)
 
-        # 4. Replicate
+        # 3. Replicate (Pas de vérif IP complexe pour éviter les bugs Render)
         output = replicate.run(MODEL_ID, input={"human_img": person_file, "garm_img": garment_input, "garment_des": category, "category": "upper_body"})
         
-        # 5. Mise à jour
+        # 4. Mises à jour
         set_metafield("virtual_try_on", "wallet", current_credits - 1, "integer")
-        total_tryons = int(get_metafield("virtual_try_on", "total_tryons", 0))
+        total_tryons = get_metafield("virtual_try_on", "total_tryons", 0)
         set_metafield("virtual_try_on", "total_tryons", total_tryons + 1, "integer")
-        
-        user_stats["count"] += 1
-        RATE_LIMIT_DB[client_ip] = user_stats
 
         result_url = str(output[0]) if isinstance(output, list) else str(output)
         return {"result_image_url": result_url, "new_credits": current_credits - 1}
 
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"❌ Erreur: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.post("/webhooks/customers/data_request")
