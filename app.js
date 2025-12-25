@@ -6,8 +6,8 @@ document.addEventListener("DOMContentLoaded", function() {
     const params = new URLSearchParams(window.location.search);
     const mode = params.get('mode');
     let shop = params.get('shop') || sessionStorage.getItem('shop');
-    const productPrice = parseFloat(params.get('price')) || 0;
     const autoProductImage = params.get('product_image');
+    const productPrice = parseFloat(params.get('price')) || 0;
 
     async function getSessionToken() {
         if (window.shopify && window.shopify.id) return await shopify.id.getToken();
@@ -32,12 +32,12 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     async function initAdminMode(s) {
-        // Chargement des données sécurisé
         const res = await authenticatedFetch(`/api/get-data?shop=${s}`);
         if (res && res.ok) {
             const data = await res.json();
             
-            // On utilise "|| 0" pour éviter le NaN/undefined si la donnée manque
+            // --- CORRECTION DU BUG NaN ---
+            // On vérifie chaque donnée. Si elle n'existe pas, on met 0 par défaut.
             const safeCredits = data.credits !== undefined ? data.credits : 0;
             const safeLifetime = data.lifetime !== undefined ? data.lifetime : 0;
             const safeUsage = data.usage !== undefined ? data.usage : 0;
@@ -64,6 +64,7 @@ document.addEventListener("DOMContentLoaded", function() {
         const uEl = document.getElementById('roi-tryons');
         const rEl = document.getElementById('roi-revenue');
         if(uEl) uEl.innerText = usage;
+        // On formate proprement en euros pour éviter les bugs d'affichage
         if(rEl) rEl.innerText = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(revenue);
     }
 
@@ -132,7 +133,7 @@ document.addEventListener("DOMContentLoaded", function() {
     };
 
     window.trackConversion = async function() {
-        alert("Redirecting to Checkout...");
+        alert("Redirecting to Checkout..."); 
         if(shop && productPrice > 0) {
             try {
                 await authenticatedFetch('/api/track-conversion', {
@@ -142,7 +143,6 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     };
 
-    // --- CLIENT MODE ---
     function initClientMode() {
         document.body.classList.add('client-mode');
         const adminZone = document.getElementById('admin-only-zone');
@@ -202,7 +202,7 @@ document.addEventListener("DOMContentLoaded", function() {
         document.getElementById('resImg').style.display = 'none';
         document.getElementById('post-actions').style.display = 'none';
 
-        const texts = ["Analyzing silhouette...", "Matching fabrics...", "Simulating drape...", "Rendering lighting..."];
+        const texts = ["Analyzing silhouette...", "Matching fabrics...", "Simulating drape..."];
         let step = 0;
         const textEl = document.getElementById('loader-text');
         const interval = setInterval(() => { if(step < texts.length) { textEl.innerText = texts[step]; step++; } }, 2500);
@@ -219,7 +219,6 @@ document.addEventListener("DOMContentLoaded", function() {
             clearInterval(interval);
 
             if (!res) return;
-            if (res.status === 429) { alert("Daily limit reached."); document.getElementById('loader').style.display = 'none'; return; }
             if (res.status === 402) { alert("Not enough credits!"); btn.disabled = false; btn.innerHTML = oldText; return; }
             if (!res.ok) throw new Error("Server Error");
 
