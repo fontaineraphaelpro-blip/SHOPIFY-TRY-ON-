@@ -8,29 +8,29 @@
     <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js" data-api-key="{{ api_key }}"></script>
 
     <link rel="stylesheet" href="/styles.css">
-    
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
-<body style="opacity: 0; transition: opacity 0.5s;"> <div class="container">
+<body style="opacity: 0; transition: opacity 0.5s;"> 
+
+    <div class="container">
         
         <header>
             <h1><i class="fa-solid fa-shirt"></i> Virtual Try-On AI</h1>
             <div id="admin-dashboard" class="credits-box">
                 <i class="fa-solid fa-coins"></i> 
-                Credits: <span id="credits">Chargement...</span>
+                Credits: <span id="credits">...</span>
             </div>
-            <h2 id="client-title" style="display:none;">Essayez cet article virtuellement</h2>
+            <h2 id="client-title" style="display:none;">Essayez cet article</h2>
         </header>
 
         <div class="upload-section">
-            
             <div class="upload-card">
                 <h3>1. Votre Photo</h3>
                 <label for="uImg" class="drop-zone">
                     <img id="prevU" src="" style="display:none;">
                     <div class="upload-content">
                         <i class="fa-solid fa-camera fa-2x"></i>
-                        <span class="upload-text">Cliquez pour ajouter</span>
+                        <span class="upload-text">Ajouter photo</span>
                     </div>
                     <input type="file" id="uImg" accept="image/*" onchange="preview('uImg', 'prevU')">
                 </label>
@@ -42,7 +42,7 @@
                     <img id="prevC" src="" style="display:none;">
                     <div class="upload-content">
                         <i class="fa-solid fa-vest fa-2x"></i>
-                        <span class="upload-text">Cliquez pour ajouter</span>
+                        <span class="upload-text">Ajouter vêtement</span>
                     </div>
                     <input type="file" id="cImg" accept="image/*" onchange="preview('cImg', 'prevC')">
                 </label>
@@ -57,12 +57,10 @@
 
         <div id="resZone" style="display:none;" class="result-section">
             <h3>Résultat</h3>
-            
             <div id="loader" style="display:none;">
                 <i class="fa-solid fa-spinner fa-spin fa-3x"></i>
-                <p>L'IA travaille... (environ 10-20 sec)</p>
+                <p>Création en cours...</p>
             </div>
-
             <img id="resImg" src="" style="display:none; max-width: 100%; border-radius: 8px; margin-top: 10px;">
         </div>
 
@@ -71,17 +69,10 @@
         <div id="billing-section" class="billing-section">
             <h3>Recharger des crédits</h3>
             <div class="pricing-grid">
-                <button onclick="buy('pack_10', 0, this)" class="btn-buy">
-                    10 Credits (4.99$)
-                </button>
-                <button onclick="buy('pack_30', 0, this)" class="btn-buy">
-                    30 Credits (12.99$)
-                </button>
-                <button onclick="buy('pack_100', 0, this)" class="btn-buy">
-                    100 Credits (29.99$)
-                </button>
+                <button onclick="buy('pack_10', 0, this)" class="btn-buy">10 Credits (4.99$)</button>
+                <button onclick="buy('pack_30', 0, this)" class="btn-buy">30 Credits (12.99$)</button>
+                <button onclick="buy('pack_100', 0, this)" class="btn-buy">100 Credits (29.99$)</button>
             </div>
-
             <div class="custom-input-group" style="margin-top: 15px;">
                 <input type="number" id="customAmount" placeholder="Quantité (min 200)">
                 <button onclick="buyCustom(this)" class="btn-secondary">Achat Custom</button>
