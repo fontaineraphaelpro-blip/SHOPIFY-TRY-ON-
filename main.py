@@ -1,6 +1,7 @@
 import os
 import io
 import time
+import sqlite3
 import shopify
 import requests
 import replicate
@@ -14,7 +15,6 @@ from pydantic import BaseModel
 # --- CONFIG ---
 SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
 SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
-# On vérifie si la clé Replicate est là pour le debug
 REPLICATE_TOKEN_CHECK = os.getenv("REPLICATE_API_TOKEN")
 HOST = os.getenv("HOST", "https://ton-app.onrender.com").rstrip('/')
 SCOPES = ['read_products', 'write_products', 'read_themes', 'write_themes']
@@ -23,34 +23,51 @@ MODEL_ID = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b4852855943
 
 app = FastAPI()
 templates = Jinja2Templates(directory=".")
-RAM_DB = {} 
 RATE_LIMIT_DB: Dict[str, Dict] = {}
 
-# --- UTILS ---
-def clean_shop_url(url):
-    if not url: return ""
-    return url.replace("https://", "").replace("http://", "").strip("/")
+# --- 1. COFFRE-FORT LOCAL (Pour ne pas perdre la connexion) ---
+def init_db():
+    with sqlite3.connect("database.db") as conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS shops (domain TEXT PRIMARY KEY, token TEXT)")
+        conn.commit()
+init_db()
 
+def save_token_db(shop, token):
+    with sqlite3.connect("database.db") as conn:
+        conn.execute("INSERT OR REPLACE INTO shops (domain, token) VALUES (?, ?)", (shop, token))
+        conn.commit()
+
+def get_token_db(shop):
+    try:
+        with sqlite3.connect("database.db") as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT token FROM shops WHERE domain = ?", (shop,))
+            row = cur.fetchone()
+            return row[0] if row else None
+    except: return None
+
+# --- 2. FONCTIONS SHOPIFY (Metafields) ---
 def get_shopify_session(shop, token):
     shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
     session = shopify.Session(shop, API_VERSION, token)
     shopify.ShopifyResource.activate_session(session)
 
-# --- METAFIELDS (Simplifié et Robuste) ---
 def get_metafield(namespace, key, default=0):
+    """Lit une donnée dans Shopify"""
     try:
         metafields = shopify.Metafield.find(namespace=namespace, key=key)
         if metafields:
             val = metafields[0].value
             try:
                 if isinstance(default, int): return int(float(val))
-                if isinstance(default, float): return float(val)
+                if isinstance(default, str): return str(val)
             except: pass
             return val
     except: pass
     return default
 
 def set_metafield(namespace, key, value, type_val):
+    """Écrit une donnée dans Shopify"""
     try:
         metafield = shopify.Metafield()
         metafield.namespace = namespace
@@ -58,7 +75,11 @@ def set_metafield(namespace, key, value, type_val):
         metafield.value = value
         metafield.type = type_val
         metafield.save()
-    except: pass
+    except Exception as e: print(f"⚠️ Erreur Metafield: {e}")
+
+# --- MIDDLEWARE & UTILS ---
+def clean_shop_url(url):
+    return url.replace("https://", "").replace("http://", "").strip("/") if url else ""
 
 @app.middleware("http")
 async def add_csp_header(request: Request, call_next):
@@ -82,6 +103,7 @@ def styles(): return FileResponse('styles.css', media_type='text/css')
 @app.get("/app.js")
 def javascript(): return FileResponse('app.js', media_type='application/javascript')
 
+# --- AUTH (Sauvegarde le Token dans le Coffre SQLite) ---
 @app.get("/login")
 def login(shop: str):
     shop = clean_shop_url(shop)
@@ -99,27 +121,31 @@ def auth_callback(request: Request):
         res = requests.post(url, json=payload)
         if res.status_code == 200:
             token = res.json().get('access_token')
-            RAM_DB[shop] = token
+            save_token_db(shop, token) # <--- ON SAUVEGARDE ICI
             target_url = f"https://admin.shopify.com/store/{shop.replace('.myshopify.com', '')}/apps/{SHOPIFY_API_KEY}"
             return RedirectResponse(target_url)
         return HTMLResponse(f"Token Error: {res.text}", status_code=400)
     except Exception as e: return HTMLResponse(content=f"Auth Error: {str(e)}", status_code=500)
 
+# --- API DATA (Lit les Metafields) ---
 @app.get("/api/get-data")
 def get_data_route(shop: str):
     shop = clean_shop_url(shop)
-    token = RAM_DB.get(shop)
+    token = get_token_db(shop) # <--- ON RÉCUPÈRE DU COFFRE
     
     if not token: 
-        print(f"🔄 Session perdue pour {shop}, demande de reconnexion")
         raise HTTPException(status_code=401, detail="Refresh required")
     
     try:
         get_shopify_session(shop, token)
+        
+        # Lecture des vraies données Shopify
         credits = get_metafield("virtual_try_on", "wallet", 0)
-        lifetime = get_metafield("virtual_try_on", "lifetime_credits", 0)
         total_tryons = get_metafield("virtual_try_on", "total_tryons", 0)
         total_atc = get_metafield("virtual_try_on", "total_atc", 0)
+        lifetime = get_metafield("virtual_try_on", "lifetime_credits", 0)
+
+        # Lecture Widget
         w_text = get_metafield("vton_widget", "btn_text", "Try It On Now ✨")
         w_bg = get_metafield("vton_widget", "btn_bg", "#000000")
         w_color = get_metafield("vton_widget", "btn_text_color", "#ffffff")
@@ -129,16 +155,82 @@ def get_data_route(shop: str):
             "credits": credits, "lifetime": lifetime, "usage": total_tryons, "atc": total_atc,
             "widget": {"text": w_text, "bg": w_bg, "color": w_color}, "security": {"max_tries": max_tries}
         }
-    except Exception as e:
-        print(f"Error fetching data: {e}")
-        return {"credits": 0}
+    except Exception as e: return {"credits": 0}
 
+# --- TRACKING ATC (Écrit dans les Metafields) ---
+class TrackRequest(BaseModel): shop: str
 @app.post("/api/track-atc")
-def track_atc(req: BaseModel): # Fallback si BaseModel importé incorrectement, mais ici c'est bon
-    pass 
-    # (J'ai simplifié ici car le user veut l'IA, mais je remets le vrai code track en bas)
+def track_atc(req: TrackRequest):
+    shop = clean_shop_url(req.shop)
+    token = get_token_db(shop)
+    if not token: return JSONResponse({"error": "No token"}, status_code=401)
+    
+    try:
+        get_shopify_session(shop, token)
+        current_atc = get_metafield("virtual_try_on", "total_atc", 0)
+        set_metafield("virtual_try_on", "total_atc", current_atc + 1, "integer") # +1 ATC
+        return {"ok": True}
+    except: return JSONResponse({"error": "Failed"}, status_code=500)
 
-# --- GENERATE (DEBUG MODE) ---
+# --- SETTINGS ---
+class SettingsRequest(BaseModel): shop: str; text: str; bg: str; color: str; max_tries: int
+@app.post("/api/save-settings")
+def save_settings(req: SettingsRequest):
+    shop = clean_shop_url(req.shop)
+    token = get_token_db(shop)
+    if not token: return JSONResponse({"error": "No token"}, status_code=401)
+    try:
+        get_shopify_session(shop, token)
+        set_metafield("vton_widget", "btn_text", req.text, "single_line_text_field")
+        set_metafield("vton_widget", "btn_bg", req.bg, "color")
+        set_metafield("vton_widget", "btn_text_color", req.color, "color")
+        set_metafield("vton_security", "max_tries_per_user", req.max_tries, "integer")
+        return {"ok": True}
+    except: return JSONResponse({"error": "Failed"}, status_code=500)
+
+# --- BILLING ---
+class BuyRequest(BaseModel): shop: str; pack_id: str; custom_amount: int = 0
+@app.post("/api/buy-credits")
+def buy_credits(req: BuyRequest):
+    shop = clean_shop_url(req.shop)
+    token = get_token_db(shop)
+    if not token: raise HTTPException(status_code=401, detail="Session expired")
+    
+    price, name, credits = 0, "", 0
+    if req.pack_id == 'pack_10': price, name, credits = 4.99, "10 Credits", 10
+    elif req.pack_id == 'pack_30': price, name, credits = 12.99, "30 Credits", 30
+    elif req.pack_id == 'pack_100': price, name, credits = 29.99, "100 Credits", 100
+    elif req.pack_id == 'pack_custom':
+        credits = req.custom_amount
+        price, name = round(credits * 0.25, 2), f"{credits} Credits"
+
+    try:
+        get_shopify_session(shop, token)
+        return_url = f"{HOST}/billing/callback?shop={shop}&amt={credits}"
+        charge = shopify.ApplicationCharge.create({"name": name, "price": price, "test": True, "return_url": return_url})
+        return {"confirmation_url": charge.confirmation_url}
+    except Exception as e: return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.get("/billing/callback")
+def billing_callback(shop: str, amt: int, charge_id: str):
+    shop = clean_shop_url(shop)
+    token = get_token_db(shop)
+    if not token: return RedirectResponse(f"/login?shop={shop}")
+    try:
+        get_shopify_session(shop, token)
+        charge = shopify.ApplicationCharge.find(charge_id)
+        if charge.status != 'active': charge.activate()
+        
+        current = get_metafield("virtual_try_on", "wallet", 0)
+        set_metafield("virtual_try_on", "wallet", current + amt, "integer")
+        lifetime = get_metafield("virtual_try_on", "lifetime_credits", 0)
+        set_metafield("virtual_try_on", "lifetime_credits", lifetime + amt, "integer")
+        
+        admin_url = f"https://admin.shopify.com/store/{shop.replace('.myshopify.com','')}/apps/{SHOPIFY_API_KEY}"
+        return HTMLResponse(f"<script>window.top.location.href='{admin_url}';</script>")
+    except: return HTMLResponse("Billing Error")
+
+# --- GENERATE (Le coeur : IA + Stats Metafields) ---
 @app.post("/api/generate")
 async def generate(
     request: Request,
@@ -148,111 +240,67 @@ async def generate(
     clothing_url: Optional[str] = Form(None),
     category: str = Form("upper_body")
 ):
-    print(f"🚀 [1/5] Réception demande IA pour {shop}")
-    
-    # 0. Check Clé API
-    if not REPLICATE_TOKEN_CHECK:
-        print("❌ CRITIQUE: La variable REPLICATE_API_TOKEN est absente sur Render!")
-        return JSONResponse({"error": "Server Config Error: Missing API Key"}, status_code=500)
+    print(f"🚀 [IA] Start for: {shop}")
+    if not REPLICATE_TOKEN_CHECK: return JSONResponse({"error": "Config Error"}, status_code=500)
 
     shop = clean_shop_url(shop)
-    token = RAM_DB.get(shop)
+    token = get_token_db(shop) # Token du coffre
     
-    if not token: 
-        print("❌ [IA] Token session manquant")
-        raise HTTPException(status_code=401, detail="Session expired")
+    if not token: return JSONResponse({"error": "Shop not connected."}, status_code=403)
 
     try:
         get_shopify_session(shop, token)
         
-        # 1. Stats & Limites (Fail-Open)
-        try:
-            client_ip = request.client.host
-            max_tries = int(get_metafield("vton_security", "max_tries_per_user", 5))
-            user_stats = RATE_LIMIT_DB.get(client_ip, {"count": 0, "reset": time.time()})
-            if time.time() - user_stats["reset"] > 86400: user_stats = {"count": 0, "reset": time.time()}
-            
-            # Ici on LOG mais on ne bloque pas pour tester si c'est ça qui fait chier
-            print(f"ℹ️ IP {client_ip}: {user_stats['count']}/{max_tries} essais")
-            if user_stats["count"] >= max_tries:
-                print("⛔ Limite atteinte (mais on continue pour le debug...)")
-                # return JSONResponse({"error": "Daily limit reached."}, status_code=429) # Uncomment to block
-        except Exception as e: print(f"⚠️ Erreur check limite: {e}")
+        # 1. Check Crédits
+        current_credits = get_metafield("virtual_try_on", "wallet", 0)
+        if current_credits < 1: return JSONResponse({"error": "Store has no credits left."}, status_code=402)
 
-        # 2. Images
-        print("📸 [2/5] Lecture des images...")
+        # 2. Check Limite IP
+        client_ip = request.client.host
+        max_tries = int(get_metafield("vton_security", "max_tries_per_user", 5))
+        user_stats = RATE_LIMIT_DB.get(client_ip, {"count": 0, "reset": time.time()})
+        if time.time() - user_stats["reset"] > 86400: user_stats = {"count": 0, "reset": time.time()}
+        
+        if user_stats["count"] >= max_tries:
+            return JSONResponse({"error": "Daily limit reached."}, status_code=429)
+
+        # 3. Images
         person_bytes = await person_image.read()
-        if len(person_bytes) == 0:
-            print("❌ Image Personne vide !")
-            return JSONResponse({"error": "User image is empty"}, status_code=400)
         person_file = io.BytesIO(person_bytes)
-
         garment_input = None
         if clothing_file:
             garment_bytes = await clothing_file.read()
             garment_input = io.BytesIO(garment_bytes)
-            print("👕 Image Vêtement: Fichier OK")
         elif clothing_url:
             garment_input = clothing_url
             if garment_input.startswith("//"): garment_input = "https:" + garment_input
-            print(f"🔗 Image Vêtement: URL {garment_input}")
         else: return JSONResponse({"error": "No garment"}, status_code=400)
 
-        # 3. Replicate
-        print(f"⏳ [3/5] Envoi à Replicate (Model: {MODEL_ID})...")
-        print("... attente réponse ...")
-        
-        try:
-            output = replicate.run(
-                MODEL_ID, 
-                input={
-                    "human_img": person_file,
-                    "garm_img": garment_input,
-                    "garment_des": category, 
-                    "category": "upper_body"
-                }
-            )
-            print(f"✅ [4/5] Réponse Replicate reçue : {output}")
-        except replicate.exceptions.ReplicateError as e:
-            print(f"💥 ERREUR REPLICATE API: {e}")
-            return JSONResponse({"error": f"AI Generation Failed: {str(e)}"}, status_code=500)
-        except Exception as e:
-            print(f"💥 ERREUR REPLICATE INCONNUE: {e}")
-            return JSONResponse({"error": "AI System Error"}, status_code=500)
+        # 4. Replicate
+        print("⏳ Envoi Replicate...")
+        output = replicate.run(MODEL_ID, input={"human_img": person_file, "garm_img": garment_input, "garment_des": category, "category": "upper_body"})
+        print(f"✅ OK: {output}")
 
-        # 4. Stats Update
+        # 5. DÉBIT ET STATS (Écriture Metafields)
         try:
-            current_credits = get_metafield("virtual_try_on", "wallet", 0)
+            # -1 Crédit
             set_metafield("virtual_try_on", "wallet", current_credits - 1, "integer")
+            
+            # +1 Essayage Total
             total = get_metafield("virtual_try_on", "total_tryons", 0)
             set_metafield("virtual_try_on", "total_tryons", total + 1, "integer")
+            
+            # Limite IP locale
             user_stats["count"] += 1
             RATE_LIMIT_DB[client_ip] = user_stats
-        except: pass
+        except Exception as e: print(f"⚠️ Erreur Stats: {e}")
 
         result_url = str(output[0]) if isinstance(output, list) else str(output)
-        print(f"🚀 [5/5] Envoi URL au frontend: {result_url}")
-        return {"result_image_url": result_url, "new_credits": current_credits - 1}
+        return {"result_image_url": result_url}
 
     except Exception as e:
-        print(f"❌ ERREUR GENERALE: {e}")
+        print(f"❌ Error: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
-
-# Routes annexes
-class TrackRequest(BaseModel): shop: str
-@app.post("/api/track-atc")
-def track_atc(req: TrackRequest):
-    return {"ok": True} # Simplifié pour pas faire planter
-
-class SettingsRequest(BaseModel): shop: str; text: str; bg: str; color: str; max_tries: int
-@app.post("/api/save-settings")
-def save_settings(req: SettingsRequest):
-    return {"ok": True}
-
-class BuyRequest(BaseModel): shop: str; pack_id: str; custom_amount: int = 0
-@app.post("/api/buy-credits")
-def buy_credits(req: BuyRequest):
-    return JSONResponse({"error": "Billing not configured in debug mode"}, status_code=400)
 
 @app.post("/webhooks/customers/data_request")
 def w1(): return {"ok": True}
