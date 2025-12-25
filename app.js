@@ -1,21 +1,29 @@
 document.addEventListener("DOMContentLoaded", function() {
     
+    // UI Init
     document.body.classList.add('loaded');
     document.body.style.opacity = "1";
 
+    // --- RÉCUPÉRATION DES PARAMÈTRES URL ---
     const params = new URLSearchParams(window.location.search);
-    const mode = params.get('mode');
-    let shop = params.get('shop') || sessionStorage.getItem('shop');
+    const mode = params.get('mode'); // 'client' (widget) ou null (admin)
+    let shop = params.get('shop');
     const autoProductImage = params.get('product_image');
 
-    // FIX SESSION
+    // Sauvegarde et récupération du shop en session pour éviter les pertes au rafraîchissement
     try {
         if(!shop) shop = sessionStorage.getItem('shop');
         if(shop) sessionStorage.setItem('shop', shop);
-    } catch(e) {}
+    } catch(e) { console.log("SessionStorage inaccessible"); }
 
+    // --- 1. SÉCURITÉ & TOKENS ---
     async function getSessionToken() {
-        if (window.shopify && window.shopify.id) return await shopify.id.getToken();
+        // En mode client (widget), on ne cherche pas de token Shopify Admin
+        if (mode === 'client') return null; 
+        
+        if (window.shopify && window.shopify.id) {
+            return await shopify.id.getToken();
+        }
         return null;
     }
 
@@ -24,33 +32,45 @@ document.addEventListener("DOMContentLoaded", function() {
             const token = await getSessionToken();
             const headers = options.headers || {};
             if (token) headers['Authorization'] = `Bearer ${token}`;
+            
             const res = await fetch(url, { ...options, headers });
-            if (res.status === 401 && shop && mode !== 'client') { window.top.location.href = `/login?shop=${shop}`; return null; }
+            
+            // Si l'admin reçoit une erreur 401, on le redirige vers le login
+            if (res.status === 401 && mode !== 'client') {
+                if (shop) window.top.location.href = `/login?shop=${shop}`;
+                return null;
+            }
             return res;
         } catch (error) { throw error; }
     }
 
+    // --- 2. INITIALISATION SELON LE MODE ---
     if(shop) {
         if (mode === 'client') initClientMode();
         else initAdminMode(shop);
     }
 
-    // --- DASHBOARD ---
+    // --- 3. LOGIQUE ADMIN (DASHBOARD) ---
     async function initAdminMode(s) {
         const res = await authenticatedFetch(`/api/get-data?shop=${s}`);
         if (res && res.ok) {
             const data = await res.json();
             
-            // Affichage Stats
-            updateDashboardStats(data.credits || 0);
-            updateVIPStatus(data.lifetime || 0);
+            // Mise à jour des compteurs (+1) et crédits
+            const safeCredits = data.credits || 0;
+            const safeLifetime = data.lifetime || 0;
+            const safeUsage = data.usage || 0;
+            const safeATC = data.atc || 0;
+
+            updateDashboardStats(safeCredits);
+            updateVIPStatus(safeLifetime);
             
-            // Compteurs simples
             const tryEl = document.getElementById('stat-tryons');
             const atcEl = document.getElementById('stat-atc');
-            if(tryEl) tryEl.innerText = data.usage || 0;
-            if(atcEl) atcEl.innerText = data.atc || 0;
+            if(tryEl) tryEl.innerText = safeUsage;
+            if(atcEl) atcEl.innerText = safeATC;
 
+            // Pré-remplissage Widget Studio
             if(data.widget) {
                 document.getElementById('ws-text').value = data.widget.text || "Try It On Now ✨";
                 document.getElementById('ws-color').value = data.widget.bg || "#000000";
@@ -112,23 +132,11 @@ document.addEventListener("DOMContentLoaded", function() {
             });
             if(res.ok) { btn.innerText = "Saved! ✅"; setTimeout(() => btn.innerText = oldText, 2000); } 
             else { alert("Save failed"); }
-        } catch(e) { console.error(e); alert("Error saving"); }
+        } catch(e) { alert("Error saving"); }
         finally { btn.disabled = false; }
     };
 
-    // --- TRACKING ATC ---
-    window.trackATC = async function() {
-        alert("Redirecting to Checkout..."); 
-        if(shop) {
-            try {
-                // Envoi signal +1 ATC
-                await fetch('/api/track-atc', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ shop: shop })
-                });
-            } catch(e) { console.error("Tracking Error", e); }
-        }
-    };
-
+    // --- 4. LOGIQUE CLIENT (WIDGET) ---
     function initClientMode() {
         document.body.classList.add('client-mode');
         const adminZone = document.getElementById('admin-only-zone');
@@ -143,6 +151,22 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
 
+    // Tracking Ajout Panier (+1)
+    window.trackATC = async function() {
+        alert("Item added to cart!"); 
+        if(shop) {
+            try {
+                // Fetch simple car le client n'a pas besoin de session admin
+                await fetch('/api/track-atc', {
+                    method: 'POST', 
+                    headers: {'Content-Type': 'application/json'}, 
+                    body: JSON.stringify({ shop: shop })
+                });
+            } catch(e) { console.error("Tracking Error", e); }
+        }
+    };
+
+    // Prévisualisation des photos uploadées
     window.preview = function(inputId, imgId) {
         const file = document.getElementById(inputId).files[0];
         if (file) {
@@ -158,6 +182,7 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     };
 
+    // Mise à jour visuelle du bouton dans l'admin
     window.updateWidgetPreview = function() {
         const text = document.getElementById('ws-text').value;
         const color = document.getElementById('ws-color').value;
@@ -171,6 +196,7 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
 
+    // --- 5. LE COEUR : GÉNÉRATION IA ---
     window.generate = async function() {
         const uFile = document.getElementById('uImg').files[0];
         const cFile = document.getElementById('cImg').files[0];
@@ -179,45 +205,44 @@ document.addEventListener("DOMContentLoaded", function() {
         if (!uFile) return alert("Please upload your photo.");
         if (!autoProductImage && !cFile) return alert("Please upload a garment.");
 
+        // On bloque le bouton
         const oldText = btn.innerHTML;
         btn.disabled = true; 
         
+        // On affiche le loader
         document.getElementById('resZone').style.display = 'block';
         document.getElementById('loader').style.display = 'block';
         document.getElementById('resImg').style.display = 'none';
         document.getElementById('post-actions').style.display = 'none';
 
+        // Texte de progression
         const textEl = document.getElementById('loader-text');
-        textEl.innerText = "Initializing...";
-
-        const texts = ["Analyzing silhouette...", "Matching fabrics...", "Simulating drape...", "Rendering lighting..."];
-        let step = 0;
-        const interval = setInterval(() => { if(step < texts.length) { textEl.innerText = texts[step]; step++; } }, 2500);
+        textEl.innerText = "Uploading data...";
 
         try {
             const formData = new FormData();
-            formData.append("shop", shop || "demo");
+            formData.append("shop", shop); // Crucial pour débiter le bon admin
             formData.append("person_image", uFile);
             if (cFile) formData.append("clothing_file", cFile); 
             else formData.append("clothing_url", autoProductImage); 
             formData.append("category", "upper_body");
 
+            // Appel API (Direct fetch pour le client, authenticated pour l'admin)
             let res;
-            // On utilise fetch simple si client
             if (mode === 'client') {
                 res = await fetch('/api/generate', { method: 'POST', body: formData });
             } else {
                 res = await authenticatedFetch('/api/generate', { method: 'POST', body: formData });
             }
 
-            clearInterval(interval);
+            if (!res || !res.ok) {
+                const errorData = await res.json();
+                throw new Error(errorData.error || "Server Error");
+            }
 
-            if (!res) return;
-            if (res.status === 429) { alert("Daily limit reached."); document.getElementById('loader').style.display = 'none'; return; }
-            if (res.status === 402) { alert("Not enough credits!"); btn.disabled = false; btn.innerHTML = oldText; return; }
-            if (!res.ok) throw new Error("Server Error");
-
+            textEl.innerText = "The AI is working...";
             const data = await res.json();
+            
             if(data.result_image_url) {
                 const ri = document.getElementById('resImg');
                 ri.src = data.result_image_url;
@@ -226,21 +251,20 @@ document.addEventListener("DOMContentLoaded", function() {
                     document.getElementById('loader').style.display = 'none';
                     document.getElementById('post-actions').style.display = 'block';
                 };
-                // Mise à jour temps réel si on est admin
-                if(data.new_credits !== undefined && mode !== 'client') {
-                    const cel = document.getElementById('credits');
-                    if(cel) cel.innerText = data.new_credits;
-                }
             } else {
-                alert("Error: " + (data.error || "Unknown")); document.getElementById('loader').style.display = 'none';
+                throw new Error("No image returned");
             }
         } catch(e) { 
-            clearInterval(interval); console.error(e); alert("Network Error"); document.getElementById('loader').style.display = 'none';
+            console.error(e);
+            alert("Error: " + e.message); 
+            document.getElementById('loader').style.display = 'none';
         } finally { 
-            btn.disabled = false; btn.innerHTML = oldText; 
+            btn.disabled = false; 
+            btn.innerHTML = oldText; 
         }
     };
 
+    // --- 6. ACHATS CRÉDITS ---
     window.buy = async function(packId, customAmount = 0, btnElement = null) {
         if(!shop) return alert("Shop ID missing.");
         const body = { shop: shop, pack_id: packId, custom_amount: customAmount };
@@ -250,7 +274,12 @@ document.addEventListener("DOMContentLoaded", function() {
             });
             const data = await res.json();
             if(data.confirmation_url) window.top.location.href = data.confirmation_url;
-        } catch(e) { console.error(e); }
+        } catch(e) { alert("Billing Error"); }
     };
-    window.buyCustom = function(btn) { window.buy('pack_custom', parseInt(document.getElementById('customAmount').value), btn); };
+    
+    window.buyCustom = function(btn) { 
+        const amt = document.getElementById('customAmount').value;
+        if(amt < 200) return alert("Min 200 credits");
+        window.buy('pack_custom', parseInt(amt), btn); 
+    };
 });
