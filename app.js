@@ -4,70 +4,52 @@ document.addEventListener("DOMContentLoaded", function() {
     document.body.style.opacity = "1";
 
     const params = new URLSearchParams(window.location.search);
-    const mode = params.get('mode'); // 'client' ou null (admin)
+    const mode = params.get('mode');
     let shop = params.get('shop') || sessionStorage.getItem('shop');
     const autoProductImage = params.get('product_image');
-    const productPrice = parseFloat(params.get('price')) || 0;
 
-    // --- 1. TOKEN HELPER (INTELLIGENT) ---
+    // FIX SESSION
+    try {
+        if(!shop) shop = sessionStorage.getItem('shop');
+        if(shop) sessionStorage.setItem('shop', shop);
+    } catch(e) {}
+
     async function getSessionToken() {
-        // SI ON EST LE CLIENT (WIDGET), ON NE CHERCHE PAS DE TOKEN
-        if (mode === 'client') {
-            return null; 
-        }
-        // SI ON EST L'ADMIN, ON CHERCHE LE TOKEN
-        if (window.shopify && window.shopify.id) {
-            return await shopify.id.getToken();
-        }
+        if (window.shopify && window.shopify.id) return await shopify.id.getToken();
         return null;
     }
 
-    // --- 2. FETCH SÉCURISÉ ---
     async function authenticatedFetch(url, options = {}) {
         try {
-            const headers = options.headers || {};
-            
-            // On essaie d'avoir un token (seulement si Admin)
             const token = await getSessionToken();
-            if (token) {
-                headers['Authorization'] = `Bearer ${token}`;
-            }
-            
+            const headers = options.headers || {};
+            if (token) headers['Authorization'] = `Bearer ${token}`;
             const res = await fetch(url, { ...options, headers });
-            
-            // Gestion Reconnexion (Seulement pour l'Admin)
-            if (res.status === 401 && mode !== 'client') { 
-                if (shop) { window.top.location.href = `/login?shop=${shop}`; return null; }
-            }
+            if (res.status === 401 && shop && mode !== 'client') { window.top.location.href = `/login?shop=${shop}`; return null; }
             return res;
         } catch (error) { throw error; }
     }
 
-    // Sauvegarde du shop en mémoire
     if(shop) {
-        sessionStorage.setItem('shop', shop);
         if (mode === 'client') initClientMode();
         else initAdminMode(shop);
     }
 
-    // --- MODE ADMIN (DASHBOARD) ---
+    // --- DASHBOARD ---
     async function initAdminMode(s) {
         const res = await authenticatedFetch(`/api/get-data?shop=${s}`);
         if (res && res.ok) {
             const data = await res.json();
             
-            const safeCredits = data.credits || 0;
-            const safeLifetime = data.lifetime || 0;
-            const safeUsage = data.usage || 0;
-            const safeATC = data.atc || 0;
-
-            updateDashboardStats(safeCredits);
-            updateVIPStatus(safeLifetime);
+            // Affichage Stats
+            updateDashboardStats(data.credits || 0);
+            updateVIPStatus(data.lifetime || 0);
             
+            // Compteurs simples
             const tryEl = document.getElementById('stat-tryons');
             const atcEl = document.getElementById('stat-atc');
-            if(tryEl) tryEl.innerText = safeUsage;
-            if(atcEl) atcEl.innerText = safeATC;
+            if(tryEl) tryEl.innerText = data.usage || 0;
+            if(atcEl) atcEl.innerText = data.atc || 0;
 
             if(data.widget) {
                 document.getElementById('ws-text').value = data.widget.text || "Try It On Now ✨";
@@ -136,19 +118,17 @@ document.addEventListener("DOMContentLoaded", function() {
 
     // --- TRACKING ATC ---
     window.trackATC = async function() {
-        alert("Redirecting to Cart..."); 
+        alert("Redirecting to Checkout..."); 
         if(shop) {
             try {
-                // Pas besoin de token en mode client
-                const headers = {'Content-Type': 'application/json'};
+                // Envoi signal +1 ATC
                 await fetch('/api/track-atc', {
-                    method: 'POST', headers: headers, body: JSON.stringify({ shop: shop })
+                    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ shop: shop })
                 });
             } catch(e) { console.error("Tracking Error", e); }
         }
     };
 
-    // --- MODE CLIENT (WIDGET) ---
     function initClientMode() {
         document.body.classList.add('client-mode');
         const adminZone = document.getElementById('admin-only-zone');
@@ -191,7 +171,6 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
 
-    // --- GENERATE (IA) ---
     window.generate = async function() {
         const uFile = document.getElementById('uImg').files[0];
         const cFile = document.getElementById('cImg').files[0];
@@ -208,9 +187,11 @@ document.addEventListener("DOMContentLoaded", function() {
         document.getElementById('resImg').style.display = 'none';
         document.getElementById('post-actions').style.display = 'none';
 
+        const textEl = document.getElementById('loader-text');
+        textEl.innerText = "Initializing...";
+
         const texts = ["Analyzing silhouette...", "Matching fabrics...", "Simulating drape...", "Rendering lighting..."];
         let step = 0;
-        const textEl = document.getElementById('loader-text');
         const interval = setInterval(() => { if(step < texts.length) { textEl.innerText = texts[step]; step++; } }, 2500);
 
         try {
@@ -221,14 +202,11 @@ document.addEventListener("DOMContentLoaded", function() {
             else formData.append("clothing_url", autoProductImage); 
             formData.append("category", "upper_body");
 
-            // --- LA CORRECTION EST ICI ---
-            // On utilise fetch direct si mode client, ou authenticatedFetch si admin
             let res;
+            // On utilise fetch simple si client
             if (mode === 'client') {
-                // En mode client, pas de header Auth
                 res = await fetch('/api/generate', { method: 'POST', body: formData });
             } else {
-                // En mode admin, on garde la sécurité
                 res = await authenticatedFetch('/api/generate', { method: 'POST', body: formData });
             }
 
@@ -248,7 +226,7 @@ document.addEventListener("DOMContentLoaded", function() {
                     document.getElementById('loader').style.display = 'none';
                     document.getElementById('post-actions').style.display = 'block';
                 };
-                // Update stats si admin
+                // Mise à jour temps réel si on est admin
                 if(data.new_credits !== undefined && mode !== 'client') {
                     const cel = document.getElementById('credits');
                     if(cel) cel.innerText = data.new_credits;
