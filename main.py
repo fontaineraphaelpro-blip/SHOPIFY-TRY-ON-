@@ -1,11 +1,10 @@
 import os
 import io
-import hmac
-import hashlib
+import time
 import shopify
 import requests
 import replicate
-from typing import Optional
+from typing import Optional, Dict
 from fastapi import FastAPI, HTTPException, Request, Form, File, UploadFile
 from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,6 +23,10 @@ app = FastAPI()
 templates = Jinja2Templates(directory=".")
 RAM_DB = {} 
 
+# Système de limitation (IP -> {count, timestamp})
+# On reset le compteur toutes les 24h (simplifié)
+RATE_LIMIT_DB: Dict[str, Dict] = {}
+
 def clean_shop_url(url):
     if not url: return ""
     return url.replace("https://", "").replace("http://", "").strip("/")
@@ -33,7 +36,7 @@ def get_shopify_session(shop, token):
     session = shopify.Session(shop, API_VERSION, token)
     shopify.ShopifyResource.activate_session(session)
 
-# --- METAFIELDS HELPERS (Gestion Base de Données Shopify) ---
+# --- METAFIELDS HELPERS ---
 def get_metafield(namespace, key, default=0):
     try:
         metafields = shopify.Metafield.find(namespace=namespace, key=key)
@@ -100,7 +103,7 @@ def auth_callback(request: Request):
         return HTMLResponse(f"Token Error: {res.text}", status_code=400)
     except Exception as e: return HTMLResponse(content=f"Auth Error: {str(e)}", status_code=500)
 
-# --- NOUVEAU : API DONNÉES COMPLÈTES (Credits + Widget + VIP) ---
+# --- API DATA ---
 @app.get("/api/get-data")
 def get_data_route(shop: str):
     shop = clean_shop_url(shop)
@@ -108,42 +111,71 @@ def get_data_route(shop: str):
     if not token: raise HTTPException(status_code=401, detail="Session expired")
     try:
         get_shopify_session(shop, token)
-        # Récupère Crédits + Lifetime (pour VIP)
+        
+        # Stats financières réelles
         credits = int(get_metafield("virtual_try_on", "wallet", 10))
         lifetime = int(get_metafield("virtual_try_on", "lifetime_credits", 0))
+        total_revenue = float(get_metafield("virtual_try_on", "total_revenue", 0.0))
+        total_tryons = int(get_metafield("virtual_try_on", "total_tryons", 0))
         
-        # Récupère Settings Widget (namespace: vton_widget)
+        # Settings Widget + LIMITES
         w_text = get_metafield("vton_widget", "btn_text", "Try It On Now ✨")
         w_bg = get_metafield("vton_widget", "btn_bg", "#000000")
         w_color = get_metafield("vton_widget", "btn_text_color", "#ffffff")
+        
+        # Limite définie par le proprio (Par défaut 5)
+        max_tries = int(get_metafield("vton_security", "max_tries_per_user", 5))
 
         return {
             "credits": credits,
             "lifetime": lifetime,
-            "widget": {"text": w_text, "bg": w_bg, "color": w_color}
+            "usage": total_tryons,
+            "revenue": total_revenue,
+            "widget": {"text": w_text, "bg": w_bg, "color": w_color},
+            "security": {"max_tries": max_tries}
         }
     except Exception as e:
-        print(f"Error fetching data: {e}")
-        return {"credits": 0, "lifetime": 0}
+        print(f"Error: {e}")
+        return {"credits": 0}
 
-# --- NOUVEAU : SAUVEGARDE DU WIDGET ---
-class WidgetSettings(BaseModel):
+# --- SAVE SETTINGS (Widget + Limits) ---
+class SettingsRequest(BaseModel):
     shop: str
     text: str
     bg: str
     color: str
+    max_tries: int
 
-@app.post("/api/save-widget")
-def save_widget(req: WidgetSettings):
+@app.post("/api/save-settings")
+def save_settings(req: SettingsRequest):
     shop = clean_shop_url(req.shop)
     token = RAM_DB.get(shop)
     if not token: raise HTTPException(status_code=401, detail="Session expired")
     try:
         get_shopify_session(shop, token)
-        # On sauvegarde dans les Metafields du Shop
+        # Widget
         set_metafield("vton_widget", "btn_text", req.text, "single_line_text_field")
         set_metafield("vton_widget", "btn_bg", req.bg, "color")
         set_metafield("vton_widget", "btn_text_color", req.color, "color")
+        # Security
+        set_metafield("vton_security", "max_tries_per_user", req.max_tries, "integer")
+        return {"ok": True}
+    except Exception as e: return JSONResponse({"error": str(e)}, status_code=500)
+
+# --- TRACKING CONVERSION (Quand on clique sur ACHETER) ---
+class ConversionRequest(BaseModel):
+    shop: str
+    amount: float
+
+@app.post("/api/track-conversion")
+def track_conversion(req: ConversionRequest):
+    shop = clean_shop_url(req.shop)
+    token = RAM_DB.get(shop)
+    if not token: raise HTTPException(status_code=401, detail="Session expired")
+    try:
+        get_shopify_session(shop, token)
+        current_rev = float(get_metafield("virtual_try_on", "total_revenue", 0.0))
+        set_metafield("virtual_try_on", "total_revenue", current_rev + req.amount, "number_decimal")
         return {"ok": True}
     except Exception as e: return JSONResponse({"error": str(e)}, status_code=500)
 
@@ -187,11 +219,8 @@ def billing_callback(shop: str, amt: int, charge_id: str):
         charge = shopify.ApplicationCharge.find(charge_id)
         if charge.status != 'active': charge.activate()
         
-        # 1. Update Wallet (Crédits actuels)
         current = int(get_metafield("virtual_try_on", "wallet", 0))
         set_metafield("virtual_try_on", "wallet", current + amt, "integer")
-        
-        # 2. Update Lifetime (Pour le statut VIP)
         lifetime = int(get_metafield("virtual_try_on", "lifetime_credits", 0))
         set_metafield("virtual_try_on", "lifetime_credits", lifetime + amt, "integer")
 
@@ -199,18 +228,36 @@ def billing_callback(shop: str, amt: int, charge_id: str):
         return HTMLResponse(f"<script>window.top.location.href='{admin_url}';</script>")
     except Exception as e: return HTMLResponse(f"Billing Error: {e}")
 
-# --- GENERATE ---
+# --- GENERATE (AVEC LIMITES) ---
 @app.post("/api/generate")
 async def generate(request: Request, shop: str = Form(...), person_image: UploadFile = File(...), clothing_file: Optional[UploadFile] = File(None), clothing_url: Optional[str] = Form(None), category: str = Form("upper_body")):
-    print(f"🚀 [IA] Start generation for {shop}")
+    
+    # 1. Identification IP
+    client_ip = request.headers.get('x-forwarded-for') or request.client.host
+    print(f"🚀 [IA] Request from IP: {client_ip} for shop: {shop}")
+
     shop = clean_shop_url(shop)
     token = RAM_DB.get(shop)
     if not token: raise HTTPException(status_code=401, detail="Session expired")
 
     try:
         get_shopify_session(shop, token)
+        
+        # 2. Vérification LIMITES CLIENT
+        max_tries = int(get_metafield("vton_security", "max_tries_per_user", 5))
+        
+        user_stats = RATE_LIMIT_DB.get(client_ip, {"count": 0, "reset": time.time()})
+        # Reset après 24h
+        if time.time() - user_stats["reset"] > 86400:
+            user_stats = {"count": 0, "reset": time.time()}
+
+        if user_stats["count"] >= max_tries:
+            print(f"⛔ Limit reached for IP {client_ip}")
+            return JSONResponse({"error": "Daily limit reached. Come back tomorrow!"}, status_code=429)
+
+        # 3. Vérification Crédits Proprio
         current = int(get_metafield("virtual_try_on", "wallet", 0))
-        if current < 1: return JSONResponse({"error": "Not enough credits."}, status_code=402)
+        if current < 1: return JSONResponse({"error": "Store has no credits left."}, status_code=402)
 
         person_bytes = await person_image.read()
         person_file = io.BytesIO(person_bytes)
@@ -225,7 +272,16 @@ async def generate(request: Request, shop: str = Form(...), person_image: Upload
 
         output = replicate.run(MODEL_ID, input={"human_img": person_file, "garm_img": garment_input, "garment_des": category, "category": "upper_body"})
         
+        # 4. Succès : On met à jour les compteurs
         set_metafield("virtual_try_on", "wallet", current - 1, "integer")
+        
+        # Incrémenter stats Globales + IP
+        total_tryons = int(get_metafield("virtual_try_on", "total_tryons", 0))
+        set_metafield("virtual_try_on", "total_tryons", total_tryons + 1, "integer")
+        
+        user_stats["count"] += 1
+        RATE_LIMIT_DB[client_ip] = user_stats
+
         result_url = str(output[0]) if isinstance(output, list) else str(output)
         return {"result_image_url": result_url, "new_credits": current - 1}
 
