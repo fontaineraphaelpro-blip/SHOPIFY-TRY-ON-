@@ -121,7 +121,7 @@ def auth_callback(request: Request):
         res = requests.post(url, json=payload)
         if res.status_code == 200:
             token = res.json().get('access_token')
-            save_token_db(shop, token) # <--- ON SAUVEGARDE ICI
+            save_token_db(shop, token)
             target_url = f"https://admin.shopify.com/store/{shop.replace('.myshopify.com', '')}/apps/{SHOPIFY_API_KEY}"
             return RedirectResponse(target_url)
         return HTMLResponse(f"Token Error: {res.text}", status_code=400)
@@ -131,21 +131,16 @@ def auth_callback(request: Request):
 @app.get("/api/get-data")
 def get_data_route(shop: str):
     shop = clean_shop_url(shop)
-    token = get_token_db(shop) # <--- ON RÉCUPÈRE DU COFFRE
-    
+    token = get_token_db(shop)
     if not token: 
         raise HTTPException(status_code=401, detail="Refresh required")
-    
     try:
         get_shopify_session(shop, token)
-        
-        # Lecture des vraies données Shopify
         credits = get_metafield("virtual_try_on", "wallet", 0)
         total_tryons = get_metafield("virtual_try_on", "total_tryons", 0)
         total_atc = get_metafield("virtual_try_on", "total_atc", 0)
         lifetime = get_metafield("virtual_try_on", "lifetime_credits", 0)
 
-        # Lecture Widget
         w_text = get_metafield("vton_widget", "btn_text", "Try It On Now ✨")
         w_bg = get_metafield("vton_widget", "btn_bg", "#000000")
         w_color = get_metafield("vton_widget", "btn_text_color", "#ffffff")
@@ -157,18 +152,17 @@ def get_data_route(shop: str):
         }
     except Exception as e: return {"credits": 0}
 
-# --- TRACKING ATC (Écrit dans les Metafields) ---
+# --- TRACKING ATC ---
 class TrackRequest(BaseModel): shop: str
 @app.post("/api/track-atc")
 def track_atc(req: TrackRequest):
     shop = clean_shop_url(req.shop)
     token = get_token_db(shop)
     if not token: return JSONResponse({"error": "No token"}, status_code=401)
-    
     try:
         get_shopify_session(shop, token)
         current_atc = get_metafield("virtual_try_on", "total_atc", 0)
-        set_metafield("virtual_try_on", "total_atc", current_atc + 1, "integer") # +1 ATC
+        set_metafield("virtual_try_on", "total_atc", current_atc + 1, "integer")
         return {"ok": True}
     except: return JSONResponse({"error": "Failed"}, status_code=500)
 
@@ -241,67 +235,88 @@ async def generate(
     category: str = Form("upper_body")
 ):
     print(f"🚀 [IA] Start for: {shop}")
-    if not REPLICATE_TOKEN_CHECK: return JSONResponse({"error": "Config Error"}, status_code=500)
+    if not REPLICATE_TOKEN_CHECK:
+        return JSONResponse({"error": "Config Error"}, status_code=500)
 
     shop = clean_shop_url(shop)
-    token = get_token_db(shop) # Token du coffre
-    
-    if not token: return JSONResponse({"error": "Shop not connected."}, status_code=403)
+    token = get_token_db(shop)
+    if not token:
+        return JSONResponse({"error": "Shop not connected."}, status_code=403)
 
     try:
         get_shopify_session(shop, token)
-        
-        # 1. Check Crédits
-        current_credits = get_metafield("virtual_try_on", "wallet", 0)
-        if current_credits < 1: return JSONResponse({"error": "Store has no credits left."}, status_code=402)
 
-        # 2. Check Limite IP
+        # --- 1️⃣ Check Crédits ---
+        current_credits = get_metafield("virtual_try_on", "wallet", 0)
+        if current_credits < 1:
+            return JSONResponse({"error": "Store has no credits left."}, status_code=402)
+
+        # --- 2️⃣ Check Limite IP / User ---
         client_ip = request.client.host
         max_tries = int(get_metafield("vton_security", "max_tries_per_user", 5))
         user_stats = RATE_LIMIT_DB.get(client_ip, {"count": 0, "reset": time.time()})
-        if time.time() - user_stats["reset"] > 86400: user_stats = {"count": 0, "reset": time.time()}
-        
+        if time.time() - user_stats["reset"] > 86400:  # reset chaque 24h
+            user_stats = {"count": 0, "reset": time.time()}
+
         if user_stats["count"] >= max_tries:
             return JSONResponse({"error": "Daily limit reached."}, status_code=429)
 
-        # 3. Images
+        # --- 3️⃣ Préparer les fichiers ---
         person_bytes = await person_image.read()
         person_file = io.BytesIO(person_bytes)
-        garment_input = None
+
         if clothing_file:
             garment_bytes = await clothing_file.read()
             garment_input = io.BytesIO(garment_bytes)
         elif clothing_url:
             garment_input = clothing_url
-            if garment_input.startswith("//"): garment_input = "https:" + garment_input
-        else: return JSONResponse({"error": "No garment"}, status_code=400)
+            if garment_input.startswith("//"):
+                garment_input = "https:" + garment_input
+        else:
+            return JSONResponse({"error": "No garment provided"}, status_code=400)
 
-        # 4. Replicate
+        # --- 4️⃣ Appel Replicate ---
         print("⏳ Envoi Replicate...")
-        output = replicate.run(MODEL_ID, input={"human_img": person_file, "garm_img": garment_input, "garment_des": category, "category": "upper_body"})
+        output = replicate.run(
+            MODEL_ID,
+            input={
+                "human_img": person_file,
+                "garm_img": garment_input,
+                "garment_des": category,
+                "category": category
+            }
+        )
         print(f"✅ OK: {output}")
 
-        # 5. DÉBIT ET STATS (Écriture Metafields)
+        # --- 5️⃣ Mise à jour des Metafields (crédits et stats) ---
         try:
-            # -1 Crédit
+            # Débit du crédit
             set_metafield("virtual_try_on", "wallet", current_credits - 1, "integer")
-            
-            # +1 Essayage Total
-            total = get_metafield("virtual_try_on", "total_tryons", 0)
-            set_metafield("virtual_try_on", "total_tryons", total + 1, "integer")
-            
-            # Limite IP locale
+
+            # Incrément du compteur d'essayages total
+            total_tryons = get_metafield("virtual_try_on", "total_tryons", 0)
+            set_metafield("virtual_try_on", "total_tryons", total_tryons + 1, "integer")
+
+            # Incrément du compteur IP pour limiter les essais
             user_stats["count"] += 1
             RATE_LIMIT_DB[client_ip] = user_stats
-        except Exception as e: print(f"⚠️ Erreur Stats: {e}")
 
+        except Exception as e:
+            print(f"⚠️ Erreur Stats: {e}")
+
+        # --- 6️⃣ Retour au client ---
         result_url = str(output[0]) if isinstance(output, list) else str(output)
-        return {"result_image_url": result_url}
+        return {
+            "result_image_url": result_url,
+            "new_credits": current_credits - 1,
+            "usage": total_tryons + 1
+        }
 
     except Exception as e:
         print(f"❌ Error: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
 
+# --- GDPR Webhooks ---
 @app.post("/webhooks/customers/data_request")
 def w1(): return {"ok": True}
 @app.post("/webhooks/customers/redact")
