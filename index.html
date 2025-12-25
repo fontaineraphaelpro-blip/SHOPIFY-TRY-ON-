@@ -74,13 +74,11 @@
                             <div class="control-group half"><label>Background</label><div class="color-picker-wrapper"><input type="color" id="ws-color" value="#000000" oninput="updateWidgetPreview()"></div></div>
                             <div class="control-group half"><label>Text Ink</label><div class="color-picker-wrapper"><input type="color" id="ws-text-color" value="#ffffff" oninput="updateWidgetPreview()"></div></div>
                         </div>
-                        
                         <div class="control-group" style="margin-top: 15px; border-top: 1px solid #eee; padding-top: 15px;">
                             <label><i class="fa-solid fa-shield-halved"></i> Max Try-Ons per User (Daily)</label>
                             <input type="number" id="ws-limit" value="5" min="1" max="20" style="width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px;">
                             <small style="color: #64748b; font-size: 0.8rem;">Controls your costs & prevents abuse.</small>
                         </div>
-
                         <button class="btn-save-widget" onclick="saveSettings(this)">Save Settings</button>
                     </div>
                     <div class="studio-preview">
@@ -104,21 +102,61 @@
                 </div>
 
                 <h2 class="section-title">Purchase Credits</h2>
+                <p class="section-subtitle">1 Credit = 1 Virtual Try-On Result</p>
+
                 <div class="pricing-row">
                     <div class="pricing-card" onclick="buy('pack_10', 0, this)">
-                        <div class="pc-header"><span class="pc-name">Starter</span><span class="pc-credits">10</span></div>
-                        <div class="pc-price"><span class="currency">€</span>4.99</div>
+                        <div class="pc-header">
+                            <span class="pc-name">Starter Pack</span>
+                            <span class="pc-credits">10</span>
+                            <span class="pc-unit">Credits</span>
+                        </div>
+                        <div class="pc-price">
+                            <span class="currency">€</span>4.99
+                            <span class="per-try">€0.50 / try</span>
+                        </div>
+                        <ul class="pc-features">
+                            <li><i class="fa-solid fa-check"></i> Standard Quality</li>
+                            <li><i class="fa-solid fa-check"></i> Email Support</li>
+                            <li><i class="fa-solid fa-check"></i> No Expiration</li>
+                        </ul>
                         <button class="btn-buy">Buy Starter</button>
                     </div>
+
                     <div class="pricing-card featured" onclick="buy('pack_30', 0, this)">
                         <div class="popular-badge">MOST POPULAR</div>
-                        <div class="pc-header"><span class="pc-name">Growth</span><span class="pc-credits">30</span></div>
-                        <div class="pc-price"><span class="currency">€</span>12.99</div>
+                        <div class="pc-header">
+                            <span class="pc-name">Growth Pack</span>
+                            <span class="pc-credits">30</span>
+                            <span class="pc-unit">Credits</span>
+                        </div>
+                        <div class="pc-price">
+                            <span class="currency">€</span>12.99
+                            <span class="per-try highlight">€0.43 / try</span>
+                        </div>
+                        <ul class="pc-features">
+                            <li><i class="fa-solid fa-check"></i> <strong>High Speed GPU</strong></li>
+                            <li><i class="fa-solid fa-check"></i> <strong>Best Conversion Rate</strong></li>
+                            <li><i class="fa-solid fa-check"></i> Priority Support</li>
+                        </ul>
                         <button class="btn-buy featured-btn">Buy Growth 🚀</button>
                     </div>
+
                     <div class="pricing-card" onclick="buy('pack_100', 0, this)">
-                        <div class="pc-header"><span class="pc-name">Business</span><span class="pc-credits">100</span></div>
-                        <div class="pc-price"><span class="currency">€</span>29.99</div>
+                        <div class="pc-header">
+                            <span class="pc-name">Business Pack</span>
+                            <span class="pc-credits">100</span>
+                            <span class="pc-unit">Credits</span>
+                        </div>
+                        <div class="pc-price">
+                            <span class="currency">€</span>29.99
+                            <span class="per-try">€0.30 / try</span>
+                        </div>
+                        <ul class="pc-features">
+                            <li><i class="fa-solid fa-check"></i> Bulk Discount</li>
+                            <li><i class="fa-solid fa-check"></i> Dedicated Manager</li>
+                            <li><i class="fa-solid fa-check"></i> API Access</li>
+                        </ul>
                         <button class="btn-buy">Buy Business</button>
                     </div>
                 </div>
