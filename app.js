@@ -4,7 +4,7 @@ document.addEventListener("DOMContentLoaded", function() {
     document.body.classList.add('loaded');
     document.body.style.opacity = "1";
 
-    // --- 1. TOKEN HELPER ---
+    // --- TOKEN HELPER ---
     async function getSessionToken() {
         if (window.shopify && window.shopify.id) {
             return await shopify.id.getToken();
@@ -12,7 +12,7 @@ document.addEventListener("DOMContentLoaded", function() {
         return null;
     }
 
-    // --- 2. CONFIG ---
+    // --- CONFIG ---
     const params = new URLSearchParams(window.location.search);
     const mode = params.get('mode');
     let shop = params.get('shop') || sessionStorage.getItem('shop');
@@ -23,14 +23,11 @@ document.addEventListener("DOMContentLoaded", function() {
         if (mode === 'client') {
             initClientMode();
         } else {
-            // On charge les crédits, avec retry auto
             fetchCredits(shop); 
         }
     }
 
-    // --- 3. FONCTION MAGIQUE : FETCH AVEC RETRY ---
-    // Cette fonction remplace fetch() classique. 
-    // Si elle voit une erreur 401, elle redirige vers login et attend.
+    // --- AUTH FETCH ---
     async function authenticatedFetch(url, options = {}) {
         try {
             const token = await getSessionToken();
@@ -38,29 +35,13 @@ document.addEventListener("DOMContentLoaded", function() {
             if (token) headers['Authorization'] = `Bearer ${token}`;
             
             const res = await fetch(url, { ...options, headers });
-
-            // Si session expirée (401)
             if (res.status === 401) {
-                console.log("🔄 Session expirée (401). Tentative de réparation...");
-                
-                // On force le re-login via Shopify App Bridge
-                // Rediriger le TOP frame vers /login va recharger l'app
-                // C'est le seul moyen fiable à 100% sur Render gratuit
-                if (shop) {
-                     // Astuce : On redirige, l'utilisateur verra un chargement rapide
-                     // C'est mieux que de devoir cliquer deux fois.
-                     window.top.location.href = `/login?shop=${shop}`; 
-                     return null; // On arrête tout ici car la page va changer
-                }
+                if (shop) { window.top.location.href = `/login?shop=${shop}`; return null; }
             }
             return res;
-        } catch (error) {
-            console.error("Network error:", error);
-            throw error;
-        }
+        } catch (error) { throw error; }
     }
 
-    // --- 4. FETCH CREDITS ---
     async function fetchCredits(s) {
         const res = await authenticatedFetch(`/api/get-credits?shop=${s}`);
         if (res && res.ok) {
@@ -70,27 +51,22 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
 
-    // --- 5. INITIALISATION CLIENT ---
     function initClientMode() {
         document.body.classList.add('client-mode');
-        const adminDash = document.getElementById('admin-dashboard');
-        if(adminDash) adminDash.style.display = 'none';
-        const billing = document.getElementById('billing-section');
-        if(billing) billing.style.display = 'none';
-        const title = document.getElementById('client-title');
-        if(title) title.style.display = 'block';
+        // On s'assure que la zone admin est cachée
+        const adminZone = document.getElementById('admin-only-zone');
+        if(adminZone) adminZone.style.display = 'none';
 
         if (autoProductImage) {
             const img = document.getElementById('prevC');
             if(img) {
                 img.src = autoProductImage;
                 img.style.display = 'block';
-                if(img.parentElement) img.parentElement.querySelector('.upload-content').style.display = 'none';
+                if(img.parentElement) img.parentElement.querySelector('.empty-state').style.display = 'none';
             }
         }
     }
 
-    // --- 6. PREVIEW IMAGES ---
     window.preview = function(inputId, imgId) {
         const file = document.getElementById(inputId).files[0];
         if (file) {
@@ -99,29 +75,42 @@ document.addEventListener("DOMContentLoaded", function() {
                 const img = document.getElementById(imgId);
                 img.src = e.target.result;
                 img.style.display = 'block';
-                const content = img.parentElement.querySelector('.upload-content');
+                const content = img.parentElement.querySelector('.empty-state');
                 if(content) content.style.display = 'none';
             };
             reader.readAsDataURL(file);
         }
     };
 
-    // --- 7. GENERATE (IA) ---
+    // --- GENERATE AVEC STORYTELLING ---
     window.generate = async function() {
         const uFile = document.getElementById('uImg').files[0];
         const cFile = document.getElementById('cImg').files[0];
         const btn = document.getElementById('btnGo');
         
-        if (!uFile) return alert("Photo manquante.");
-        if (!autoProductImage && !cFile) return alert("Vêtement manquant.");
+        if (!uFile) return alert("Please upload your photo.");
+        if (!autoProductImage && !cFile) return alert("Please upload a garment.");
 
+        // Animation bouton
         const oldText = btn.innerHTML;
         btn.disabled = true; 
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Traitement...';
         
+        // Affichage Loader
         document.getElementById('resZone').style.display = 'block';
         document.getElementById('loader').style.display = 'block';
         document.getElementById('resImg').style.display = 'none';
+        document.getElementById('post-actions').style.display = 'none';
+
+        // Storytelling Loop
+        const texts = ["Analyzing silhouette...", "Matching fabrics...", "Simulating drape...", "Rendering lighting..."];
+        let step = 0;
+        const textEl = document.getElementById('loader-text');
+        const interval = setInterval(() => {
+            if(step < texts.length) {
+                textEl.innerText = texts[step];
+                step++;
+            }
+        }, 2500);
 
         try {
             const formData = new FormData();
@@ -131,21 +120,13 @@ document.addEventListener("DOMContentLoaded", function() {
             else formData.append("clothing_url", autoProductImage); 
             formData.append("category", "upper_body");
 
-            // Utilisation de notre fetch sécurisé
-            const res = await authenticatedFetch('/api/generate', {
-                method: 'POST',
-                body: formData
-            });
+            const res = await authenticatedFetch('/api/generate', { method: 'POST', body: formData });
 
-            if (!res) return; // Si null, c'est qu'on est en train de rediriger pour auth
+            clearInterval(interval); // Stop le texte
 
-            if (res.status === 402) {
-                alert("Crédits insuffisants !");
-                btn.disabled = false; btn.innerHTML = oldText;
-                return;
-            }
-
-            if (!res.ok) throw new Error("Erreur serveur");
+            if (!res) return;
+            if (res.status === 402) { alert("Not enough credits!"); btn.disabled = false; btn.innerHTML = oldText; return; }
+            if (!res.ok) throw new Error("Server Error");
 
             const data = await res.json();
             
@@ -155,18 +136,21 @@ document.addEventListener("DOMContentLoaded", function() {
                 ri.onload = () => {
                     ri.style.display = 'block';
                     document.getElementById('loader').style.display = 'none';
+                    // Afficher le bouton d'achat
+                    document.getElementById('post-actions').style.display = 'block';
                 };
                 if(data.new_credits !== undefined) {
                     const cel = document.getElementById('credits');
                     if(cel) cel.innerText = data.new_credits;
                 }
             } else {
-                alert("Erreur IA: " + (data.error || "Inconnue"));
+                alert("Error: " + (data.error || "Unknown"));
                 document.getElementById('loader').style.display = 'none';
             }
         } catch(e) { 
+            clearInterval(interval);
             console.error(e);
-            alert("Une erreur est survenue (ou session expirée)."); 
+            alert("Network Error"); 
             document.getElementById('loader').style.display = 'none';
         } finally { 
             btn.disabled = false; 
@@ -174,37 +158,23 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     };
 
-    // --- 8. BUY (Achat Crédits) ---
     window.buy = async function(packId, customAmount = 0, btnElement = null) {
-        if(!shop) return alert("Erreur Shop ID. Rechargez la page.");
-        
+        if(!shop) return alert("Shop ID missing.");
         const btn = btnElement;
         const oldText = btn ? btn.innerText : "...";
-        if(btn) { btn.innerText = "Wait..."; btn.disabled = true; }
+        if(btn) { btn.innerText = "Processing..."; btn.disabled = true; }
 
         try {
             const body = { shop: shop, pack_id: packId, custom_amount: customAmount };
-
-            // Utilisation de notre fetch sécurisé
             const res = await authenticatedFetch('/api/buy-credits', {
-                method: 'POST', 
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(body)
+                method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
             });
-
-            if (!res) return; // Redirection auth en cours
-
+            if (!res) return;
             const data = await res.json();
-            if(data.confirmation_url) {
-                window.top.location.href = data.confirmation_url;
-            } else {
-                alert("Erreur: " + (data.error || "Inconnue"));
-                if(btn) { btn.innerText = oldText; btn.disabled = false; }
-            }
+            if(data.confirmation_url) window.top.location.href = data.confirmation_url;
+            else { alert("Error: " + (data.error || "Unknown")); if(btn) { btn.innerText = oldText; btn.disabled = false; } }
         } catch(e) {
-            console.error(e);
-            alert("Erreur réseau");
-            if(btn) { btn.innerText = oldText; btn.disabled = false; }
+            console.error(e); alert("Network Error"); if(btn) { btn.innerText = oldText; btn.disabled = false; }
         }
     };
 
