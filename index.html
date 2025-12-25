@@ -27,63 +27,125 @@
                 </div>
             </header>
 
-            <div id="billing-section">
-                <div class="stats-grid">
-                    <div class="stat-card credit-card-style">
-                        <div class="card-bg-glow"></div>
-                        <div class="card-top">
-                            <span class="card-label">BALANCE</span>
-                            <i class="fa-brands fa-cc-stripe"></i>
-                        </div>
-                        <div class="credits-count">
-                            <span id="credits">--</span>
-                        </div>
-                        <div class="card-bottom">
-                            <span><i class="fa-solid fa-infinity"></i> No Expiry</span>
-                            <button onclick="document.querySelector('.pricing-row').scrollIntoView({behavior: 'smooth'})" class="btn-xs-glass">Top Up</button>
-                        </div>
+            <div id="billing-section" class="stats-grid">
+                
+                <div class="stat-card credit-card-style">
+                    <div class="card-bg-glow"></div>
+                    <div class="card-top">
+                        <span class="card-label">BALANCE</span>
+                        <i class="fa-brands fa-cc-stripe"></i>
                     </div>
-                    <div class="stat-card info-card">
-                        <div class="info-icon"><i class="fa-solid fa-chart-line"></i></div>
-                        <h3>Boost Sales</h3>
-                        <p>Virtual Try-On increases conversion by <strong>2.5x</strong>.</p>
+                    <div class="credits-count">
+                        <span id="credits">--</span>
                     </div>
-                    
-                    <div class="stat-card custom-pack-card">
-                        <div class="custom-icon"><i class="fa-solid fa-layer-group"></i></div>
-                        <h3>Bulk Order</h3>
-                        <div class="custom-input-group">
-                            <input type="number" id="customAmount" placeholder="200" value="200">
-                            <button onclick="buyCustom(this)" class="btn-custom-glow">
-                                GET PACK <i class="fa-solid fa-bolt"></i>
-                            </button>
-                        </div>
-                        <small>From €0.25/try</small>
+                    <div class="card-bottom">
+                        <span><i class="fa-solid fa-infinity"></i> No Expiry</span>
+                        <button onclick="document.querySelector('.pricing-row').scrollIntoView({behavior: 'smooth'})" class="btn-xs-glass">Top Up</button>
                     </div>
                 </div>
 
-                <div class="pricing-row">
-                    <div class="pricing-item" onclick="buy('pack_10', 0, this)">
-                        <span class="p-name">Starter</span>
-                        <span class="p-amount">10</span>
-                        <span class="p-price">4.99€</span>
+                <div class="stat-card analytics-card">
+                    <div class="analytics-header">
+                        <h3><i class="fa-solid fa-chart-line"></i> Performance (30d)</h3>
+                        <span class="trend-badge positive">+12% vs last month</span>
                     </div>
-                    <div class="pricing-item featured-item" onclick="buy('pack_30', 0, this)">
-                        <div class="popular-tag">POPULAR</div>
-                        <span class="p-name">Growth</span>
-                        <span class="p-amount">30</span>
-                        <span class="p-price">12.99€</span>
+                    <div class="metrics-row">
+                        <div class="metric">
+                            <span class="m-label">Try-Ons</span>
+                            <span class="m-value">842</span>
+                        </div>
+                        <div class="metric">
+                            <span class="m-label">Add to Cart</span>
+                            <span class="m-value">18.5%</span>
+                        </div>
+                        <div class="metric highlight">
+                            <span class="m-label">Est. Revenue</span>
+                            <span class="m-value">€4,250</span>
+                        </div>
                     </div>
-                    <div class="pricing-item" onclick="buy('pack_100', 0, this)">
-                        <span class="p-name">Business</span>
-                        <span class="p-amount">100</span>
-                        <span class="p-price">29.99€</span>
+                    <div class="mini-chart-bar">
+                        <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
                     </div>
                 </div>
+                
+                <div class="stat-card custom-pack-card">
+                    <div class="custom-icon"><i class="fa-solid fa-layer-group"></i></div>
+                    <h3>Bulk Order</h3>
+                    <div class="custom-input-group">
+                        <input type="number" id="customAmount" placeholder="200" value="200">
+                        <button onclick="buyCustom(this)" class="btn-custom-glow">
+                            GET PACK <i class="fa-solid fa-bolt"></i>
+                        </button>
+                    </div>
+                    <small>From €0.25/try</small>
+                </div>
+            </div>
 
-                <div class="divider">
-                    <span>TRY-ON PREVIEW</span>
+            <div class="widget-studio-section">
+                <div class="studio-header">
+                    <h3><i class="fa-solid fa-paintbrush"></i> Widget Studio</h3>
+                    <p>Customize your product page button.</p>
                 </div>
+                <div class="studio-workspace">
+                    <div class="studio-controls">
+                        <div class="control-group">
+                            <label>Button Text</label>
+                            <input type="text" id="ws-text" value="Try It On Now ✨" oninput="updateWidgetPreview()">
+                        </div>
+                        <div class="control-group">
+                            <label>Button Color</label>
+                            <div class="color-picker-wrapper">
+                                <input type="color" id="ws-color" value="#000000" oninput="updateWidgetPreview()">
+                                <span id="ws-color-val">#000000</span>
+                            </div>
+                        </div>
+                        <div class="control-group">
+                            <label>Text Color</label>
+                            <div class="color-picker-wrapper">
+                                <input type="color" id="ws-text-color" value="#ffffff" oninput="updateWidgetPreview()">
+                                <span id="ws-text-color-val">#ffffff</span>
+                            </div>
+                        </div>
+                        <button class="btn-save-widget" onclick="alert('Settings saved! (Simulated)')">Save Changes</button>
+                    </div>
+                    <div class="studio-preview">
+                        <div class="preview-label">Live Preview</div>
+                        <div class="fake-product-page">
+                            <div class="fake-img"></div>
+                            <div class="fake-info">
+                                <div class="fake-line title"></div>
+                                <div class="fake-line price"></div>
+                                <button id="ws-preview-btn" class="preview-widget-btn">
+                                    <i class="fa-solid fa-shirt"></i> <span>Try It On Now ✨</span>
+                                </button>
+                                <div class="fake-line desc"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="pricing-row">
+                <div class="pricing-item" onclick="buy('pack_10', 0, this)">
+                    <span class="p-name">Starter</span>
+                    <span class="p-amount">10</span>
+                    <span class="p-price">4.99€</span>
+                </div>
+                <div class="pricing-item featured-item" onclick="buy('pack_30', 0, this)">
+                    <div class="popular-tag">POPULAR</div>
+                    <span class="p-name">Growth</span>
+                    <span class="p-amount">30</span>
+                    <span class="p-price">12.99€</span>
+                </div>
+                <div class="pricing-item" onclick="buy('pack_100', 0, this)">
+                    <span class="p-name">Business</span>
+                    <span class="p-amount">100</span>
+                    <span class="p-price">29.99€</span>
+                </div>
+            </div>
+
+            <div class="divider">
+                <span>TRY-ON PREVIEW</span>
             </div>
         </div>
 
@@ -129,7 +191,7 @@
                 <img id="resImg" src="" style="display:none;">
                 
                 <div id="post-actions" style="display:none;" class="post-result-actions">
-                    <button class="btn-shop-now" onclick="alert('Redirecting to cart...')">
+                    <button class="btn-shop-now" onclick="alert('Item added to cart!')">
                         Shop This Look <i class="fa-solid fa-bag-shopping"></i>
                     </button>
                 </div>
