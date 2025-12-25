@@ -57,14 +57,8 @@
             </div>
 
             <div class="pricing-container">
-                <div class="vip-section">
-                    <div class="vip-header"><span class="vip-title"><i class="fa-solid fa-crown"></i> Status: <strong>Silver Member</strong></span><span class="vip-next">Reach <strong>Gold</strong> for Priority GPU Speed <i class="fa-solid fa-bolt"></i></span></div>
-                    <div class="vip-progress-bar"><div class="vip-fill" style="width: 65%"></div><div class="vip-marker" style="left: 65%"><i class="fa-solid fa-star"></i></div></div>
-                </div>
-
                 <h2 class="section-title">Purchase Credits</h2>
                 <p class="section-subtitle">1 Credit = 1 Virtual Try-On Result</p>
-
                 <div class="pricing-row">
                     <div class="pricing-card" onclick="buy('pack_10', 0, this)">
                         <div class="pc-header"><span class="pc-name">Starter Pack</span><span class="pc-credits">10</span><span class="pc-unit">Credits</span></div>
@@ -86,14 +80,7 @@
                         <button class="btn-buy">Buy Business</button>
                     </div>
                 </div>
-                
-                <div class="bulk-order-section">
-                    <p class="bulk-text">Need massive volume? <span class="bulk-trigger" onclick="document.getElementById('custom-panel').style.display='flex'">Open Custom Order</span></p>
-                    <div id="custom-panel" class="custom-order-panel" style="display:none;">
-                        <div class="custom-input-group-pro"><input type="number" id="customAmount" placeholder="500" value="500"></div>
-                        <button onclick="buyCustom(this)" class="btn-custom-action">Get Pack Now</button>
-                    </div>
-                </div>
+                <div class="bulk-order-section"><p class="bulk-text">Need massive volume? <span class="bulk-trigger" onclick="document.getElementById('custom-panel').style.display='flex'">Open Custom Order</span></p><div id="custom-panel" class="custom-order-panel" style="display:none;"><div class="custom-input-group-pro"><input type="number" id="customAmount" placeholder="500" value="500"></div><button onclick="buyCustom(this)" class="btn-custom-action">Get Pack Now</button></div></div>
             </div>
             <div class="divider"><span>TRY-ON PREVIEW TOOL</span></div>
         </div>
