@@ -1,5 +1,5 @@
 document.addEventListener("DOMContentLoaded", function() {
-    document.body.classList.add('loaded');
+    console.log("App started...");
 
     // --- 1. FONCTION TOKEN ---
     async function getSessionToken() {
@@ -9,7 +9,7 @@ document.addEventListener("DOMContentLoaded", function() {
         return null; // Si test hors iframe
     }
 
-    // --- 2. INIT ---
+    // --- 2. INITIALISATION ---
     const params = new URLSearchParams(window.location.search);
     const mode = params.get('mode');
     let shop = params.get('shop') || sessionStorage.getItem('shop');
@@ -53,7 +53,8 @@ document.addEventListener("DOMContentLoaded", function() {
             const res = await fetch(`/api/get-credits?shop=${s}`, { headers });
             if (res.status === 401) {
                 // Redirection login gérée par main.py ou App Bridge
-                window.top.location.href = `/login?shop=${s}`; 
+                // window.top.location.href = `/login?shop=${s}`; 
+                console.log("Session expirée pour les crédits");
                 return; 
             }
             const data = await res.json();
@@ -119,7 +120,6 @@ document.addEventListener("DOMContentLoaded", function() {
             });
 
             if (res.status === 401) {
-                // Token expiré
                 if(shop) window.top.location.href = `/login?shop=${shop}`;
                 return;
             }
@@ -152,48 +152,59 @@ document.addEventListener("DOMContentLoaded", function() {
 
     // --- 6. BUY ---
     window.buy = async function(packId, customAmount = 0) {
-    if(!shop) return alert("Shop ID missing");
-    
-    // UI : Bouton en attente
-    let btn = event.target.tagName === 'BUTTON' ? event.target : event.target.closest('button');
-    // Fallback si le clic vient d'ailleurs
-    if (!btn && packId === 'pack_custom') btn = document.querySelector('.custom-input-group button');
-    
-    const oldText = btn ? btn.innerText : "...";
-    if(btn) { btn.innerText = "Wait..."; btn.disabled = true; }
-
-    try {
-        const token = await getSessionToken();
-        const headers = {'Content-Type': 'application/json'};
-        if(token) headers['Authorization'] = `Bearer ${token}`;
-
-        const body = { shop: shop, pack_id: packId };
-        if(customAmount > 0) body.custom_amount = customAmount;
-
-        const res = await fetch('/api/buy-credits', {
-            method: 'POST', headers: headers, body: JSON.stringify(body)
-        });
-
-        // CAS CRITIQUE : Session perdue (401)
-        if (res.status === 401) {
-            console.log("Session perdue, redirection vers le login...");
-            // Force la redirection sur la fenêtre principale
-            window.top.location.href = `/login?shop=${shop}`;
-            return;
-        }
-
-        const data = await res.json();
+        if(!shop) return alert("Shop ID missing");
         
-        if(data.confirmation_url) {
-            // Redirection vers le paiement Shopify
-            window.top.location.href = data.confirmation_url;
-        } else {
-            alert("Error: " + (data.error || "Unknown"));
+        // UI : Bouton en attente
+        let btn;
+        if(event && event.target) {
+             btn = event.target.tagName === 'BUTTON' ? event.target : event.target.closest('button');
+        }
+        // Fallback si le clic vient d'ailleurs
+        if (!btn && packId === 'pack_custom') btn = document.querySelector('.custom-input-group button');
+        
+        const oldText = btn ? btn.innerText : "...";
+        if(btn) { btn.innerText = "Wait..."; btn.disabled = true; }
+
+        try {
+            const token = await getSessionToken();
+            const headers = {'Content-Type': 'application/json'};
+            if(token) headers['Authorization'] = `Bearer ${token}`;
+
+            const body = { shop: shop, pack_id: packId };
+            if(customAmount > 0) body.custom_amount = customAmount;
+
+            const res = await fetch('/api/buy-credits', {
+                method: 'POST', headers: headers, body: JSON.stringify(body)
+            });
+
+            // CAS CRITIQUE : Session perdue (401)
+            if (res.status === 401) {
+                console.log("Session perdue, redirection vers le login...");
+                window.top.location.href = `/login?shop=${shop}`;
+                return;
+            }
+
+            const data = await res.json();
+            
+            if(data.confirmation_url) {
+                // Redirection vers le paiement Shopify
+                window.top.location.href = data.confirmation_url;
+            } else {
+                alert("Error: " + (data.error || "Unknown"));
+                if(btn) { btn.innerText = oldText; btn.disabled = false; }
+            }
+        } catch(e) {
+            console.error(e);
+            alert("Erreur réseau ou configuration API.");
             if(btn) { btn.innerText = oldText; btn.disabled = false; }
         }
-    } catch(e) {
-        console.error(e);
-        alert("Erreur réseau ou configuration API.");
-        if(btn) { btn.innerText = oldText; btn.disabled = false; }
+    };
+
+    // --- 7. BUY CUSTOM (MANQUAIT DANS TON CODE) ---
+    window.buyCustom = function() {
+        const amount = document.getElementById('customAmount').value;
+        if(amount < 200) return alert("Min 200 credits");
+        window.buy('pack_custom', parseInt(amount));
     }
-};
+
+}); // <--- C'EST ICI QUE TU AVAIS OUBLIÉ DE FERMER LE FICHIER
