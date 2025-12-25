@@ -1,34 +1,85 @@
 document.addEventListener("DOMContentLoaded", function() {
     
-    // UI Init
+    // --- 1. UI INIT ---
     document.body.classList.add('loaded');
     document.body.style.opacity = "1";
 
-    // --- 1. TOKEN HELPER (App Bridge 3) ---
+    // --- 2. TOKEN HELPER (Avec attente de App Bridge) ---
     async function getSessionToken() {
-        if (window.shopify && window.shopify.id) {
-            return await shopify.id.getToken();
+        // On attend jusqu'à 2 secondes que window.shopify soit prêt
+        let retries = 10;
+        while (retries > 0) {
+            if (window.shopify && window.shopify.id) {
+                return await shopify.id.getToken();
+            }
+            await new Promise(r => setTimeout(r, 200)); // Attendre 200ms
+            retries--;
         }
+        console.warn("⚠️ App Bridge non détecté après attente.");
         return null;
     }
 
-    // --- 2. CONFIG ---
+    // --- 3. CONFIG & INITIALISATION ---
     const params = new URLSearchParams(window.location.search);
     const mode = params.get('mode');
     let shop = params.get('shop') || sessionStorage.getItem('shop');
     const autoProductImage = params.get('product_image');
 
-    if(shop) {
-        sessionStorage.setItem('shop', shop);
-        if (mode !== 'client') fetchCredits(shop);
-        else document.getElementById('billing-section').style.display = 'none';
+    // Sauvegarde du shop pour ne pas le perdre
+    if(shop) sessionStorage.setItem('shop', shop);
+
+    // Initialisation selon le mode
+    if (mode === 'client') {
+        initClientMode();
+    } else {
+        // Mode Admin : On charge les crédits
+        if(shop) fetchCredits(shop);
     }
 
-    // --- 3. MODE WIDGET (Client) ---
-    if (mode === 'client') {
+    // --- 4. FONCTIONS DE RÉPARATION DE SESSION ---
+    function handleSessionExpired() {
+        console.log("🔄 Session expirée (Server Reset). Reconnexion auto...");
+        // On redirige immédiatement pour régénérer le token en RAM
+        if (shop) {
+            window.top.location.href = `/login?shop=${shop}`;
+        } else {
+            alert("Erreur de session. Veuillez recharger l'application depuis Shopify.");
+        }
+    }
+
+    // --- 5. FETCH CREDITS (Modifié pour auto-réparation) ---
+    async function fetchCredits(s) {
+        try {
+            const token = await getSessionToken();
+            const headers = token ? {'Authorization': `Bearer ${token}`} : {};
+            
+            const res = await fetch(`/api/get-credits?shop=${s}`, { headers });
+            
+            // SI ERREUR 401 AU CHARGEMENT -> ON RÉPARE TOUT DE SUITE
+            if (res.status === 401) {
+                handleSessionExpired();
+                return;
+            }
+            
+            const data = await res.json();
+            const el = document.getElementById('credits');
+            if(el) el.innerText = data.credits;
+
+        } catch(e) { 
+            console.error("Err Credits", e); 
+        }
+    }
+
+    // --- 6. MODE WIDGET (Client) ---
+    function initClientMode() {
         document.body.classList.add('client-mode');
         const adminDash = document.getElementById('admin-dashboard');
         if(adminDash) adminDash.style.display = 'none';
+        
+        // Cache la section facturation en mode client
+        const billing = document.getElementById('billing-section');
+        if(billing) billing.style.display = 'none';
+
         const title = document.getElementById('client-title');
         if(title) title.style.display = 'block';
 
@@ -42,22 +93,7 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
 
-    // --- 4. FETCH CREDITS ---
-    async function fetchCredits(s) {
-        try {
-            const token = await getSessionToken();
-            const headers = token ? {'Authorization': `Bearer ${token}`} : {};
-            const res = await fetch(`/api/get-credits?shop=${s}`, { headers });
-            
-            if (res.status === 401) return console.warn("Session expirée (401)");
-            
-            const data = await res.json();
-            const el = document.getElementById('credits');
-            if(el) el.innerText = data.credits;
-        } catch(e) { console.error("Err Credits", e); }
-    }
-
-    // --- 5. PREVIEW ---
+    // --- 7. PREVIEW ---
     window.preview = function(inputId, imgId) {
         const file = document.getElementById(inputId).files[0];
         if (file) {
@@ -73,7 +109,7 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     };
 
-    // --- 6. GENERATE (AI) ---
+    // --- 8. GENERATE (IA) ---
     window.generate = async function() {
         const uFile = document.getElementById('uImg').files[0];
         const cFile = document.getElementById('cImg').files[0];
@@ -108,8 +144,15 @@ document.addEventListener("DOMContentLoaded", function() {
                 body: formData
             });
 
-            if (res.status === 401) return alert("Session expirée. Veuillez recharger la page.");
-            if (res.status === 402) return alert("Crédits insuffisants !");
+            if (res.status === 401) {
+                handleSessionExpired();
+                return;
+            }
+            if (res.status === 402) {
+                alert("Crédits insuffisants !");
+                btn.disabled = false; btn.innerHTML = oldText;
+                return;
+            }
 
             const data = await res.json();
             
@@ -129,7 +172,8 @@ document.addEventListener("DOMContentLoaded", function() {
                 document.getElementById('loader').style.display = 'none';
             }
         } catch(e) { 
-            alert("Erreur Réseau"); 
+            console.error(e);
+            alert("Erreur réseau"); 
             document.getElementById('loader').style.display = 'none';
         } finally { 
             btn.disabled = false; 
@@ -137,7 +181,7 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     };
 
-    // --- 7. BUY (Achat Crédits) ---
+    // --- 9. BUY (Achat Crédits) ---
     window.buy = async function(packId, customAmount = 0, btnElement = null) {
         if(!shop) return alert("Erreur Shop ID. Rechargez la page.");
         
@@ -157,7 +201,7 @@ document.addEventListener("DOMContentLoaded", function() {
             });
 
             if (res.status === 401) {
-                window.top.location.href = `/login?shop=${shop}`;
+                handleSessionExpired();
                 return;
             }
 
