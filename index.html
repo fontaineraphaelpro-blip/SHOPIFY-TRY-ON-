@@ -4,6 +4,22 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StyleLab Admin</title>
+    
+    <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
+
+    <script>
+        const apiKey = "{{ api_key }}"; 
+        const shop = new URLSearchParams(window.location.search).get("shop");
+        
+        if (apiKey && shop) {
+            shopify.config = {
+                apiKey: apiKey,
+                shop: shop,
+                forceRedirect: true,
+            };
+        }
+    </script>
+
     <link rel="stylesheet" href="/styles.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -11,7 +27,6 @@
 <body>
 
     <div class="container">
-        
         <div id="admin-dashboard">
             <div class="admin-header">
                 <div class="brand"><i class="fa-solid fa-bolt"></i> VTON Magic Admin</div>
@@ -21,7 +36,7 @@
             <div class="roi-banner">
                 <div class="roi-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
                 <div class="roi-text">
-                    <strong>Stop losing money on returns.</strong> Letting customers <span style="text-decoration:underline;">test products virtually</span> removes doubt. This slashes refunds and boosts conversion by <span style="color:#10b981">2.5x</span> instantly.
+                    <strong>Stop losing money on returns.</strong> Virtual testing boosts conversion by <span style="color:#10b981">2.5x</span>.
                 </div>
             </div>
 
@@ -39,7 +54,7 @@
                         <div style="margin-top:15px">
                             <div class="pack-title">Discovery</div>
                             <div class="pack-credits">10</div>
-                            <div class="unit-price" style="color:#6b7280">Start offering Virtual Testing</div>
+                            <div class="unit-price">Start offering Virtual Testing</div>
                         </div>
                         <div style="margin-top:auto">
                             <div class="pack-price">4.99€</div>
@@ -53,7 +68,6 @@
                             <div class="save-badge">SAVE 15%</div>
                             <div class="pack-title" style="color:var(--primary)">Standard</div>
                             <div class="pack-credits" style="color:var(--primary)">30</div>
-                            <div class="unit-price" style="color:#4b5563; font-weight:bold">Turn visitors into buyers</div>
                         </div>
                         <div style="margin-top:auto">
                             <div class="pack-price" style="font-size:1.8rem">12.99€</div>
@@ -66,7 +80,6 @@
                             <div class="save-badge" style="background:#fef3c7; color:#b45309">BEST ROI</div>
                             <div class="pack-title">Business</div>
                             <div class="pack-credits">100</div>
-                            <div class="unit-price">Slash return rates by 30%</div>
                         </div>
                         <div style="margin-top:auto">
                             <div class="pack-price">29.99€</div>
@@ -87,7 +100,7 @@
                 </div>
             </div>
             
-            <h3 style="margin-top:50px; color:#9ca3af; font-size:0.9rem; text-transform:uppercase; letter-spacing:1px;">Mobile Preview (Customer View)</h3>
+            <h3 style="margin-top:50px; color:#9ca3af; font-size:0.9rem; text-transform:uppercase; letter-spacing:1px;">Preview Studio</h3>
         </div>
 
         <div id="studio-interface">
