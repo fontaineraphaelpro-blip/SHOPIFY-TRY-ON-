@@ -1,6 +1,5 @@
 document.addEventListener("DOMContentLoaded", function() {
     
-    // UI Init
     document.body.classList.add('loaded');
     document.body.style.opacity = "1";
 
@@ -12,7 +11,18 @@ document.addEventListener("DOMContentLoaded", function() {
         return null;
     }
 
-    // --- CONFIG ---
+    async function authenticatedFetch(url, options = {}) {
+        try {
+            const token = await getSessionToken();
+            const headers = options.headers || {};
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            const res = await fetch(url, { ...options, headers });
+            if (res.status === 401 && shop) { window.top.location.href = `/login?shop=${shop}`; return null; }
+            return res;
+        } catch (error) { throw error; }
+    }
+
+    // --- INIT ---
     const params = new URLSearchParams(window.location.search);
     const mode = params.get('mode');
     let shop = params.get('shop') || sessionStorage.getItem('shop');
@@ -23,34 +33,120 @@ document.addEventListener("DOMContentLoaded", function() {
         if (mode === 'client') {
             initClientMode();
         } else {
-            fetchCredits(shop); 
+            initAdminMode(shop);
         }
     }
 
-    // --- AUTH FETCH ---
-    async function authenticatedFetch(url, options = {}) {
-        try {
-            const token = await getSessionToken();
-            const headers = options.headers || {};
-            if (token) headers['Authorization'] = `Bearer ${token}`;
-            
-            const res = await fetch(url, { ...options, headers });
-            if (res.status === 401) {
-                if (shop) { window.top.location.href = `/login?shop=${shop}`; return null; }
-            }
-            return res;
-        } catch (error) { throw error; }
-    }
-
-    async function fetchCredits(s) {
-        const res = await authenticatedFetch(`/api/get-credits?shop=${s}`);
+    // --- LOGIQUE ADMIN (Stats, Widget, Supply) ---
+    async function initAdminMode(s) {
+        // On récupère TOUTES les données d'un coup
+        const res = await authenticatedFetch(`/api/get-data?shop=${s}`);
         if (res && res.ok) {
             const data = await res.json();
-            const el = document.getElementById('credits');
-            if(el) el.innerText = data.credits;
+            
+            // 1. Mise à jour Crédits & Smart Supply
+            updateDashboardStats(data.credits);
+            
+            // 2. Mise à jour VIP Status
+            updateVIPStatus(data.lifetime);
+
+            // 3. Pré-remplissage du Widget Studio
+            if(data.widget) {
+                if(data.widget.text) document.getElementById('ws-text').value = data.widget.text;
+                if(data.widget.bg) document.getElementById('ws-color').value = data.widget.bg;
+                if(data.widget.color) document.getElementById('ws-text-color').value = data.widget.color;
+                window.updateWidgetPreview(); // Met à jour le visuel immédiatement
+            }
         }
     }
 
+    function updateDashboardStats(credits) {
+        const el = document.getElementById('credits');
+        if(el) el.innerText = credits;
+
+        // Smart Supply Logic (Simulation d'urgence)
+        const supplyCard = document.querySelector('.smart-supply-card');
+        const alertBadge = document.querySelector('.alert-badge');
+        const daysEl = document.querySelector('.rs-value');
+        
+        if (supplyCard && daysEl) {
+            // Hypothèse : 1 crédit utilisé toutes les 2h (simulation)
+            let daysLeft = Math.floor(credits / 12); 
+            if(daysLeft < 1) daysLeft = "< 1";
+            
+            daysEl.innerText = daysLeft + (daysLeft === "< 1" ? " Day" : " Days");
+
+            if (credits < 10) {
+                // Mode Panique (Rouge)
+                supplyCard.style.background = "#fff0f0";
+                alertBadge.innerText = "CRITICAL";
+                alertBadge.style.background = "#dc2626";
+            } else if (credits < 50) {
+                // Mode Attention (Orange)
+                supplyCard.style.background = "#fffbeb"; 
+                alertBadge.innerText = "LOW STOCK";
+                alertBadge.style.background = "#f59e0b";
+            } else {
+                // Mode Cool (Vert)
+                supplyCard.style.background = "#f0fdf4"; 
+                alertBadge.innerText = "HEALTHY";
+                alertBadge.style.background = "#16a34a";
+                if(daysEl.parentElement) daysEl.parentElement.querySelector('.rs-label').innerText = "Safe For";
+            }
+        }
+    }
+
+    function updateVIPStatus(lifetime) {
+        const fill = document.querySelector('.vip-fill');
+        const marker = document.querySelector('.vip-marker');
+        
+        // Objectif : 500 crédits pour être Gold
+        let percent = (lifetime / 500) * 100;
+        if(percent > 100) percent = 100;
+
+        if(fill) fill.style.width = percent + "%";
+        if(marker) marker.style.left = percent + "%";
+
+        if(lifetime >= 500) {
+            document.querySelector('.vip-title strong').innerText = "Gold Member";
+            document.querySelector('.vip-next').innerHTML = "Status: <strong>MAXIMUM SPEED</strong> 🚀";
+        }
+    }
+
+    // --- WIDGET STUDIO SAVE ---
+    window.saveWidgetSettings = async function(btn) {
+        const oldText = btn.innerText;
+        btn.innerText = "Saving..."; btn.disabled = true;
+
+        const settings = {
+            shop: shop,
+            text: document.getElementById('ws-text').value,
+            bg: document.getElementById('ws-color').value,
+            color: document.getElementById('ws-text-color').value
+        };
+
+        try {
+            const res = await authenticatedFetch('/api/save-widget', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(settings)
+            });
+            if(res.ok) {
+                btn.innerText = "Saved to Storefront! ✅";
+                setTimeout(() => btn.innerText = oldText, 2000);
+            } else {
+                alert("Save failed");
+            }
+        } catch(e) { console.error(e); alert("Error saving"); }
+        finally { btn.disabled = false; }
+    };
+    
+    // Attacher l'événement au bouton
+    const saveBtn = document.querySelector('.btn-save-widget');
+    if(saveBtn) saveBtn.onclick = function() { window.saveWidgetSettings(this); };
+
+
+    // --- CLIENT MODE ---
     function initClientMode() {
         document.body.classList.add('client-mode');
         const adminZone = document.getElementById('admin-only-zone');
@@ -74,85 +170,30 @@ document.addEventListener("DOMContentLoaded", function() {
                 const img = document.getElementById(imgId);
                 img.src = e.target.result;
                 img.style.display = 'block';
-                const content = img.parentElement.querySelector('.empty-state');
-                if(content) content.style.display = 'none';
+                if(img.parentElement.querySelector('.empty-state')) 
+                    img.parentElement.querySelector('.empty-state').style.display = 'none';
             };
             reader.readAsDataURL(file);
         }
     };
 
-    window.generate = async function() {
-        const uFile = document.getElementById('uImg').files[0];
-        const cFile = document.getElementById('cImg').files[0];
-        const btn = document.getElementById('btnGo');
+    // --- UPDATE WIDGET PREVIEW (LOCAL) ---
+    window.updateWidgetPreview = function() {
+        const text = document.getElementById('ws-text').value;
+        const color = document.getElementById('ws-color').value;
+        const textColor = document.getElementById('ws-text-color').value;
         
-        if (!uFile) return alert("Please upload your photo.");
-        if (!autoProductImage && !cFile) return alert("Please upload a garment.");
-
-        const oldText = btn.innerHTML;
-        btn.disabled = true; 
-        
-        document.getElementById('resZone').style.display = 'block';
-        document.getElementById('loader').style.display = 'block';
-        document.getElementById('resImg').style.display = 'none';
-        document.getElementById('post-actions').style.display = 'none';
-
-        // Storytelling Loop
-        const texts = ["Analyzing silhouette...", "Matching fabrics...", "Simulating drape...", "Rendering lighting..."];
-        let step = 0;
-        const textEl = document.getElementById('loader-text');
-        const interval = setInterval(() => {
-            if(step < texts.length) {
-                textEl.innerText = texts[step];
-                step++;
-            }
-        }, 2500);
-
-        try {
-            const formData = new FormData();
-            formData.append("shop", shop || "demo");
-            formData.append("person_image", uFile);
-            if (cFile) formData.append("clothing_file", cFile); 
-            else formData.append("clothing_url", autoProductImage); 
-            formData.append("category", "upper_body");
-
-            const res = await authenticatedFetch('/api/generate', { method: 'POST', body: formData });
-
-            clearInterval(interval);
-
-            if (!res) return;
-            if (res.status === 402) { alert("Not enough credits!"); btn.disabled = false; btn.innerHTML = oldText; return; }
-            if (!res.ok) throw new Error("Server Error");
-
-            const data = await res.json();
-            
-            if(data.result_image_url) {
-                const ri = document.getElementById('resImg');
-                ri.src = data.result_image_url;
-                ri.onload = () => {
-                    ri.style.display = 'block';
-                    document.getElementById('loader').style.display = 'none';
-                    document.getElementById('post-actions').style.display = 'block';
-                };
-                if(data.new_credits !== undefined) {
-                    const cel = document.getElementById('credits');
-                    if(cel) cel.innerText = data.new_credits;
-                }
-            } else {
-                alert("Error: " + (data.error || "Unknown"));
-                document.getElementById('loader').style.display = 'none';
-            }
-        } catch(e) { 
-            clearInterval(interval);
-            console.error(e);
-            alert("Network Error"); 
-            document.getElementById('loader').style.display = 'none';
-        } finally { 
-            btn.disabled = false; 
-            btn.innerHTML = oldText; 
+        // Update le bouton de démo à droite
+        const btn = document.getElementById('ws-preview-btn');
+        if(btn) {
+            btn.style.backgroundColor = color;
+            btn.style.color = textColor;
+            const span = btn.querySelector('span');
+            if(span) span.innerText = text;
         }
-    };
+    }
 
+    // --- ACTIONS ACHAT & IA ---
     window.buy = async function(packId, customAmount = 0, btnElement = null) {
         if(!shop) return alert("Shop ID missing.");
         const btn = btnElement;
@@ -179,23 +220,59 @@ document.addEventListener("DOMContentLoaded", function() {
         window.buy('pack_custom', parseInt(amount), btnElement);
     }
 
-    // --- WIDGET STUDIO PREVIEW LOGIC ---
-    window.updateWidgetPreview = function() {
-        const text = document.getElementById('ws-text').value;
-        const color = document.getElementById('ws-color').value;
-        const textColor = document.getElementById('ws-text-color').value;
+    window.generate = async function() {
+        const uFile = document.getElementById('uImg').files[0];
+        const cFile = document.getElementById('cImg').files[0];
+        const btn = document.getElementById('btnGo');
+        
+        if (!uFile) return alert("Please upload your photo.");
+        if (!autoProductImage && !cFile) return alert("Please upload a garment.");
 
-        // Update Values Display
-        document.getElementById('ws-color-val').innerText = color;
-        document.getElementById('ws-text-color-val').innerText = textColor;
+        const oldText = btn.innerHTML;
+        btn.disabled = true; 
+        
+        document.getElementById('resZone').style.display = 'block';
+        document.getElementById('loader').style.display = 'block';
+        document.getElementById('resImg').style.display = 'none';
+        document.getElementById('post-actions').style.display = 'none';
 
-        // Update Preview Button
-        const btn = document.getElementById('ws-preview-btn');
-        if(btn) {
-            btn.style.backgroundColor = color;
-            btn.style.color = textColor;
-            const span = btn.querySelector('span');
-            if(span) span.innerText = text;
+        const texts = ["Analyzing silhouette...", "Matching fabrics...", "Simulating drape...", "Rendering lighting..."];
+        let step = 0;
+        const textEl = document.getElementById('loader-text');
+        const interval = setInterval(() => { if(step < texts.length) { textEl.innerText = texts[step]; step++; } }, 2500);
+
+        try {
+            const formData = new FormData();
+            formData.append("shop", shop || "demo");
+            formData.append("person_image", uFile);
+            if (cFile) formData.append("clothing_file", cFile); 
+            else formData.append("clothing_url", autoProductImage); 
+            formData.append("category", "upper_body");
+
+            const res = await authenticatedFetch('/api/generate', { method: 'POST', body: formData });
+            clearInterval(interval);
+
+            if (!res) return;
+            if (res.status === 402) { alert("Not enough credits!"); btn.disabled = false; btn.innerHTML = oldText; return; }
+            if (!res.ok) throw new Error("Server Error");
+
+            const data = await res.json();
+            if(data.result_image_url) {
+                const ri = document.getElementById('resImg');
+                ri.src = data.result_image_url;
+                ri.onload = () => {
+                    ri.style.display = 'block';
+                    document.getElementById('loader').style.display = 'none';
+                    document.getElementById('post-actions').style.display = 'block';
+                };
+                if(data.new_credits !== undefined) updateDashboardStats(data.new_credits);
+            } else {
+                alert("Error: " + (data.error || "Unknown")); document.getElementById('loader').style.display = 'none';
+            }
+        } catch(e) { 
+            clearInterval(interval); console.error(e); alert("Network Error"); document.getElementById('loader').style.display = 'none';
+        } finally { 
+            btn.disabled = false; btn.innerHTML = oldText; 
         }
-    }
+    };
 });
