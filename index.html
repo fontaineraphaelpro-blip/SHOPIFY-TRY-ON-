@@ -12,14 +12,10 @@
 <body>
 
     <div class="app-container">
-        
         <div id="admin-only-zone">
             
             <header class="glass-header">
-                <div class="brand">
-                    <div class="logo-icon"><i class="fa-solid fa-wand-magic-sparkles"></i></div>
-                    <div class="logo-text"><h1>VTON<span>AI</span></h1><span class="badge-beta">PRO DASHBOARD</span></div>
-                </div>
+                <div class="brand"><div class="logo-icon"><i class="fa-solid fa-wand-magic-sparkles"></i></div><div class="logo-text"><h1>VTON<span>AI</span></h1><span class="badge-beta">PRO DASHBOARD</span></div></div>
                 <div class="system-status"><span class="pulse-dot"></span> System Operational</div>
             </header>
 
@@ -32,66 +28,31 @@
                 </div>
 
                 <div class="stat-card analytics-card">
-                    <div class="analytics-header">
-                        <h3><i class="fa-solid fa-chart-line"></i> ROI Impact (All Time)</h3>
-                        <span class="trend-badge positive">REAL TIME</span>
-                    </div>
+                    <div class="analytics-header"><h3><i class="fa-solid fa-chart-line"></i> Usage Statistics</h3><span class="trend-badge positive">LIVE</span></div>
                     <div class="metrics-row">
-                        <div class="metric">
-                            <span class="m-label">Try-Ons</span>
-                            <span id="roi-tryons" class="m-value">0</span>
-                        </div>
-                        <div class="metric highlight">
-                            <span class="m-label">Generated Revenue</span>
-                            <span id="roi-revenue" class="m-value">€0.00</span>
-                        </div>
+                        <div class="metric"><span class="m-label">Total Try-Ons</span><span id="stat-tryons" class="m-value">0</span></div>
+                        <div class="metric highlight"><span class="m-label">Added to Cart</span><span id="stat-atc" class="m-value">0</span></div>
                     </div>
                     <div class="mini-chart-bar"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
                 </div>
                 
                 <div class="stat-card smart-supply-card">
                     <div class="supply-header"><h3><i class="fa-solid fa-gas-pump"></i> Credits Forecast</h3><span class="alert-badge">LOW STOCK</span></div>
-                    <div class="supply-body">
-                        <div class="runway-stat"><span class="rs-label">Empty Tank In</span><span class="rs-value">3 Days</span></div>
-                        <div class="burn-rate"><i class="fa-solid fa-fire"></i> High Traffic Detected</div>
-                    </div>
+                    <div class="supply-body"><div class="runway-stat"><span class="rs-label">Empty Tank In</span><span class="rs-value">3 Days</span></div><div class="burn-rate"><i class="fa-solid fa-fire"></i> High Traffic Detected</div></div>
                     <button onclick="document.querySelector('.pricing-container').scrollIntoView({behavior: 'smooth'})" class="btn-secure-stock">⚡ Secure Stock Now</button>
                 </div>
             </div>
 
             <div class="widget-studio-section">
-                <div class="studio-header">
-                    <h3><i class="fa-solid fa-paintbrush"></i> Widget & Security</h3>
-                    <p>Customize appearance and set usage limits.</p>
-                </div>
+                <div class="studio-header"><h3><i class="fa-solid fa-paintbrush"></i> Widget & Security</h3><p>Customize appearance and set usage limits.</p></div>
                 <div class="studio-workspace">
                     <div class="studio-controls">
-                        <div class="control-group">
-                            <label>Button Text</label>
-                            <input type="text" id="ws-text" value="Try It On Now ✨" oninput="updateWidgetPreview()">
-                        </div>
-                        <div class="control-group-row">
-                            <div class="control-group half"><label>Background</label><div class="color-picker-wrapper"><input type="color" id="ws-color" value="#000000" oninput="updateWidgetPreview()"></div></div>
-                            <div class="control-group half"><label>Text Ink</label><div class="color-picker-wrapper"><input type="color" id="ws-text-color" value="#ffffff" oninput="updateWidgetPreview()"></div></div>
-                        </div>
-                        <div class="control-group" style="margin-top: 15px; border-top: 1px solid #eee; padding-top: 15px;">
-                            <label><i class="fa-solid fa-shield-halved"></i> Max Try-Ons per User (Daily)</label>
-                            <input type="number" id="ws-limit" value="5" min="1" max="20" style="width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px;">
-                            <small style="color: #64748b; font-size: 0.8rem;">Controls your costs & prevents abuse.</small>
-                        </div>
+                        <div class="control-group"><label>Button Text</label><input type="text" id="ws-text" value="Try It On Now ✨" oninput="updateWidgetPreview()"></div>
+                        <div class="control-group-row"><div class="control-group half"><label>Background</label><div class="color-picker-wrapper"><input type="color" id="ws-color" value="#000000" oninput="updateWidgetPreview()"></div></div><div class="control-group half"><label>Text Ink</label><div class="color-picker-wrapper"><input type="color" id="ws-text-color" value="#ffffff" oninput="updateWidgetPreview()"></div></div></div>
+                        <div class="control-group" style="margin-top: 15px; border-top: 1px solid #eee; padding-top: 15px;"><label><i class="fa-solid fa-shield-halved"></i> Max Try-Ons per User (Daily)</label><input type="number" id="ws-limit" value="5" min="1" max="20" style="width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px;"><small style="color: #64748b; font-size: 0.8rem;">Controls your costs & prevents abuse.</small></div>
                         <button class="btn-save-widget" onclick="saveSettings(this)">Save Settings</button>
                     </div>
-                    <div class="studio-preview">
-                        <div class="preview-label">Live Preview</div>
-                        <div class="fake-product-page">
-                            <div class="fake-img"></div>
-                            <div class="fake-info">
-                                <div class="fake-line title"></div>
-                                <div class="fake-line price"></div>
-                                <button id="ws-preview-btn" class="preview-widget-btn"><i class="fa-solid fa-shirt"></i> <span>Try It On Now ✨</span></button>
-                            </div>
-                        </div>
-                    </div>
+                    <div class="studio-preview"><div class="preview-label">Live Preview</div><div class="fake-product-page"><div class="fake-img"></div><div class="fake-info"><div class="fake-line title"></div><div class="fake-line price"></div><button id="ws-preview-btn" class="preview-widget-btn"><i class="fa-solid fa-shirt"></i> <span>Try It On Now ✨</span></button></div></div></div>
                 </div>
             </div>
 
@@ -106,57 +67,22 @@
 
                 <div class="pricing-row">
                     <div class="pricing-card" onclick="buy('pack_10', 0, this)">
-                        <div class="pc-header">
-                            <span class="pc-name">Starter Pack</span>
-                            <span class="pc-credits">10</span>
-                            <span class="pc-unit">Credits</span>
-                        </div>
-                        <div class="pc-price">
-                            <span class="currency">€</span>4.99
-                            <span class="per-try">€0.50 / try</span>
-                        </div>
-                        <ul class="pc-features">
-                            <li><i class="fa-solid fa-check"></i> Standard Quality</li>
-                            <li><i class="fa-solid fa-check"></i> Email Support</li>
-                            <li><i class="fa-solid fa-check"></i> No Expiration</li>
-                        </ul>
+                        <div class="pc-header"><span class="pc-name">Starter Pack</span><span class="pc-credits">10</span><span class="pc-unit">Credits</span></div>
+                        <div class="pc-price"><span class="currency">€</span>4.99<span class="per-try">€0.50 / try</span></div>
+                        <ul class="pc-features"><li><i class="fa-solid fa-check"></i> Standard Quality</li><li><i class="fa-solid fa-check"></i> Email Support</li><li><i class="fa-solid fa-check"></i> No Expiration</li></ul>
                         <button class="btn-buy">Buy Starter</button>
                     </div>
-
                     <div class="pricing-card featured" onclick="buy('pack_30', 0, this)">
                         <div class="popular-badge">MOST POPULAR</div>
-                        <div class="pc-header">
-                            <span class="pc-name">Growth Pack</span>
-                            <span class="pc-credits">30</span>
-                            <span class="pc-unit">Credits</span>
-                        </div>
-                        <div class="pc-price">
-                            <span class="currency">€</span>12.99
-                            <span class="per-try highlight">€0.43 / try</span>
-                        </div>
-                        <ul class="pc-features">
-                            <li><i class="fa-solid fa-check"></i> <strong>High Speed GPU</strong></li>
-                            <li><i class="fa-solid fa-check"></i> <strong>Best Conversion Rate</strong></li>
-                            <li><i class="fa-solid fa-check"></i> Priority Support</li>
-                        </ul>
+                        <div class="pc-header"><span class="pc-name">Growth Pack</span><span class="pc-credits">30</span><span class="pc-unit">Credits</span></div>
+                        <div class="pc-price"><span class="currency">€</span>12.99<span class="per-try highlight">€0.43 / try</span></div>
+                        <ul class="pc-features"><li><i class="fa-solid fa-check"></i> <strong>High Speed GPU</strong></li><li><i class="fa-solid fa-check"></i> <strong>Best Conversion Rate</strong></li><li><i class="fa-solid fa-check"></i> Priority Support</li></ul>
                         <button class="btn-buy featured-btn">Buy Growth 🚀</button>
                     </div>
-
                     <div class="pricing-card" onclick="buy('pack_100', 0, this)">
-                        <div class="pc-header">
-                            <span class="pc-name">Business Pack</span>
-                            <span class="pc-credits">100</span>
-                            <span class="pc-unit">Credits</span>
-                        </div>
-                        <div class="pc-price">
-                            <span class="currency">€</span>29.99
-                            <span class="per-try">€0.30 / try</span>
-                        </div>
-                        <ul class="pc-features">
-                            <li><i class="fa-solid fa-check"></i> Bulk Discount</li>
-                            <li><i class="fa-solid fa-check"></i> Dedicated Manager</li>
-                            <li><i class="fa-solid fa-check"></i> API Access</li>
-                        </ul>
+                        <div class="pc-header"><span class="pc-name">Business Pack</span><span class="pc-credits">100</span><span class="pc-unit">Credits</span></div>
+                        <div class="pc-price"><span class="currency">€</span>29.99<span class="per-try">€0.30 / try</span></div>
+                        <ul class="pc-features"><li><i class="fa-solid fa-check"></i> Bulk Discount</li><li><i class="fa-solid fa-check"></i> Dedicated Manager</li><li><i class="fa-solid fa-check"></i> API Access</li></ul>
                         <button class="btn-buy">Buy Business</button>
                     </div>
                 </div>
@@ -172,34 +98,13 @@
             <div class="divider"><span>TRY-ON PREVIEW TOOL</span></div>
         </div>
 
-
         <div class="main-content">
             <div class="studio-grid">
-                <label for="uImg" class="studio-box">
-                    <div class="step-number">01</div><img id="prevU" src="" style="display:none;">
-                    <div class="empty-state"><div class="icon-circle"><i class="fa-solid fa-camera"></i></div><span class="fashion-font">Your Photo</span></div>
-                    <input type="file" id="uImg" accept="image/*" onchange="preview('uImg', 'prevU')">
-                </label>
-                <label for="cImg" class="studio-box">
-                    <div class="step-number">02</div><img id="prevC" src="" style="display:none;">
-                    <div class="empty-state"><div class="icon-circle"><i class="fa-solid fa-shirt"></i></div><span class="fashion-font">The Look</span></div>
-                    <input type="file" id="cImg" accept="image/*" onchange="preview('cImg', 'prevC')">
-                </label>
+                <label for="uImg" class="studio-box"><div class="step-number">01</div><img id="prevU" src="" style="display:none;"><div class="empty-state"><div class="icon-circle"><i class="fa-solid fa-camera"></i></div><span class="fashion-font">Your Photo</span></div><input type="file" id="uImg" accept="image/*" onchange="preview('uImg', 'prevU')"></label>
+                <label for="cImg" class="studio-box"><div class="step-number">02</div><img id="prevC" src="" style="display:none;"><div class="empty-state"><div class="icon-circle"><i class="fa-solid fa-shirt"></i></div><span class="fashion-font">The Look</span></div><input type="file" id="cImg" accept="image/*" onchange="preview('cImg', 'prevC')"></label>
             </div>
-
-            <div class="action-area">
-                <button id="btnGo" onclick="generate()" class="btn-magic"><span class="btn-content">Try It On Now <i class="fa-solid fa-wand-magic-sparkles"></i></span><div class="btn-glow"></div></button>
-            </div>
-
-            <div id="resZone" style="display:none;" class="result-display">
-                <div id="loader" style="display:none;"><div class="spinner-modern"></div><p id="loader-text" class="fashion-loader-text">Analyzing silhouette...</p></div>
-                <img id="resImg" src="" style="display:none;">
-                <div id="post-actions" style="display:none;" class="post-result-actions">
-                    <button id="shopBtn" class="btn-shop-now" onclick="trackConversion()">
-                        Shop This Look <i class="fa-solid fa-bag-shopping"></i>
-                    </button>
-                </div>
-            </div>
+            <div class="action-area"><button id="btnGo" onclick="generate()" class="btn-magic"><span class="btn-content">Try It On Now <i class="fa-solid fa-wand-magic-sparkles"></i></span><div class="btn-glow"></div></button></div>
+            <div id="resZone" style="display:none;" class="result-display"><div id="loader" style="display:none;"><div class="spinner-modern"></div><p id="loader-text" class="fashion-loader-text">Analyzing silhouette...</p></div><img id="resImg" src="" style="display:none;"><div id="post-actions" style="display:none;" class="post-result-actions"><button id="shopBtn" class="btn-shop-now" onclick="trackATC()">Shop This Look <i class="fa-solid fa-bag-shopping"></i></button></div></div>
         </div>
     </div>
     <script src="/app.js"></script>
