@@ -3,80 +3,131 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Virtual Try-On</title>
-    
+    <title>VTON Magic Admin</title>
     <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js" data-api-key="{{ api_key }}"></script>
-
     <link rel="stylesheet" href="/styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
-<body style="opacity: 0; transition: opacity 0.5s;"> 
+<body>
 
-    <div class="container">
+    <div class="main-wrapper">
         
-        <header>
-            <h1><i class="fa-solid fa-shirt"></i> Virtual Try-On AI</h1>
-            <div id="admin-dashboard" class="credits-box">
-                <i class="fa-solid fa-coins"></i> 
-                Credits: <span id="credits">...</span>
+        <header class="top-bar">
+            <div class="logo-area">
+                <i class="fa-solid fa-bolt text-purple"></i> 
+                <h1>VTON Magic Admin</h1>
             </div>
-            <h2 id="client-title" style="display:none;">Essayez cet article</h2>
+            <div class="status-badge">
+                <span class="dot"></span> System Active
+            </div>
         </header>
 
-        <div class="upload-section">
-            <div class="upload-card">
-                <h3>1. Votre Photo</h3>
-                <label for="uImg" class="drop-zone">
-                    <img id="prevU" src="" style="display:none;">
-                    <div class="upload-content">
-                        <i class="fa-solid fa-camera fa-2x"></i>
-                        <span class="upload-text">Ajouter photo</span>
+        <div class="info-banner">
+            <div class="icon-box">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+            </div>
+            <p>
+                <strong>Stop losing money on returns.</strong> Letting customers <a href="#">test products virtually</a> removes doubt. This slashes refunds and boosts conversion by <span class="text-green">2.5x</span> instantly.
+            </p>
+        </div>
+
+        <div id="billing-section" class="dashboard-grid">
+            
+            <div class="card dark-card">
+                <div class="card-content">
+                    <p class="label-credits">REMAINING CREDITS</p>
+                    <div class="credits-display">
+                        <span id="credits"><i class="fa-solid fa-spinner fa-spin"></i></span>
                     </div>
-                    <input type="file" id="uImg" accept="image/*" onchange="preview('uImg', 'prevU')">
-                </label>
+                    <div class="infinity-loop">
+                        <i class="fa-solid fa-infinity"></i> Credits never expire
+                    </div>
+                </div>
             </div>
 
-            <div class="upload-card">
-                <h3>2. Le Vêtement</h3>
-                <label for="cImg" class="drop-zone">
-                    <img id="prevC" src="" style="display:none;">
-                    <div class="upload-content">
-                        <i class="fa-solid fa-vest fa-2x"></i>
-                        <span class="upload-text">Ajouter vêtement</span>
-                    </div>
-                    <input type="file" id="cImg" accept="image/*" onchange="preview('cImg', 'prevC')">
-                </label>
+            <div class="card pricing-card">
+                <h3>Discovery</h3>
+                <div class="big-number">10</div>
+                <p class="subtext">Start offering Virtual Testing</p>
+                <div class="price">4.99€</div>
+                <button onclick="buy('pack_10', 0, this)" class="btn-outline">Select</button>
+            </div>
+
+            <div class="card pricing-card featured">
+                <div class="badge-best-seller"><i class="fa-solid fa-fire"></i> BEST SELLER</div>
+                <div class="badge-save">SAVE 15%</div>
+                <h3 class="text-purple">Standard</h3>
+                <div class="big-number text-purple">30</div>
+                <p class="subtext">Turn visitors into buyers</p>
+                <div class="price">12.99€</div>
+                <button onclick="buy('pack_30', 0, this)" class="btn-primary-purple">Top Up Now</button>
+            </div>
+
+            <div class="card pricing-card">
+                <div class="badge-roi">BEST ROI</div>
+                <h3>Business</h3>
+                <div class="big-number">100</div>
+                <p class="subtext">Slash return rates by 30%</p>
+                <div class="price">29.99€</div>
+                <button onclick="buy('pack_100', 0, this)" class="btn-outline">Select</button>
+            </div>
+
+        </div>
+
+        <div class="high-volume-bar">
+            <div class="hv-left">
+                <i class="fa-solid fa-building"></i>
+                <div>
+                    <strong>High Volume Store?</strong>
+                    <p>Get our lowest rate (<strong>€0.25 / try-on</strong>) for bulk orders.</p>
+                </div>
+            </div>
+            <div class="hv-right custom-input-group">
+                <input type="number" id="customAmount" placeholder="200" value="200">
+                <button onclick="buyCustom(this)" class="btn-dark-small">Get Custom Pack</button>
             </div>
         </div>
 
-        <div class="action-section">
-            <button id="btnGo" onclick="generate()" class="btn-primary">
+        <div class="preview-header">
+            MOBILE PREVIEW (CUSTOMER VIEW)
+        </div>
+
+        <div class="upload-section">
+            <label for="uImg" class="upload-box">
+                <div class="badge-step">1</div>
+                <img id="prevU" src="" style="display:none;">
+                <div class="upload-content">
+                    <i class="fa-solid fa-camera fa-2x"></i>
+                    <p><strong>Upload your photo</strong><br>Selfie or full body</p>
+                </div>
+                <input type="file" id="uImg" accept="image/*" onchange="preview('uImg', 'prevU')">
+            </label>
+
+            <label for="cImg" class="upload-box">
+                <div class="badge-step">2</div>
+                <img id="prevC" src="" style="display:none;">
+                <div class="upload-content">
+                    <i class="fa-solid fa-shirt fa-2x"></i>
+                    <p><strong>Upload the garment</strong><br>On white or neutral background</p>
+                </div>
+                <input type="file" id="cImg" accept="image/*" onchange="preview('cImg', 'prevC')">
+            </label>
+        </div>
+
+        <div class="action-footer">
+            <button id="btnGo" onclick="generate()" class="btn-mega-black">
                 Test This Outfit Now <i class="fa-solid fa-wand-magic-sparkles"></i>
             </button>
         </div>
 
-        <div id="resZone" style="display:none;" class="result-section">
+        <div id="resZone" style="display:none;" class="result-container">
             <h3>Résultat</h3>
             <div id="loader" style="display:none;">
-                <i class="fa-solid fa-spinner fa-spin fa-3x"></i>
-                <p>Création en cours...</p>
+                <i class="fa-solid fa-spinner fa-spin fa-2x"></i>
+                <p>IA en cours de génération...</p>
             </div>
-            <img id="resImg" src="" style="display:none; max-width: 100%; border-radius: 8px; margin-top: 10px;">
-        </div>
-
-        <hr>
-
-        <div id="billing-section" class="billing-section">
-            <h3>Recharger des crédits</h3>
-            <div class="pricing-grid">
-                <button onclick="buy('pack_10', 0, this)" class="btn-buy">10 Credits (4.99$)</button>
-                <button onclick="buy('pack_30', 0, this)" class="btn-buy">30 Credits (12.99$)</button>
-                <button onclick="buy('pack_100', 0, this)" class="btn-buy">100 Credits (29.99$)</button>
-            </div>
-            <div class="custom-input-group" style="margin-top: 15px;">
-                <input type="number" id="customAmount" placeholder="Quantité (min 200)">
-                <button onclick="buyCustom(this)" class="btn-secondary">Achat Custom</button>
-            </div>
+            <img id="resImg" src="" style="display:none;">
         </div>
 
     </div>
