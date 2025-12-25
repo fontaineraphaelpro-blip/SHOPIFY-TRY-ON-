@@ -1,211 +1,285 @@
-/* --- VARIABLES --- */
+/* --- 1. RESET & BASICS (Style Shopify Polaris) --- */
 :root {
-    --primary: #4f46e5;
-    --primary-dark: #4338ca;
-    --text-main: #111827;
-    --bg-app: #f3f4f6;
-    --border: #e2e8f0;
-    --success: #10b981;
+    --shopify-green: #008060;
+    --shopify-green-dark: #006e52;
+    --text-color: #202223;
+    --text-subdued: #6d7175;
+    --border-color: #d2d5d8;
+    --bg-surface: #ffffff;
+    --bg-page: #f6f6f7;
+    --radius: 8px;
+}
+
+* {
+    box-sizing: border-box;
 }
 
 body {
-    font-family: 'Inter', -apple-system, sans-serif;
-    background-color: var(--bg-app);
-    color: var(--text-main);
-    margin: 0; padding: 20px;
-    opacity: 0; transition: opacity 0.3s ease;
-}
-body.loaded { opacity: 1; }
-
-/* =========================================
-   MODE CLIENT
-   ========================================= */
-body.client-mode {
-    background: transparent !important;
-    padding: 0 !important; margin: 0 !important;
-    overflow-y: auto !important;
-}
-body.client-mode #admin-dashboard { display: none !important; }
-body.client-mode #studio-interface {
-    max-width: 100%; border: none; padding: 10px;
-    background: #fff; min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--bg-page);
+    color: var(--text-color);
+    margin: 0;
+    padding: 20px;
+    line-height: 1.5;
+    opacity: 0; /* Géré par JS pour le fade-in */
+    transition: opacity 0.5s ease-in-out;
 }
 
-.client-grid {
+body.loaded {
+    opacity: 1;
+}
+
+h1, h2, h3 {
+    margin: 0 0 15px 0;
+    font-weight: 600;
+}
+
+.container {
+    max-width: 900px;
+    margin: 0 auto;
+    background: var(--bg-surface);
+    padding: 30px;
+    border-radius: var(--radius);
+    box-shadow: 0 0 0 1px rgba(63, 63, 68, 0.05), 0 1px 3px 0 rgba(63, 63, 68, 0.15);
+}
+
+/* --- 2. HEADER & CRÉDITS --- */
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 20px;
+}
+
+.credits-box {
+    background-color: #e3f1df;
+    color: var(--shopify-green-dark);
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-weight: bold;
+    font-size: 0.9em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* --- 3. UPLOAD SECTION (Les cartes) --- */
+.upload-section {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 15px;
-    align-items: stretch;
-}
-
-.upload-card {
-    background: #f9fafb;
-    border: 2px dashed #d1d5db;
-    border-radius: 16px;
-    height: 300px;
-    position: relative; cursor: pointer;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    transition: 0.2s; overflow: hidden;
-}
-.upload-card:hover { border-color: var(--primary); background: #fdfdff; }
-.upload-card:active { transform: scale(0.98); }
-
-.upload-card.has-image { border-style: solid; border-color: #000; background: #000; }
-.upload-card img {
-    width: 100%; height: 100%;
-    object-fit: contain;
-    position: absolute; top:0; left:0; display: none;
-}
-
-.step-badge {
-    position: absolute; top: 10px; left: 10px;
-    background: rgba(0,0,0,0.8); color: white; width: 24px; height: 24px;
-    border-radius: 50%; display: flex; align-items: center; justify-content: center;
-    font-size: 0.8rem; font-weight: bold; z-index: 2;
-}
-.upload-icon { font-size: 2rem; color: #9ca3af; margin-bottom: 10px; }
-.upload-text { font-weight: 600; font-size: 0.9rem; text-align: center; }
-
-#resZone {
-    background: #eff6ff; border-color: #93c5fd; border-style: solid;
-    cursor: default;
-}
-
-.cta-button {
-    grid-column: 1 / -1;
-    background: #000; color: white; width: 100%; padding: 16px;
-    border: none; border-radius: 50px; font-size: 1.1rem; font-weight: 700;
-    cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.2); margin-top: 10px;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 30px;
 }
 
 @media (max-width: 600px) {
-    .client-grid { grid-template-columns: 1fr; }
-    .upload-card { height: 200px; }
+    .upload-section {
+        grid-template-columns: 1fr;
+    }
 }
 
-
-/* =========================================
-   MODE ADMIN
-   ========================================= */
-.container { max-width: 1100px; margin: 0 auto; }
-.admin-header { display: flex; justify-content: space-between; margin-bottom: 30px; align-items: center; }
-.brand { font-size: 1.5rem; font-weight: 800; display: flex; align-items: center; gap: 10px; }
-.brand i { color: var(--primary); }
-
-.dashboard-grid { display: grid; grid-template-columns: 320px 1fr; gap: 30px; margin-bottom: 50px; }
-
-.credit-card {
-    background: linear-gradient(135deg, #1e1b4b, #312e81); color: white;
-    padding: 30px; border-radius: 24px; text-align: center;
-    box-shadow: 0 20px 40px -10px rgba(49, 46, 129, 0.5);
-    height: 380px; display: flex; flex-direction: column; justify-content: center;
-    position: relative; overflow: hidden;
+.upload-card h3 {
+    font-size: 1rem;
+    color: var(--text-subdued);
+    margin-bottom: 10px;
+    text-align: center;
 }
-.credit-card::after { content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%); }
-.credit-amount { font-size: 5rem; font-weight: 900; margin: 15px 0; line-height: 1; text-shadow: 0 2px 10px rgba(0,0,0,0.3); }
 
-.packs-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
-.pack-card {
-    background: white; border: 1px solid var(--border); border-radius: 24px;
-    padding: 25px; text-align: center; cursor: pointer; transition: 0.3s;
-    display: flex; flex-direction: column; justify-content: space-between; height: 380px; position: relative;
+/* Zone de drop design */
+.drop-zone {
+    border: 2px dashed var(--border-color);
+    border-radius: var(--radius);
+    height: 300px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    background: #fafbfb;
+    transition: all 0.2s ease;
+    position: relative;
+    overflow: hidden;
 }
-.pack-card:hover { transform: translateY(-8px); border-color: var(--primary); box-shadow: 0 15px 30px rgba(0,0,0,0.08); }
 
-.pack-card.popular {
-    border: 3px solid var(--primary); background: linear-gradient(to bottom, #f5f3ff, #ffffff);
-    transform: scale(1.05); z-index: 10; box-shadow: 0 20px 50px -15px rgba(79, 70, 229, 0.3);
+.drop-zone:hover {
+    border-color: var(--shopify-green);
+    background: #f0fdf4;
 }
-.pack-card.popular:hover { transform: scale(1.08) translateY(-5px); }
 
-.popular-badge {
-    position: absolute; top: -15px; left: 50%; transform: translateX(-50%);
-    background: linear-gradient(90deg, var(--primary), #ec4899); 
-    color: white; padding: 8px 16px; border-radius: 20px; font-size: 0.75rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px;
-    box-shadow: 0 4px 10px rgba(79, 70, 229, 0.4);
+.drop-zone input[type="file"] {
+    display: none;
 }
-.save-badge { background: #dcfce7; color: #15803d; font-size: 0.75rem; font-weight: 700; padding: 4px 10px; border-radius: 8px; display: inline-block; margin-bottom: 5px; }
 
-.pack-title { font-size: 1.1rem; font-weight: 700; color: #374151; margin-bottom: 5px; }
-.pack-credits { font-size: 3.5rem; font-weight: 900; color: var(--text-main); line-height: 1; margin: 10px 0; }
-.pack-price { font-size: 1.5rem; font-weight: 700; color: var(--primary); }
-.unit-price { font-size: 0.85rem; color: #6b7280; margin-top: 5px; font-weight: 500; }
+.upload-content {
+    text-align: center;
+    color: var(--text-subdued);
+    transition: opacity 0.2s;
+    pointer-events: none; /* Pour que le click passe au label */
+}
 
-.pack-btn { width: 100%; padding: 15px; border-radius: 14px; font-weight: 700; cursor: pointer; border: none; font-size: 1rem; margin-top: 15px; transition: 0.2s; }
-.btn-outline { background: white; border: 2px solid #e5e7eb; color: var(--text-main); }
-.btn-outline:hover { border-color: var(--primary); color: var(--primary); background: #eff6ff; }
-.btn-fill { background: var(--primary); color: white; box-shadow: 0 8px 20px -5px rgba(79, 70, 229, 0.5); }
-.btn-fill:hover { background: var(--primary-dark); transform: translateY(-2px); }
+.upload-content i {
+    color: #aeb4b9;
+    margin-bottom: 10px;
+    display: block;
+}
 
-.hidden { display: none; }
-input[type="file"] { display: none !important; }
-@media (max-width: 900px) { .dashboard-grid, .packs-container { grid-template-columns: 1fr; } .pack-card.popular { transform: scale(1); } }
+.upload-text {
+    font-weight: 500;
+}
 
-/* --- NOUVEAU : BANNIÈRE ROI --- */
-.roi-banner {
-    background: linear-gradient(90deg, #eff6ff 0%, #f5f3ff 100%);
-    border: 1px solid #c7d2fe;
-    border-radius: 12px;
-    padding: 15px 20px;
+/* Prévisualisation Image */
+.drop-zone img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain; /* Ou cover selon préférence */
+    background: white;
+    z-index: 10;
+}
+
+/* --- 4. ACTION BUTTON --- */
+.action-section {
+    text-align: center;
     margin-bottom: 30px;
-    display: flex;
-    align-items: center;
-    gap: 15px;
-    color: #1e293b;
 }
-.roi-icon {
-    background: #fff;
-    width: 40px; height: 40px;
-    border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    color: var(--primary);
-    font-size: 1.2rem;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-}
-.roi-text { font-size: 0.95rem; line-height: 1.5; }
 
-/* --- NOUVEAU : SECTION CUSTOM CREDITS --- */
-.custom-section {
-    background: #fff;
-    border: 1px dashed var(--border);
-    border-radius: 16px;
-    padding: 20px 30px;
-    margin-top: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 20px;
+.btn-primary {
+    background-color: var(--shopify-green);
+    color: white;
+    border: none;
+    padding: 15px 40px;
+    font-size: 1.1rem;
+    font-weight: 600;
+    border-radius: 4px;
+    cursor: pointer;
+    box-shadow: 0 5px 15px rgba(0, 128, 96, 0.2);
+    transition: transform 0.1s, background-color 0.2s;
+    width: 100%;
+    max-width: 400px;
 }
+
+.btn-primary:hover {
+    background-color: var(--shopify-green-dark);
+    transform: translateY(-1px);
+}
+
+.btn-primary:active {
+    transform: translateY(1px);
+}
+
+.btn-primary:disabled {
+    background-color: #babfc3;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+/* --- 5. RÉSULTAT & LOADER --- */
+.result-section {
+    text-align: center;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-color);
+}
+
+#loader {
+    color: var(--shopify-green);
+    margin: 20px 0;
+}
+#loader p {
+    color: var(--text-subdued);
+    font-size: 0.9em;
+    margin-top: 10px;
+}
+
+#resImg {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    border: 1px solid var(--border-color);
+}
+
+/* --- 6. BILLING SECTION (Prix) --- */
+.billing-section {
+    margin-top: 40px;
+    background: #fafbfb;
+    padding: 20px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border-color);
+}
+
+.billing-section h3 {
+    margin-bottom: 20px;
+    font-size: 1.1rem;
+}
+
+.pricing-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+@media (max-width: 600px) {
+    .pricing-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.btn-buy {
+    background: white;
+    border: 1px solid var(--border-color);
+    padding: 15px;
+    border-radius: 4px;
+    font-weight: 600;
+    color: var(--text-color);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-buy:hover {
+    border-color: var(--shopify-green);
+    color: var(--shopify-green);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+/* Custom Amount Input */
 .custom-input-group {
     display: flex;
     gap: 10px;
-    align-items: center;
+    max-width: 400px;
 }
-.custom-input-group input {
-    padding: 10px 15px;
-    border: 2px solid var(--border);
-    border-radius: 8px;
-    width: 100px;
-    font-size: 1rem;
-    font-weight: 700;
-    text-align: center;
-    color: var(--text-main);
-}
-.custom-input-group input:focus { outline: none; border-color: var(--primary); }
-.custom-input-group button {
-    background: var(--text-main);
-    color: white;
-    border: none;
-    padding: 12px 20px;
-    border-radius: 8px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: 0.2s;
-}
-.custom-input-group button:hover { background: black; transform: translateY(-2px); }
 
-@media (max-width: 600px) {
-    .custom-section { flex-direction: column; text-align: center; }
-    .custom-input-group { width: 100%; justify-content: center; }
+.custom-input-group input {
+    flex: 1;
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+}
+
+.btn-secondary {
+    background: white;
+    border: 1px solid var(--text-subdued);
+    color: var(--text-subdued);
+    padding: 10px 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.btn-secondary:hover {
+    border-color: var(--text-color);
+    color: var(--text-color);
+}
+
+/* --- 7. CLIENT MODE (Widget) --- */
+/* Masque certains éléments si on est en mode client */
+body.client-mode .container {
+    box-shadow: none;
+    padding: 0;
+    background: transparent;
+}
+body.client-mode header {
+    border: none;
+    margin-bottom: 10px;
 }
