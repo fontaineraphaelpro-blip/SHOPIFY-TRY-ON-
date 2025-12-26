@@ -1,19 +1,158 @@
 document.addEventListener("DOMContentLoaded", function() {
 
+    // 1. DÉTECTION INTELLIGENTE (Mode Client ou Admin ?)
+    const params = new URLSearchParams(window.location.search);
+    const mode = params.get('mode'); // sera 'client' depuis le widget
+    
+    // Astuce : En mode client, le shop est TOUJOURS dans l'URL.
+    // En admin, il peut être dans le storage.
+    const shop = params.get('shop') || (window.shopify ? null : sessionStorage.getItem('shop'));
+    const autoProductImage = params.get('product_image');
+
+    // On affiche l'app (évite le flash blanc)
     document.body.classList.add('loaded');
     document.body.style.opacity = "1";
 
-    const params = new URLSearchParams(window.location.search);
-    const mode = params.get('mode');
-    let shop = params.get('shop') || sessionStorage.getItem('shop');
-    const autoProductImage = params.get('product_image');
+    // 2. LOGIQUE D'INTERFACE UNIFIÉE
+    if (mode === 'client') {
+        // --- MODE VISITEUR (WIDGET) ---
+        console.log("👋 Mode Client détecté");
+        document.body.classList.add('client-mode');
+        
+        // ON CACHE TOUTE L'ADMINISTRATION (Dashboard, Paiement, Settings)
+        const adminZone = document.getElementById('admin-only-zone');
+        if(adminZone) adminZone.style.display = 'none';
+        
+        // On pré-remplit l'image du produit si elle existe
+        if (autoProductImage) {
+            const img = document.getElementById('prevC');
+            if(img) {
+                img.src = autoProductImage;
+                img.style.display = 'block';
+                // Cache l'icône vide
+                const emptyState = img.parentElement.querySelector('.empty-state');
+                if(emptyState) emptyState.style.display = 'none';
+            }
+        }
+    } else {
+        // --- MODE ADMIN (PROPRIÉTAIRE) ---
+        console.log("👑 Mode Admin détecté");
+        if(shop) initAdminMode(shop);
+    }
 
-    // FIX SESSION
-    try {
-        if(!shop) shop = sessionStorage.getItem('shop');
-        if(shop) sessionStorage.setItem('shop', shop);
-    } catch(e) {}
+    // --- FONCTIONS ---
 
+    // Prévisualisation simple des images
+    window.preview = function(inputId, imgId) {
+        const file = document.getElementById(inputId).files[0];
+        if(file) {
+            const reader = new FileReader();
+            reader.onload = e => {
+                const img = document.getElementById(imgId);
+                img.src = e.target.result;
+                img.style.display = 'block';
+                const emptyState = img.parentElement.querySelector('.empty-state');
+                if(emptyState) emptyState.style.display = 'none';
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
+    // LA FONCTION GÉNÉRATION (Compatible Firefox/Chrome/Safari)
+    window.generate = async function() {
+        // On relit les paramètres au moment du clic pour être sûr
+        const currentParams = new URLSearchParams(window.location.search);
+        const currentShop = currentParams.get('shop') || shop;
+        const currentMode = currentParams.get('mode');
+
+        const uFile = document.getElementById('uImg').files[0];
+        const cFile = document.getElementById('cImg').files[0];
+        const btn = document.getElementById('btnGo');
+
+        // Sécurités
+        if (!currentShop) return alert("Erreur technique : Boutique non identifiée. Rechargez la page.");
+        if (!uFile) return alert("Veuillez ajouter votre photo (Étape 1).");
+        if (!autoProductImage && !cFile) return alert("Veuillez ajouter un vêtement (Étape 2).");
+
+        // Animation de chargement
+        const oldText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = "Création du look... <i class='fa-solid fa-spinner fa-spin'></i>";
+        
+        document.getElementById('resZone').style.display = 'block';
+        document.getElementById('loader').style.display = 'block';
+        document.getElementById('resImg').style.display = 'none';
+        
+        // Petit texte d'attente sympa
+        const textEl = document.getElementById('loader-text');
+        if(textEl) textEl.innerText = "Analyse de la silhouette...";
+
+        try {
+            const formData = new FormData();
+            formData.append("shop", currentShop);
+            formData.append("person_image", uFile);
+            formData.append("category", "upper_body");
+
+            // Gestion intelligente URL vs Fichier
+            if (autoProductImage) {
+                formData.append("clothing_url", autoProductImage);
+            } else {
+                formData.append("clothing_file", cFile);
+            }
+
+            let res;
+            
+            // --- C'EST ICI QUE LA MAGIE OPÈRE ---
+            if (currentMode === 'client') {
+                // Pour le client (Firefox friendly) : Fetch standard
+                // Pas de headers bizarres, pas de session storage -> Ça passe partout !
+                res = await fetch('/api/generate', {
+                    method: 'POST',
+                    body: formData
+                });
+            } else {
+                // Pour l'admin : Fetch authentifié Shopify
+                res = await authenticatedFetch('/api/generate', { 
+                    method: 'POST', 
+                    body: formData 
+                });
+            }
+
+            if (!res.ok) {
+                const errTxt = await res.text();
+                // Gestion des erreurs spécifiques
+                if (res.status === 429) throw new Error("Limite journalière atteinte pour cette boutique.");
+                if (res.status === 402) throw new Error("La boutique n'a plus de crédits.");
+                throw new Error("Erreur serveur: " + errTxt);
+            }
+
+            const data = await res.json();
+            
+            if(data.result_image_url) {
+                const ri = document.getElementById('resImg');
+                ri.src = data.result_image_url;
+                ri.onload = () => {
+                    document.getElementById('loader').style.display = 'none';
+                    ri.style.display = 'block';
+                    // Scroll vers le résultat
+                    ri.scrollIntoView({behavior: "smooth", block: "center"});
+                };
+            } else {
+                throw new Error("L'IA n'a pas renvoyé d'image.");
+            }
+
+        } catch (e) {
+            console.error(e);
+            alert("Oups ! " + e.message);
+            document.getElementById('loader').style.display = 'none';
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = oldText;
+        }
+    };
+
+    // --- FONCTIONS ADMIN (Ne s'exécutent pas chez le client) ---
+    
     async function getSessionToken() {
         if (window.shopify && window.shopify.id) return await shopify.id.getToken();
         return null;
@@ -24,296 +163,44 @@ document.addEventListener("DOMContentLoaded", function() {
             const token = await getSessionToken();
             const headers = options.headers || {};
             if (token) headers['Authorization'] = `Bearer ${token}`;
-            const res = await fetch(url, { ...options, headers });
-            if (res.status === 401 && shop && mode !== 'client') { window.top.location.href = `/login?shop=${shop}`; return null; }
-            return res;
-        } catch (error) { throw error; }
+            return fetch(url, { ...options, headers });
+        } catch(e) { throw e; }
     }
 
-    if(shop) {
-        if (mode === 'client') initClientMode();
-        else initAdminMode(shop);
-    }
-
-    // --- DASHBOARD ---
     async function initAdminMode(s) {
-        const res = await authenticatedFetch(`/api/get-data?shop=${s}`);
-        if (res && res.ok) {
-            const data = await res.json();
-
-            // Affichage Stats
-            updateDashboardStats(data.credits || 0);
-            updateVIPStatus(data.lifetime || 0);
-
-            // Compteurs simples
-            const tryEl = document.getElementById('stat-tryons');
-            const atcEl = document.getElementById('stat-atc');
-            if(tryEl) tryEl.innerText = data.usage || 0;
-            if(atcEl) atcEl.innerText = data.atc || 0;
-
-            if(data.widget) {
-                document.getElementById('ws-text').value = data.widget.text || "Try It On Now ✨";
-                document.getElementById('ws-color').value = data.widget.bg || "#000000";
-                document.getElementById('ws-text-color').value = data.widget.color || "#ffffff";
-                if(data.security) document.getElementById('ws-limit').value = data.security.max_tries || 5;
-                window.updateWidgetPreview();
-            }
-        }
-    }
-
-    function updateDashboardStats(credits) {
-        const el = document.getElementById('credits');
-        if(el) el.innerText = credits;
-        const supplyCard = document.querySelector('.smart-supply-card');
-        const alertBadge = document.querySelector('.alert-badge');
-        const daysEl = document.querySelector('.rs-value');
-        if (supplyCard && daysEl) {
-            let daysLeft = Math.floor(credits / 8); 
-            if(daysLeft < 1) daysLeft = "< 1";
-            daysEl.innerText = daysLeft + (daysLeft === "< 1" ? " Day" : " Days");
-            if (credits < 20) {
-                supplyCard.style.background = "#fff0f0";
-                alertBadge.innerText = "CRITICAL";
-                alertBadge.style.background = "#dc2626";
-            } else {
-                supplyCard.style.background = "#f0fdf4";
-                alertBadge.innerText = "HEALTHY";
-                alertBadge.style.background = "#16a34a";
-            }
-        }
-    }
-
-    function updateVIPStatus(lifetime) {
-        const fill = document.querySelector('.vip-fill');
-        const marker = document.querySelector('.vip-marker');
-        let percent = (lifetime / 500) * 100;
-        if(percent > 100) percent = 100;
-        if(fill) fill.style.width = percent + "%";
-        if(marker) marker.style.left = percent + "%";
-        if(lifetime >= 500) {
-            const title = document.querySelector('.vip-title strong');
-            if(title) title.innerText = "Gold Member";
-        }
-    }
-
-    window.saveSettings = async function(btn) {
-        const oldText = btn.innerText;
-        btn.innerText = "Saving..."; btn.disabled = true;
-        const settings = {
-            shop: shop,
-            text: document.getElementById('ws-text').value,
-            bg: document.getElementById('ws-color').value,
-            color: document.getElementById('ws-text-color').value,
-            max_tries: parseInt(document.getElementById('ws-limit').value) || 5
-        };
         try {
-            const res = await authenticatedFetch('/api/save-settings', {
-                method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(settings)
-            });
-            if(res.ok) { btn.innerText = "Saved! ✅"; setTimeout(() => btn.innerText = oldText, 2000); } 
-            else { alert("Save failed"); }
-        } catch(e) { console.error(e); alert("Error saving"); }
-        finally { btn.disabled = false; }
-    };
-
-    window.trackATC = async function() {
-        if(shop) {
-            try {
-                await fetch('/api/track-atc', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ shop: shop })
-                });
-            } catch(e) { console.error("Tracking Error", e); }
-        }
-    };
-
-    function initClientMode() {
-        document.body.classList.add('client-mode');
-        const adminZone = document.getElementById('admin-only-zone');
-        if(adminZone) adminZone.style.display = 'none';
-        if (autoProductImage) {
-            const img = document.getElementById('prevC');
-            if(img) {
-                img.src = autoProductImage;
-                img.style.display = 'block';
-                if(img.parentElement) img.parentElement.querySelector('.empty-state').style.display = 'none';
+            // Récupération des stats dashboard
+            const res = await authenticatedFetch(`/api/get-data?shop=${s}`);
+            if(res.ok) {
+                const data = await res.json();
+                if(document.getElementById('credits')) document.getElementById('credits').innerText = data.credits;
+                if(document.getElementById('stat-tryons')) document.getElementById('stat-tryons').innerText = data.usage;
+                // ... on pourrait ajouter ici le reste des stats ...
             }
-        }
+        } catch(e) { console.log("Admin init skipped or failed"); }
     }
-
-    window.preview = function(inputId, imgId) {
-        const file = document.getElementById(inputId).files[0];
-        if(file) {
-            const reader = new FileReader();
-            reader.onload = e => {
-                const img = document.getElementById(imgId);
-                img.src = e.target.result;
-                img.style.display = 'block';
-                const content = img.parentElement.querySelector('.empty-state');
-                if(content) content.style.display = 'none';
-            };
-            reader.readAsDataURL(file);
-        }
-    };
-
-    window.updateWidgetPreview = function() {
-        const text = document.getElementById('ws-text').value;
-        const color = document.getElementById('ws-color').value;
-        const textColor = document.getElementById('ws-text-color').value;
-        const btn = document.getElementById('ws-preview-btn');
-        if(btn) {
-            btn.style.backgroundColor = color;
-            btn.style.color = textColor;
-            const span = btn.querySelector('span');
-            if(span) span.innerText = text;
-        }
-    }
-
-    // 
-// 
-window.generate = async function() {
-    // 1. On récupère les éléments
-    const uFile = document.getElementById('uImg').files[0];
-    const cFile = document.getElementById('cImg').files[0];
-    const btn = document.getElementById('btnGo');
-
-    // 2. CRUCIAL : On relit les paramètres URL ici pour être sûr à 100%
-    const params = new URLSearchParams(window.location.search);
-    const mode = params.get('mode'); 
-    // En mode client, le shop EST dans l'URL. En admin, on le prend du storage si besoin.
-    const shop = params.get('shop') || sessionStorage.getItem('shop'); 
-    const autoProductImage = params.get('product_image');
-
-    console.log("🚀 START GENERATE -> Shop:", shop, "Mode:", mode); // Pour le debug navigateur
-
-    // 3. Vérifications de base
-    if (!shop) return alert("System Error: Shop ID missing. Please reload.");
-    if (!uFile) return alert("Please upload your photo.");
-    if (!autoProductImage && !cFile) return alert("Please upload a garment.");
-
-    // 4. UI Loading
-    const oldText = btn.innerHTML;
-    btn.disabled = true; 
-    btn.innerHTML = "Generating... <i class='fa-solid fa-spinner fa-spin'></i>";
     
-    document.getElementById('resZone').style.display = 'block';
-    document.getElementById('loader').style.display = 'block';
-    document.getElementById('resImg').style.display = 'none';
-    document.getElementById('post-actions').style.display = 'none';
-
-    // Animation texte
-    const textEl = document.getElementById('loader-text');
-    const texts = ["Analyzing silhouette...", "Matching fabrics...", "Simulating drape...", "Rendering lighting..."];
-    let step = 0;
-    const interval = setInterval(() => { if(step < texts.length) textEl.innerText = texts[step++]; }, 2500);
-
-    try {
-        const formData = new FormData();
-        formData.append("shop", shop);
-        formData.append("person_image", uFile);
-        formData.append("category", "upper_body");
-
-        // Gestion URL vs Fichier
-        if (autoProductImage) {
-            console.log("Using Product URL:", autoProductImage);
-            formData.append("clothing_url", autoProductImage); 
-        } else {
-            formData.append("clothing_file", cFile);
-        }
-
-        let res;
-        
-        // 5. BRANCHEMENT CRITIQUE : Fetch vs AuthenticatedFetch
-        if (mode === 'client') {
-            // Mode Client (Widget) : On utilise fetch STANDARD (pas d'auth Shopify nécessaire ici)
-            console.log("📡 Sending via Standard Fetch...");
-            res = await fetch('/api/generate', { method: 'POST', body: formData });
-        } else {
-            // Mode Admin : On utilise l'auth Shopify
-            console.log("🔐 Sending via Authenticated Fetch...");
-            res = await authenticatedFetch('/api/generate', { method: 'POST', body: formData });
-        }
-
-        clearInterval(interval);
-
-        if (!res) throw new Error("No response from server");
-        
-        console.log("✅ Response Status:", res.status); // Debug
-
-        if (res.status === 429) { alert("Daily limit reached 🛑"); document.getElementById('loader').style.display = 'none'; return; }
-        if (res.status === 402) { alert("Store has no credits left 💳"); btn.disabled = false; btn.innerHTML = oldText; return; }
-        if (!res.ok) {
-            const errText = await res.text();
-            throw new Error("Server Error: " + errText);
-        }
-
-        const data = await res.json();
-        if(data.result_image_url){
-            const ri = document.getElementById('resImg');
-            ri.src = data.result_image_url;
-            ri.onload = () => { 
-                ri.style.display = 'block'; 
-                document.getElementById('loader').style.display = 'none'; 
-                document.getElementById('post-actions').style.display = 'block'; 
-            };
-        } else { 
-            alert("Error: " + (data.error || "Unknown")); 
-            document.getElementById('loader').style.display = 'none'; 
-        }
-
-    } catch(e) { 
-        clearInterval(interval); 
-        console.error("❌ GENERATE ERROR:", e); 
-        alert("Error: " + e.message); 
-        document.getElementById('loader').style.display = 'none'; 
-    } finally { 
-        btn.disabled = false; 
-        btn.innerHTML = oldText; 
-    }
-};
-
-    // --- FONCTIONS DE PAIEMENT (MANQUANTES) ---
-
+    // Fonction d'achat (Admin uniquement)
     window.buy = async function(packId, amount, btn) {
         const oldText = btn.innerHTML;
         btn.disabled = true;
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing...';
+        btn.innerHTML = 'Patientez...';
 
         try {
-            // 1. On appelle ton backend pour créer le lien de paiement
             const res = await authenticatedFetch('/api/buy-credits', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    shop: shop,
-                    pack_id: packId,
-                    custom_amount: parseInt(amount)
-                })
+                body: JSON.stringify({ shop: shop, pack_id: packId, custom_amount: parseInt(amount) })
             });
-
             const data = await res.json();
-
-            // 2. Si on reçoit l'URL de confirmation, on redirige la fenêtre PRINCIPALE (pas l'iframe)
-            if (data.confirmation_url) {
-                // Important: window.top pour sortir de l'iframe
-                window.top.location.href = data.confirmation_url; 
-            } else {
-                alert("Payment Error: " + (data.error || "Unknown error"));
-                btn.disabled = false;
-                btn.innerHTML = oldText;
-            }
-        } catch (e) {
-            console.error(e);
-            alert("Network Error");
-            btn.disabled = false;
-            btn.innerHTML = oldText;
-        }
+            if (data.confirmation_url) window.top.location.href = data.confirmation_url; 
+            else alert("Erreur paiement");
+        } catch (e) { alert("Erreur réseau"); }
+        finally { btn.disabled = false; btn.innerHTML = oldText; }
     };
-
-    // Pour le bouton "Custom Order"
+    
     window.buyCustom = function(btn) {
-        const amount = document.getElementById('customAmount').value;
-        if(amount < 50) return alert("Minimum 50 credits for custom order.");
-        // On appelle la fonction buy avec le pack 'pack_custom'
-        buy('pack_custom', amount, btn);
+        const val = document.getElementById('customAmount').value;
+        window.buy('pack_custom', val, btn);
     };
 });
