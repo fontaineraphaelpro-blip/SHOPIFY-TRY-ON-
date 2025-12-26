@@ -9,3 +9,7 @@ jinja2
 httpx
 sqlalchemy
 psycopg2-binary
+Flask
+Flask-Cors
+python-dotenv
+gunicorn
