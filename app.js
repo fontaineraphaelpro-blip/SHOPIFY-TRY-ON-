@@ -306,24 +306,17 @@ document.addEventListener("DOMContentLoaded", function() {
             formData.append("category", "upper_body");
 
             let res;
-            // Utiliser la route publique pour les clients
-            if (mode === 'client') {
-                console.log("🌐 Mode CLIENT : Appel /api/generate-public");
-                console.log("   - Endpoint:", window.location.origin + '/api/generate-public');
-                
-                res = await fetch('/api/generate-public', { 
-                    method: 'POST', 
-                    body: formData 
-                });
-                
-                console.log("📡 Réponse reçue, status:", res.status);
-            } else {
-                console.log("🔒 Mode ADMIN : Appel /api/generate");
-                res = await authenticatedFetch('/api/generate', { 
-                    method: 'POST', 
-                    body: formData 
-                });
-            }
+            // SIMPLIFIÉ : Tout le monde utilise la même route qui marche !
+            console.log("🚀 Appel /api/generate (route unique)");
+            console.log("   - Mode:", mode);
+            console.log("   - Shop:", shop);
+            
+            res = await fetch('/api/generate', { 
+                method: 'POST', 
+                body: formData 
+            });
+            
+            console.log("📡 Réponse reçue, status:", res.status);
 
             clearInterval(interval);
 
