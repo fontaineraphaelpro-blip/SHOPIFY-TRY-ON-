@@ -19,13 +19,14 @@ REPLICATE_TOKEN_CHECK = os.getenv("REPLICATE_API_TOKEN")
 HOST = os.getenv("HOST", "https://ton-app.onrender.com").rstrip('/')
 SCOPES = ['read_products', 'write_products', 'read_themes', 'write_themes']
 API_VERSION = "2024-10"
-MODEL_ID = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985"
+# Assurez-vous que ce modèle est correct sur Replicate
+MODEL_ID = "cuuupid/idm-vton:c871bb9b0466074280c2aec71dc6746146c6374507d3b0704332973e44075193"
 
 app = FastAPI()
 templates = Jinja2Templates(directory=".")
-RATE_LIMIT_DB: Dict[str, Dict] = {}  # Pour limiter par IP/jour
+RATE_LIMIT_DB: Dict[str, Dict] = {} 
 
-# --- 1. COFFRE-FORT LOCAL (SQLite) ---
+# --- 1. DB LOCAL ---
 def init_db():
     with sqlite3.connect("database.db") as conn:
         conn.execute("CREATE TABLE IF NOT EXISTS shops (domain TEXT PRIMARY KEY, token TEXT)")
@@ -47,7 +48,7 @@ def get_token_db(shop):
     except:
         return None
 
-# --- 2. SHOPIFY ---
+# --- 2. SHOPIFY HELPER ---
 def get_shopify_session(shop, token):
     shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
     session = shopify.Session(shop, API_VERSION, token)
@@ -85,6 +86,7 @@ async def add_csp_header(request: Request, call_next):
     response = await call_next(request)
     shop = request.query_params.get("shop", "")
     if shop:
+        # Autoriser l'affichage dans l'iframe Shopify
         response.headers["Content-Security-Policy"] = f"frame-ancestors https://{shop} https://admin.shopify.com;"
     return response
 
@@ -230,7 +232,7 @@ def billing_callback(shop: str, amt: int, charge_id: str):
     except: 
         return HTMLResponse("Billing Error")
 
-# --- GENERATE ---
+# --- GENERATE (CORRIGÉ ET SÉCURISÉ) ---
 @app.post("/api/generate")
 async def generate(
     request: Request,
@@ -240,26 +242,36 @@ async def generate(
     clothing_url: Optional[str] = Form(None),
     category: str = Form("upper_body")
 ):
+    print(f"📥 REQUEST RECEIVED: Shop={shop} | URL={clothing_url}") # LOG DEBUG
+
     shop = clean_shop_url(shop)
     token = get_token_db(shop)
-    if not token: return JSONResponse({"error": "Shop not connected."}, status_code=403)
+    
+    if not token:
+        print("❌ TOKEN NOT FOUND")
+        return JSONResponse({"error": "Shop not connected (Token missing)."}, status_code=403)
 
     try:
         get_shopify_session(shop, token)
         current_credits = get_metafield("virtual_try_on", "wallet", 0)
-        if current_credits < 1: return JSONResponse({"error": "Store has no credits left."}, status_code=402)
+        
+        # Vérification crédits
+        if current_credits < 1: 
+            return JSONResponse({"error": "Store has no credits left."}, status_code=402)
 
         # Limite IP
         client_ip = request.client.host
         max_tries = int(get_metafield("vton_security", "max_tries_per_user", 5))
         user_stats = RATE_LIMIT_DB.get(client_ip, {"count": 0, "reset": time.time()})
         if time.time() - user_stats["reset"] > 86400: user_stats = {"count": 0, "reset": time.time()}
+        
         if user_stats["count"] >= max_tries:
             return JSONResponse({"error": "Daily limit reached."}, status_code=429)
 
         # Préparer images
         person_bytes = await person_image.read()
         person_file = io.BytesIO(person_bytes)
+        
         garment_input = None
         if clothing_file:
             garment_bytes = await clothing_file.read()
@@ -268,15 +280,26 @@ async def generate(
             garment_input = clothing_url
             if garment_input.startswith("//"): garment_input = "https:" + garment_input
         else:
-            return JSONResponse({"error": "No garment"}, status_code=400)
+            return JSONResponse({"error": "No garment provided"}, status_code=400)
 
         # Envoyer à Replicate
-        output = replicate.run(MODEL_ID, input={"human_img": person_file, "garm_img": garment_input, "garment_des": category, "category": "upper_body"})
+        print("🚀 Sending to Replicate...")
+        output = replicate.run(
+            MODEL_ID, 
+            input={
+                "human_img": person_file, 
+                "garm_img": garment_input, 
+                "garment_des": category, 
+                "category": "upper_body"
+            }
+        )
+        print(f"✅ Replicate Success: {output}")
 
         # Débiter et stats
         set_metafield("virtual_try_on", "wallet", current_credits - 1, "integer")
         total = get_metafield("virtual_try_on", "total_tryons", 0)
         set_metafield("virtual_try_on", "total_tryons", total + 1, "integer")
+        
         user_stats["count"] += 1
         RATE_LIMIT_DB[client_ip] = user_stats
 
@@ -287,7 +310,7 @@ async def generate(
         print(f"❌ Generate Error: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
 
-# --- WEBHOOKS GDPR (dummy) ---
+# --- WEBHOOKS (DUMMY) ---
 @app.post("/webhooks/customers/data_request")
 def w1(): return {"ok": True}
 @app.post("/webhooks/customers/redact")
