@@ -1,5 +1,9 @@
 document.addEventListener("DOMContentLoaded", function() {
 
+    // --- CONFIGURATION ---
+    // URL de votre backend Render (Nécessaire pour le mode Client)
+    const API_BASE_URL = "https://stylelab-vtonn.onrender.com";
+
     document.body.classList.add('loaded');
     document.body.style.opacity = "1";
 
@@ -8,10 +12,20 @@ document.addEventListener("DOMContentLoaded", function() {
     let shop = params.get('shop') || sessionStorage.getItem('shop');
     const autoProductImage = params.get('product_image');
 
+    // --- CORRECTION CRITIQUE : DÉTECTION DU SHOP ---
+    // Si 'shop' n'est pas dans l'URL, on regarde l'objet global Shopify (présent sur le storefront)
+    if (!shop && typeof window.Shopify !== 'undefined' && window.Shopify.shop) {
+        shop = window.Shopify.shop;
+    }
+    // Fallback ultime : le domaine actuel
+    if (!shop && mode === 'client') {
+        shop = window.location.hostname;
+    }
+
     // FIX SESSION
     try {
-        if(!shop) shop = sessionStorage.getItem('shop');
         if(shop) sessionStorage.setItem('shop', shop);
+        else shop = sessionStorage.getItem('shop');
     } catch(e) {}
 
     async function getSessionToken() {
@@ -24,6 +38,8 @@ document.addEventListener("DOMContentLoaded", function() {
             const token = await getSessionToken();
             const headers = options.headers || {};
             if (token) headers['Authorization'] = `Bearer ${token}`;
+            // En admin, l'URL relative fonctionne via le proxy App Bridge ou doit être absolue si hors proxy
+            // Par sécurité, on peut préfixer si nécessaire, mais ici on laisse le comportement par défaut
             const res = await fetch(url, { ...options, headers });
             if (res.status === 401 && shop && mode !== 'client') { window.top.location.href = `/login?shop=${shop}`; return null; }
             return res;
@@ -33,10 +49,13 @@ document.addEventListener("DOMContentLoaded", function() {
     if(shop) {
         if (mode === 'client') initClientMode();
         else initAdminMode(shop);
+    } else {
+        console.warn("Shop ID not found.");
     }
 
     // --- DASHBOARD ---
     async function initAdminMode(s) {
+        // En admin, on utilise le chemin relatif qui passe par le proxy de l'app ou l'iframe
         const res = await authenticatedFetch(`/api/get-data?shop=${s}`);
         if (res && res.ok) {
             const data = await res.json();
@@ -119,7 +138,9 @@ document.addEventListener("DOMContentLoaded", function() {
     window.trackATC = async function() {
         if(shop) {
             try {
-                await fetch('/api/track-atc', {
+                // En mode client, il faut utiliser l'URL absolue si on n'est pas authentifié via App Bridge
+                const url = mode === 'client' ? `${API_BASE_URL}/api/track-atc` : '/api/track-atc';
+                await fetch(url, {
                     method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ shop: shop })
                 });
             } catch(e) { console.error("Tracking Error", e); }
@@ -172,6 +193,7 @@ document.addEventListener("DOMContentLoaded", function() {
         const uFile = document.getElementById('uImg').files[0];
         const cFile = document.getElementById('cImg').files[0];
         const btn = document.getElementById('btnGo');
+        
         if (!uFile) return alert("Please upload your photo.");
         if (!autoProductImage && !cFile) return alert("Please upload a garment.");
 
@@ -198,23 +220,57 @@ document.addEventListener("DOMContentLoaded", function() {
             formData.append("category", "upper_body");
 
             let res;
-            if (mode === 'client') res = await fetch('/api/generate', { method: 'POST', body: formData });
-            else res = await authenticatedFetch('/api/generate', { method: 'POST', body: formData });
+            
+            // --- CORRECTION MAJEURE ICI ---
+            if (mode === 'client') {
+                console.log(`Sending request to: ${API_BASE_URL}/api/generate for shop: ${shop}`);
+                // Appel direct au serveur Render (CORS activé sur le serveur)
+                res = await fetch(`${API_BASE_URL}/api/generate`, { 
+                    method: 'POST', 
+                    body: formData 
+                });
+            } else {
+                // Appel via Admin (Authenticated)
+                res = await authenticatedFetch('/api/generate', { method: 'POST', body: formData });
+            }
 
             clearInterval(interval);
 
-            if (!res) return;
+            if (!res) {
+                alert("No response from server.");
+                return;
+            }
+
+            // Gestion d'erreurs HTTP spécifiques
             if (res.status === 429) { alert("Daily limit reached."); document.getElementById('loader').style.display = 'none'; return; }
             if (res.status === 402) { alert("Not enough credits!"); btn.disabled = false; btn.innerHTML = oldText; return; }
-            if (!res.ok) throw new Error("Server Error");
+            
+            if (!res.ok) {
+                // Tentative de lire l'erreur JSON, sinon texte brut (ex: HTML 404/500)
+                const errText = await res.text();
+                try {
+                    const errJson = JSON.parse(errText);
+                    throw new Error(errJson.error || "Server Error");
+                } catch(e) {
+                    throw new Error(`Server Error (${res.status})`);
+                }
+            }
 
             const data = await res.json();
             if(data.result_image_url){
                 const ri = document.getElementById('resImg');
                 ri.src = data.result_image_url;
                 ri.onload = () => { ri.style.display = 'block'; document.getElementById('loader').style.display = 'none'; document.getElementById('post-actions').style.display = 'block'; };
-            } else { alert("Error: " + (data.error || "Unknown")); document.getElementById('loader').style.display = 'none'; }
-        } catch(e) { clearInterval(interval); console.error(e); alert("Network Error"); document.getElementById('loader').style.display = 'none'; }
+            } else { 
+                alert("Error: " + (data.error || "Unknown")); 
+                document.getElementById('loader').style.display = 'none'; 
+            }
+        } catch(e) { 
+            clearInterval(interval); 
+            console.error(e); 
+            alert("Network Error: " + e.message); 
+            document.getElementById('loader').style.display = 'none'; 
+        }
         finally { btn.disabled = false; btn.innerHTML = oldText; }
     };
 });
