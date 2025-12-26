@@ -16,7 +16,7 @@ from sqlalchemy.pool import QueuePool
 # --- CONFIG ---
 SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
 SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
-HOST = os.getenv("HOST", "https://ton-app.onrender.com").rstrip('/')
+HOST = os.getenv("HOST", "https://stylelab-vtonn.onrender.com").rstrip('/')
 SCOPES = ['read_products', 'write_products', 'read_themes', 'write_themes']
 API_VERSION = "2024-10"
 MODEL_ID = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985"
@@ -207,3 +207,4 @@ def g_data(shop: str):
 def s_set(r: Request): return {"ok": True}
 @app.options("/api/generate")
 async def opt_gen(): return JSONResponse({"ok":True}, headers={"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "*"})
+
