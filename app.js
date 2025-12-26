@@ -1,49 +1,50 @@
 document.addEventListener("DOMContentLoaded", function() {
 
-    // --- 1. DÉTECTION INTELLIGENTE DU MODE ---
+    // --- 1. CONFIGURATION ET DÉTECTION ---
     const params = new URLSearchParams(window.location.search);
-    const mode = params.get('mode'); // 'client' (Widget) ou null (Admin)
     
-    // En mode client, le shop est TOUJOURS dans l'URL (envoyé par le widget).
-    // En admin, on le récupère via l'URL ou on le laisse gérer par Shopify App Bridge.
+    // Le mode 'client' est activé par le widget
+    const mode = params.get('mode'); 
+    
+    // Le shop est TOUJOURS dans l'URL (envoyé par Shopify ou le widget)
     const shop = params.get('shop'); 
     const autoProductImage = params.get('product_image');
 
-    // On affiche l'interface proprement
+    // On affiche l'app (Transition fluide CSS)
     document.body.classList.add('loaded');
     document.body.style.opacity = "1";
 
-    // --- 2. CONFIGURATION DE L'INTERFACE ---
+    // --- 2. GESTION DES MODES (CLIENT vs ADMIN) ---
     if (mode === 'client') {
-        // === MODE CLIENT (VISITEUR) ===
-        console.log("👋 Mode Client activé");
+        // === MODE VISITEUR (WIDGET) ===
+        console.log("👋 Mode Client (Widget) détecté pour :", shop);
         document.body.classList.add('client-mode');
 
-        // On CACHE toute la partie administration (Dashboard, Achat, Settings)
+        // CACHER L'ADMIN : On supprime physiquement la zone admin pour éviter les erreurs
         const adminZone = document.getElementById('admin-only-zone');
         if (adminZone) adminZone.style.display = 'none';
 
-        // Si une image produit est fournie, on la pré-charge
+        // PRÉ-CHARGEMENT IMAGE : Si le widget envoie une image produit
         if (autoProductImage) {
             const img = document.getElementById('prevC');
             if (img) {
                 img.src = autoProductImage;
                 img.style.display = 'block';
-                // Masquer l'icône vide
+                // Cacher l'icône "vide"
                 const emptyState = img.parentElement.querySelector('.empty-state');
                 if (emptyState) emptyState.style.display = 'none';
             }
         }
     } else {
-        // === MODE ADMIN (PROPRIÉTAIRE) ===
-        console.log("👑 Mode Admin activé");
-        // On charge les stats du dashboard
+        // === MODE ADMIN (DASHBOARD) ===
+        console.log("👑 Mode Admin détecté");
         if (shop) initAdminMode(shop);
+        else console.warn("⚠️ Shop non détecté dans l'URL Admin");
     }
 
-    // --- 3. FONCTIONS UTILITAIRES ---
+    // --- 3. FONCTIONS D'INTERFACE ---
 
-    // Prévisualisation image (Upload local)
+    // Prévisualisation des images uploadées (Step 1 & 2)
     window.preview = function(inputId, imgId) {
         const file = document.getElementById(inputId).files[0];
         if (file) {
@@ -59,14 +60,14 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     };
 
-    // --- 4. LA FONCTION GENERATE (CŒUR DU SYSTÈME) ---
+    // --- 4. LA FONCTION CŒUR : GENERATE() ---
     window.generate = async function() {
         const uFile = document.getElementById('uImg').files[0];
         const cFile = document.getElementById('cImg').files[0];
         const btn = document.getElementById('btnGo');
         
-        // Sécurités basiques
-        if (!shop) return alert("Erreur: Boutique non identifiée. Veuillez recharger la page.");
+        // Sécurités
+        if (!shop) return alert("Erreur technique : Boutique inconnue. Rechargez la page.");
         if (!uFile) return alert("Veuillez ajouter votre photo (Étape 1).");
         if (!autoProductImage && !cFile) return alert("Veuillez ajouter un vêtement (Étape 2).");
 
@@ -79,16 +80,24 @@ document.addEventListener("DOMContentLoaded", function() {
         document.getElementById('loader').style.display = 'block';
         document.getElementById('resImg').style.display = 'none';
         
-        // Texte d'ambiance
+        // Animation texte d'attente
         const textEl = document.getElementById('loader-text');
-        if(textEl) textEl.innerText = "Analyse de la silhouette...";
+        const steps = ["Analyse de la silhouette...", "Ajustement du vêtement...", "Rendu haute qualité..."];
+        let stepIdx = 0;
+        if(textEl) {
+            textEl.innerText = steps[0];
+            var stepInterval = setInterval(() => {
+                stepIdx = (stepIdx + 1) % steps.length;
+                textEl.innerText = steps[stepIdx];
+            }, 3000);
+        }
 
         try {
             const formData = new FormData();
             formData.append("shop", shop);
             formData.append("person_image", uFile);
             
-            // Gestion intelligente URL vs Fichier
+            // Logique : URL (Widget) ou Fichier (Admin/Upload)
             if (autoProductImage) {
                 formData.append("clothing_url", autoProductImage);
             } else {
@@ -97,35 +106,42 @@ document.addEventListener("DOMContentLoaded", function() {
 
             let res;
 
-            // === BIFURCATION CRITIQUE ===
+            // === BIFURCATION CRITIQUE (CLIENT vs ADMIN) ===
             if (mode === 'client') {
-                // CAS 1 : CLIENT (Widget)
-                // On utilise un FETCH STANDARD. 
-                // Le serveur utilisera le token stocké en base de données.
-                // Cela contourne les problèmes de cookies tiers sur Firefox/Safari.
-                console.log("🚀 Envoi requête mode PUBLIC");
+                // CLIENT : Fetch standard (Pas de Token Session).
+                // Le backend vérifiera le token dans la Base de Données PostgreSQL.
+                // C'est ce qui permet de marcher sur tous les navigateurs.
+                console.log("🚀 Envoi requête PUBLIQUE (Widget)");
                 res = await fetch('/api/generate', {
                     method: 'POST',
                     body: formData
                 });
             } else {
-                // CAS 2 : ADMIN (Dashboard)
-                // On utilise FETCH AUTHENTIFIÉ (App Bridge)
-                // Pour garantir que c'est bien l'admin qui teste.
-                console.log("🛡️ Envoi requête mode ADMIN");
+                // ADMIN : Fetch Authentifié (App Bridge).
+                // Nécessaire pour garantir que c'est bien le propriétaire qui est là.
+                console.log("🛡️ Envoi requête ADMIN (Secure)");
                 res = await authenticatedFetch('/api/generate', {
                     method: 'POST',
                     body: formData
                 });
             }
 
-            // Gestion des erreurs HTTP
+            if(stepInterval) clearInterval(stepInterval);
+
+            // GESTION DES ERREURS SERVEUR
             if (!res.ok) {
                 const errTxt = await res.text();
-                if (res.status === 403) throw new Error("L'application n'est pas installée correctement côté Admin.");
+                let errMsg = "Erreur inconnue";
+                try {
+                    const errJson = JSON.parse(errTxt);
+                    errMsg = errJson.error;
+                } catch(e) { errMsg = errTxt; }
+
+                if (res.status === 403) throw new Error("Accès refusé. L'application doit être ouverte une fois par l'admin.");
                 if (res.status === 402) throw new Error("La boutique n'a plus de crédits.");
                 if (res.status === 429) throw new Error("Limite journalière atteinte.");
-                throw new Error("Erreur serveur : " + errTxt);
+                
+                throw new Error("Erreur Serveur : " + errMsg);
             }
 
             const data = await res.json();
@@ -139,11 +155,12 @@ document.addEventListener("DOMContentLoaded", function() {
                     ri.scrollIntoView({behavior: "smooth", block: "center"});
                 };
             } else {
-                throw new Error("Aucune image reçue de l'IA.");
+                throw new Error("Aucune image reçue.");
             }
 
         } catch (e) {
             console.error(e);
+            if(stepInterval) clearInterval(stepInterval);
             alert("Oups ! " + e.message);
             document.getElementById('loader').style.display = 'none';
         } finally {
@@ -152,8 +169,7 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     };
 
-    // --- 5. FONCTIONS ADMIN UNIQUEMENT ---
-    // Ces fonctions ne sont utilisées que si on est dans le Dashboard Shopify
+    // --- 5. FONCTIONS ADMIN UNIQUEMENT (App Bridge) ---
 
     async function getSessionToken() {
         if (window.shopify && window.shopify.id) return await shopify.id.getToken();
@@ -171,17 +187,46 @@ document.addEventListener("DOMContentLoaded", function() {
 
     async function initAdminMode(s) {
         try {
-            // Récupère les crédits pour l'affichage admin
+            // Récupérer les stats et crédits depuis la DB
             const res = await authenticatedFetch(`/api/get-data?shop=${s}`);
             if (res.ok) {
                 const data = await res.json();
+                
+                // Mettre à jour l'UI Dashboard
                 if(document.getElementById('credits')) document.getElementById('credits').innerText = data.credits;
                 if(document.getElementById('stat-tryons')) document.getElementById('stat-tryons').innerText = data.usage;
+                
+                // Gestion de la barre de stock (Visuel)
+                const supplyCard = document.querySelector('.smart-supply-card');
+                if (supplyCard && data.credits < 10) {
+                    supplyCard.style.background = "#fff0f0"; // Rouge si bas
+                }
             }
         } catch (e) { console.log("Init Admin Error", e); }
     }
     
-    // Fonction d'achat de crédits
+    // Fonction d'achat (Settings & Billing)
+    window.saveSettings = async function(btn) {
+        // Logique de sauvegarde (Metafields)
+        const oldText = btn.innerText;
+        btn.innerText = "Saving..."; btn.disabled = true;
+        const settings = {
+            shop: shop,
+            text: document.getElementById('ws-text').value,
+            bg: document.getElementById('ws-color').value,
+            color: document.getElementById('ws-text-color').value,
+            max_tries: parseInt(document.getElementById('ws-limit').value) || 5
+        };
+        try {
+            const res = await authenticatedFetch('/api/save-settings', {
+                method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(settings)
+            });
+            if(res.ok) { btn.innerText = "Saved! ✅"; setTimeout(() => btn.innerText = oldText, 2000); } 
+            else { alert("Erreur sauvegarde"); btn.innerText = oldText; }
+        } catch(e) { btn.innerText = oldText; }
+        finally { btn.disabled = false; }
+    };
+
     window.buy = async function(packId, amount, btn) {
         const oldText = btn.innerHTML;
         btn.disabled = true;
@@ -194,9 +239,13 @@ document.addEventListener("DOMContentLoaded", function() {
                 body: JSON.stringify({ shop: shop, pack_id: packId, custom_amount: parseInt(amount) })
             });
             const data = await res.json();
-            if (data.confirmation_url) window.top.location.href = data.confirmation_url; 
-            else alert("Erreur lors de la création du paiement.");
-        } catch (e) { alert("Erreur réseau ou paiement annulé."); }
+            if (data.confirmation_url) {
+                // Redirection hors de l'iframe pour le paiement Shopify
+                window.top.location.href = data.confirmation_url; 
+            } else {
+                alert("Erreur création paiement: " + (data.error || "Inconnue"));
+            }
+        } catch (e) { alert("Erreur réseau"); }
         finally { btn.disabled = false; btn.innerHTML = oldText; }
     };
     
