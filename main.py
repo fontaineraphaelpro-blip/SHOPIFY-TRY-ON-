@@ -37,6 +37,16 @@ metadata = MetaData()
 shops_table = Table("shops", metadata, Column("domain", String, primary_key=True), Column("token", String))
 metadata.create_all(engine)
 
+# --- MIDDLEWARE SÉCURITÉ (LE FIX PAGE BLANCHE EST ICI) ---
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    # Autorise l'affichage dans l'iframe Shopify
+    response.headers["Content-Security-Policy"] = "frame-ancestors https://*.myshopify.com https://admin.shopify.com;"
+    return response
+
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
 # --- HELPERS ---
 def get_token_db(shop):
     try:
@@ -79,9 +89,6 @@ def set_metafield(ns, k, v, t):
 
 def clean_shop_url(url): return url.replace("https://", "").replace("http://", "").strip("/") if url else ""
 
-# --- MIDDLEWARE ---
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
-
 # --- ROUTES ---
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
@@ -110,7 +117,7 @@ def auth_callback(request: Request):
     except: pass
     return HTMLResponse("Auth Error")
 
-# --- LE CŒUR DU SYSTÈME (LOGIQUE VTON) ---
+# --- GENERATE (LOGIQUE ROBUSTE) ---
 @app.post("/api/generate")
 async def generate(
     shop: str = Form(...),
@@ -118,15 +125,13 @@ async def generate(
     clothing_url: Optional[str] = Form(None),
     clothing_file: Optional[UploadFile] = File(None)
 ):
-    print(f"🔄 [1] REÇU: Demande pour {shop}") # LOG
+    print(f"🔄 [1] REÇU: Demande pour {shop}")
     s = clean_shop_url(shop)
     
-    # 1. Vérif Auth
     if not activate_shop_session(s):
         print("❌ [Auth] Token manquant")
         return JSONResponse({"error": "Auth Failed"}, status_code=403)
 
-    # 2. Vérif Crédits
     try:
         credits = int(float(get_metafield("virtual_try_on", "wallet", 0)))
         if credits < 1: 
@@ -134,57 +139,37 @@ async def generate(
             return JSONResponse({"error": "No credits"}, status_code=402)
     except: return JSONResponse({"error": "DB Error"}, status_code=500)
 
-    # 3. Préparation Images (LOGIQUE ROBUSTE)
     try:
-        # Image Utilisateur
         person_bytes = await person_image.read()
         person_file = io.BytesIO(person_bytes)
-        
         garment_file = None
         
-        # CAS A : URL (On télécharge nous-même pour éviter que Replicate soit bloqué)
         if clothing_url and len(str(clothing_url)) > 5:
             c_url = str(clothing_url)
             if c_url.startswith("//"): c_url = "https:" + c_url
-            print(f"📥 [Image] Téléchargement vêtement: {c_url}")
-            
-            # Téléchargement serveur -> serveur
+            print(f"📥 [Image] Téléchargement URL: {c_url}")
             resp = requests.get(c_url, timeout=10)
-            if resp.status_code == 200:
-                garment_file = io.BytesIO(resp.content)
-            else:
-                print(f"❌ [Image] Échec téléchargement URL: {resp.status_code}")
-                return JSONResponse({"error": "Impossible de lire l'image du produit"}, status_code=400)
-                
-        # CAS B : Fichier Uploadé
+            if resp.status_code == 200: garment_file = io.BytesIO(resp.content)
+            else: return JSONResponse({"error": "Impossible de lire l'image"}, status_code=400)
         elif clothing_file:
-            print("📥 [Image] Vêtement reçu par upload")
+            print("📥 [Image] Vêtement uploadé")
             g_bytes = await clothing_file.read()
             garment_file = io.BytesIO(g_bytes)
-        else:
-             return JSONResponse({"error": "Aucun vêtement fourni"}, status_code=400)
+        else: return JSONResponse({"error": "Aucun vêtement"}, status_code=400)
 
-        # 4. Envoi à Replicate
-        print("🚀 [AI] Envoi vers Replicate...")
-        output = replicate.run(
-            MODEL_ID,
-            input={
-                "human_img": person_file,
-                "garm_img": garment_file, # On envoie le fichier binaire, pas l'URL !
-                "category": "upper_body"
-            }
-        )
+        print("🚀 [AI] Envoi Replicate...")
+        output = replicate.run(MODEL_ID, input={"human_img": person_file, "garm_img": garment_file, "category": "upper_body"})
+        
+        if not output: return JSONResponse({"error": "L'IA a échoué (Image trop complexe ?)"}, status_code=500)
         
         result_url = str(output[0]) if isinstance(output, list) else str(output)
         print(f"✅ [AI] Succès: {result_url}")
         
-        # 5. Débit
         set_metafield("virtual_try_on", "wallet", credits - 1, "integer")
-        
         return {"result_image_url": result_url}
 
     except Exception as e:
-        print(f"❌ [CRASH] Erreur Replicate/Serveur: {e}")
+        print(f"❌ [CRASH] {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 # --- BILLING ---
