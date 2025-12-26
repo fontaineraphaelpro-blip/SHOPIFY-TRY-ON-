@@ -25,6 +25,16 @@ app = FastAPI()
 templates = Jinja2Templates(directory=".")
 RATE_LIMIT_DB: Dict[str, Dict] = {}  # Pour limiter par IP/jour
 
+@app.options("/api/generate")
+async def options_generate():
+    return JSONResponse(
+        content={"ok": True},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "*"
+        },
+    )
 # --- 1. COFFRE-FORT LOCAL (SQLite) ---
 def init_db():
     with sqlite3.connect("database.db") as conn:
@@ -301,3 +311,4 @@ def w2(): return {"ok": True}
 def w3(): return {"ok": True}
 @app.post("/webhooks/gdpr")
 def w4(): return {"ok": True}
+
