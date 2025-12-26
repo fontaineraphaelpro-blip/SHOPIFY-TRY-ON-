@@ -1,283 +1,220 @@
-/* APP.JS - Cerveau du Frontend
-    Gère l'interface, les uploads, et la communication avec Python/Render
-*/
+document.addEventListener("DOMContentLoaded", function() {
 
-document.addEventListener("DOMContentLoaded", () => {
-    // 1. Détection du mode (Client vs Admin)
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('mode') === 'client') {
-        document.body.classList.add('client-mode');
-    }
+    document.body.classList.add('loaded');
+    document.body.style.opacity = "1";
 
-    // 2. Initialisation des données (si on n'est pas en mode client strict)
-    if (!document.body.classList.contains('client-mode')) {
-        fetchStats();
-        // Initialiser la prévisualisation du widget (couleurs, texte)
-        updateWidgetPreview();
-    }
-});
+    const params = new URLSearchParams(window.location.search);
+    const mode = params.get('mode');
+    let shop = params.get('shop') || sessionStorage.getItem('shop');
+    const autoProductImage = params.get('product_image');
 
-/* =========================================
-   LOGIQUE UTILISATEUR (TRY-ON)
-   ========================================= */
-
-// Fonction pour prévisualiser les images uploadées (Photo ou Vêtement)
-function preview(inputId, imgId) {
-    const input = document.getElementById(inputId);
-    const img = document.getElementById(imgId);
-    const label = input.parentElement; // Le cadre pointillé
-    
-    if (input.files && input.files[0]) {
-        const reader = new FileReader();
-        
-        reader.onload = function(e) {
-            img.src = e.target.result;
-            img.style.display = 'block';
-            
-            // Cacher l'icône et le texte "Empty state"
-            const emptyState = label.querySelector('.empty-state');
-            if (emptyState) emptyState.style.display = 'none';
-        }
-        
-        reader.readAsDataURL(input.files[0]);
-    }
-}
-
-// C'est la fonction principale qui lance l'IA
-async function generate() {
-    // Récupération des éléments du DOM
-    const uInput = document.getElementById('uImg');
-    const cInput = document.getElementById('cImg');
-    const resultZone = document.getElementById('resZone');
-    const loader = document.getElementById('loader');
-    const loaderText = document.getElementById('loader-text');
-    const resImg = document.getElementById('resImg');
-    const btnGo = document.getElementById('btnGo');
-    const postActions = document.getElementById('post-actions');
-
-    // 1. Validation : Est-ce que les 2 images sont là ?
-    if (!uInput.files[0] || !cInput.files[0]) {
-        alert("Oups ! Merci d'ajouter votre photo ET la photo du vêtement.");
-        return;
-    }
-
-    // 2. UI : Passage en mode "Chargement"
-    btnGo.disabled = true;
-    btnGo.style.opacity = "0.6";
-    btnGo.innerHTML = '<span class="btn-content">Transformation en cours... <i class="fa-solid fa-spinner fa-spin"></i></span>';
-    
-    resultZone.style.display = "block";
-    loader.style.display = "block";
-    resImg.style.display = "none";
-    postActions.style.display = "none";
-    
-    // Scroller doucement vers la zone de résultat
-    resultZone.scrollIntoView({behavior: 'smooth', block: 'center'});
-
-    // 3. Préparation de l'envoi vers Render
-    const formData = new FormData();
-    formData.append('human_img', uInput.files[0]);
-    formData.append('cloth_img', cInput.files[0]);
-
+    // FIX SESSION
     try {
-        // Message d'attente pour faire patienter (l'IA prend ~15-30 sec)
-        let dots = 0;
-        const loadingInterval = setInterval(() => {
-            dots = (dots + 1) % 4;
-            const states = [
-                "Analyse de la silhouette...",
-                "Démarrage du GPU...",
-                "Fusion du vêtement...",
-                "Finalisation du rendu..."
-            ];
-            loaderText.innerText = states[dots];
-        }, 4000);
+        if(!shop) shop = sessionStorage.getItem('shop');
+        if(shop) sessionStorage.setItem('shop', shop);
+    } catch(e) {}
 
-        // --- APPEL AU SERVEUR PYTHON ---
-        const response = await fetch('/generate', {
-            method: 'POST',
-            body: formData
-        });
+    async function getSessionToken() {
+        if (window.shopify && window.shopify.id) return await shopify.id.getToken();
+        return null;
+    }
 
-        clearInterval(loadingInterval);
-        const data = await response.json();
+    async function authenticatedFetch(url, options = {}) {
+        try {
+            const token = await getSessionToken();
+            const headers = options.headers || {};
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            const res = await fetch(url, { ...options, headers });
+            if (res.status === 401 && shop && mode !== 'client') { window.top.location.href = `/login?shop=${shop}`; return null; }
+            return res;
+        } catch (error) { throw error; }
+    }
 
-        if (response.ok) {
-            // --- SUCCÈS ---
-            console.log("Image générée :", data.result_url);
+    if(shop) {
+        if (mode === 'client') initClientMode();
+        else initAdminMode(shop);
+    }
 
-            // Afficher l'image
-            resImg.onload = () => {
-                // On n'affiche le résultat que quand l'image est totalement chargée
-                loader.style.display = "none";
-                resImg.style.display = "block";
-                resImg.classList.add('fade-in'); // Animation CSS si vous voulez
-                postActions.style.display = "block";
-                
-                // Remettre le bouton normal
-                resetButton(btnGo);
-            };
-            resImg.src = data.result_url;
-            
-            // Mettre à jour les crédits si on est admin
-            if(document.getElementById('credits')) {
-                document.getElementById('credits').innerText = data.credits_remaining;
+    // --- DASHBOARD ---
+    async function initAdminMode(s) {
+        const res = await authenticatedFetch(`/api/get-data?shop=${s}`);
+        if (res && res.ok) {
+            const data = await res.json();
+
+            // Affichage Stats
+            updateDashboardStats(data.credits || 0);
+            updateVIPStatus(data.lifetime || 0);
+
+            // Compteurs simples
+            const tryEl = document.getElementById('stat-tryons');
+            const atcEl = document.getElementById('stat-atc');
+            if(tryEl) tryEl.innerText = data.usage || 0;
+            if(atcEl) atcEl.innerText = data.atc || 0;
+
+            if(data.widget) {
+                document.getElementById('ws-text').value = data.widget.text || "Try It On Now ✨";
+                document.getElementById('ws-color').value = data.widget.bg || "#000000";
+                document.getElementById('ws-text-color').value = data.widget.color || "#ffffff";
+                if(data.security) document.getElementById('ws-limit').value = data.security.max_tries || 5;
+                window.updateWidgetPreview();
             }
-            
-            // Incrémenter le compteur local "Total Try-Ons"
-            incrementStat('stat-tryons');
-            
-        } else {
-            // --- ERREUR DU SERVEUR ---
-            throw new Error(data.error || "Erreur inconnue");
         }
-
-    } catch (error) {
-        console.error("Erreur:", error);
-        loader.style.display = "none";
-        alert("Erreur lors de la génération : " + error.message);
-        resetButton(btnGo);
     }
-}
 
-function resetButton(btn) {
-    btn.disabled = false;
-    btn.style.opacity = "1";
-    btn.innerHTML = '<span class="btn-content">Try It On Now <i class="fa-solid fa-wand-magic-sparkles"></i></span><div class="btn-glow"></div>';
-}
-
-function trackATC() {
-    // Simulation d'un ajout au panier
-    const btn = document.getElementById('shopBtn');
-    btn.innerHTML = 'Added <i class="fa-solid fa-check"></i>';
-    btn.style.background = "#22c55e";
-    
-    incrementStat('stat-atc');
-    
-    setTimeout(() => {
-        alert("Super ! Produit ajouté au panier (Simulation).");
-        btn.innerHTML = 'Shop This Look <i class="fa-solid fa-bag-shopping"></i>';
-        btn.style.background = "#000";
-    }, 1000);
-}
-
-
-/* =========================================
-   LOGIQUE DASHBOARD (ADMIN)
-   ========================================= */
-
-function fetchStats() {
-    fetch('/api/stats')
-        .then(res => res.json())
-        .then(data => {
-            if(document.getElementById('credits')) {
-                document.getElementById('credits').innerText = data.credits;
+    function updateDashboardStats(credits) {
+        const el = document.getElementById('credits');
+        if(el) el.innerText = credits;
+        const supplyCard = document.querySelector('.smart-supply-card');
+        const alertBadge = document.querySelector('.alert-badge');
+        const daysEl = document.querySelector('.rs-value');
+        if (supplyCard && daysEl) {
+            let daysLeft = Math.floor(credits / 8); 
+            if(daysLeft < 1) daysLeft = "< 1";
+            daysEl.innerText = daysLeft + (daysLeft === "< 1" ? " Day" : " Days");
+            if (credits < 20) {
+                supplyCard.style.background = "#fff0f0";
+                alertBadge.innerText = "CRITICAL";
+                alertBadge.style.background = "#dc2626";
+            } else {
+                supplyCard.style.background = "#f0fdf4";
+                alertBadge.innerText = "HEALTHY";
+                alertBadge.style.background = "#16a34a";
             }
-            // Charger les réglages existants
-            if(data.settings) {
-                if(document.getElementById('ws-text')) document.getElementById('ws-text').value = data.settings.button_text;
-                if(document.getElementById('ws-color')) document.getElementById('ws-color').value = data.settings.button_color;
-                if(document.getElementById('ws-text-color')) document.getElementById('ws-text-color').value = data.settings.text_color;
-                if(document.getElementById('ws-limit')) document.getElementById('ws-limit').value = data.settings.limit;
-                
-                updateWidgetPreview();
-            }
-        })
-        .catch(err => console.log("Pas de stats (mode offline ?)"));
-}
-
-// Met à jour le faux bouton "Try On" dans le Dashboard quand on change les inputs
-function updateWidgetPreview() {
-    const textInput = document.getElementById('ws-text');
-    if(!textInput) return; // Sécurité si l'élément n'existe pas
-
-    const text = textInput.value;
-    const bg = document.getElementById('ws-color').value;
-    const ink = document.getElementById('ws-text-color').value;
-    
-    const btn = document.getElementById('ws-preview-btn');
-    if(btn) {
-        // On cherche le span à l'intérieur pour garder l'icône
-        const span = btn.querySelector('span');
-        if(span) span.innerText = text;
-        
-        btn.style.backgroundColor = bg;
-        btn.style.color = ink;
+        }
     }
-}
 
-function saveSettings(btn) {
-    const oldText = btn.innerText;
-    btn.innerText = "Saving...";
-    btn.disabled = true;
-    
-    const settings = {
-        button_text: document.getElementById('ws-text').value,
-        button_color: document.getElementById('ws-color').value,
-        text_color: document.getElementById('ws-text-color').value,
-        limit: document.getElementById('ws-limit').value
+    function updateVIPStatus(lifetime) {
+        const fill = document.querySelector('.vip-fill');
+        const marker = document.querySelector('.vip-marker');
+        let percent = (lifetime / 500) * 100;
+        if(percent > 100) percent = 100;
+        if(fill) fill.style.width = percent + "%";
+        if(marker) marker.style.left = percent + "%";
+        if(lifetime >= 500) {
+            const title = document.querySelector('.vip-title strong');
+            if(title) title.innerText = "Gold Member";
+        }
+    }
+
+    window.saveSettings = async function(btn) {
+        const oldText = btn.innerText;
+        btn.innerText = "Saving..."; btn.disabled = true;
+        const settings = {
+            shop: shop,
+            text: document.getElementById('ws-text').value,
+            bg: document.getElementById('ws-color').value,
+            color: document.getElementById('ws-text-color').value,
+            max_tries: parseInt(document.getElementById('ws-limit').value) || 5
+        };
+        try {
+            const res = await authenticatedFetch('/api/save-settings', {
+                method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(settings)
+            });
+            if(res.ok) { btn.innerText = "Saved! ✅"; setTimeout(() => btn.innerText = oldText, 2000); } 
+            else { alert("Save failed"); }
+        } catch(e) { console.error(e); alert("Error saving"); }
+        finally { btn.disabled = false; }
     };
 
-    fetch('/api/save-settings', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(settings)
-    })
-    .then(res => res.json())
-    .then(data => {
-        setTimeout(() => {
-            btn.innerText = "Saved!";
-            btn.style.background = "#22c55e";
-            setTimeout(() => {
-                btn.innerText = oldText;
-                btn.style.background = ""; // Retour couleur CSS
-                btn.disabled = false;
-            }, 2000);
-        }, 500);
-    });
-}
+    window.trackATC = async function() {
+        if(shop) {
+            try {
+                await fetch('/api/track-atc', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ shop: shop })
+                });
+            } catch(e) { console.error("Tracking Error", e); }
+        }
+    };
 
-// Fonction d'achat de crédits (Simulation)
-function buy(packId, customAmount = 0, cardElement) {
-    let amount = 0;
-    if(packId === 'pack_10') amount = 10;
-    if(packId === 'pack_30') amount = 30;
-    if(packId === 'pack_100') amount = 100;
-    if(customAmount > 0) amount = parseInt(customAmount);
-
-    if(amount <= 0) return;
-
-    // Animation "Click"
-    if(cardElement) {
-        cardElement.style.transform = "scale(0.95)";
-        setTimeout(() => cardElement.style.transform = "", 150);
+    function initClientMode() {
+        document.body.classList.add('client-mode');
+        const adminZone = document.getElementById('admin-only-zone');
+        if(adminZone) adminZone.style.display = 'none';
+        if (autoProductImage) {
+            const img = document.getElementById('prevC');
+            if(img) {
+                img.src = autoProductImage;
+                img.style.display = 'block';
+                if(img.parentElement) img.parentElement.querySelector('.empty-state').style.display = 'none';
+            }
+        }
     }
 
-    fetch('/api/buy-credits', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ amount: amount })
-    })
-    .then(res => res.json())
-    .then(data => {
-        document.getElementById('credits').innerText = data.new_balance;
-        alert(`Succès ! ${amount} crédits ajoutés à votre compte.`);
-    });
-}
+    window.preview = function(inputId, imgId) {
+        const file = document.getElementById(inputId).files[0];
+        if(file) {
+            const reader = new FileReader();
+            reader.onload = e => {
+                const img = document.getElementById(imgId);
+                img.src = e.target.result;
+                img.style.display = 'block';
+                const content = img.parentElement.querySelector('.empty-state');
+                if(content) content.style.display = 'none';
+            };
+            reader.readAsDataURL(file);
+        }
+    };
 
-function buyCustom(btn) {
-    const val = document.getElementById('customAmount').value;
-    buy('custom', val, btn);
-}
-
-// Petite utilitaire pour faire monter les chiffres
-function incrementStat(id) {
-    const el = document.getElementById(id);
-    if(el) {
-        let val = parseInt(el.innerText);
-        el.innerText = val + 1;
-        // Petit effet de couleur
-        el.style.color = "#6366f1";
-        setTimeout(() => el.style.color = "", 500);
+    window.updateWidgetPreview = function() {
+        const text = document.getElementById('ws-text').value;
+        const color = document.getElementById('ws-color').value;
+        const textColor = document.getElementById('ws-text-color').value;
+        const btn = document.getElementById('ws-preview-btn');
+        if(btn) {
+            btn.style.backgroundColor = color;
+            btn.style.color = textColor;
+            const span = btn.querySelector('span');
+            if(span) span.innerText = text;
+        }
     }
-}
+
+    window.generate = async function() {
+        const uFile = document.getElementById('uImg').files[0];
+        const cFile = document.getElementById('cImg').files[0];
+        const btn = document.getElementById('btnGo');
+        if (!uFile) return alert("Please upload your photo.");
+        if (!autoProductImage && !cFile) return alert("Please upload a garment.");
+
+        const oldText = btn.innerHTML;
+        btn.disabled = true; 
+        btn.innerHTML = "Generating...";
+
+        document.getElementById('resZone').style.display = 'block';
+        document.getElementById('loader').style.display = 'block';
+        document.getElementById('resImg').style.display = 'none';
+        document.getElementById('post-actions').style.display = 'none';
+
+        const textEl = document.getElementById('loader-text');
+        const texts = ["Analyzing silhouette...", "Matching fabrics...", "Simulating drape...", "Rendering lighting..."];
+        let step = 0;
+        const interval = setInterval(() => { if(step < texts.length) textEl.innerText = texts[step++]; }, 2500);
+
+        try {
+            const formData = new FormData();
+            formData.append("shop", shop);
+            formData.append("person_image", uFile);
+            if(cFile) formData.append("clothing_file", cFile);
+            else formData.append("clothing_url", autoProductImage);
+            formData.append("category", "upper_body");
+
+            let res;
+            if (mode === 'client') res = await fetch('/api/generate', { method: 'POST', body: formData });
+            else res = await authenticatedFetch('/api/generate', { method: 'POST', body: formData });
+
+            clearInterval(interval);
+
+            if (!res) return;
+            if (res.status === 429) { alert("Daily limit reached."); document.getElementById('loader').style.display = 'none'; return; }
+            if (res.status === 402) { alert("Not enough credits!"); btn.disabled = false; btn.innerHTML = oldText; return; }
+            if (!res.ok) throw new Error("Server Error");
+
+            const data = await res.json();
+            if(data.result_image_url){
+                const ri = document.getElementById('resImg');
+                ri.src = data.result_image_url;
+                ri.onload = () => { ri.style.display = 'block'; document.getElementById('loader').style.display = 'none'; document.getElementById('post-actions').style.display = 'block'; };
+            } else { alert("Error: " + (data.error || "Unknown")); document.getElementById('loader').style.display = 'none'; }
+        } catch(e) { clearInterval(interval); console.error(e); alert("Network Error"); document.getElementById('loader').style.display = 'none'; }
+        finally { btn.disabled = false; btn.innerHTML = oldText; }
+    };
+});
