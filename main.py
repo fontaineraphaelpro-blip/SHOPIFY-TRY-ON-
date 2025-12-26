@@ -79,16 +79,45 @@ def set_metafield(namespace, key, value, type_val):
 def clean_shop_url(url):
     return url.replace("https://", "").replace("http://", "").strip("/") if url else ""
 
-# --- MIDDLEWARE ---
+# --- MIDDLEWARE CORS ULTRA-PERMISSIF ---
 @app.middleware("http")
-async def add_csp_header(request: Request, call_next):
+async def cors_and_csp_middleware(request: Request, call_next):
+    # Récupérer l'origin de la requête
+    origin = request.headers.get("origin", "*")
+    
     response = await call_next(request)
+    
+    # CORS très permissif pour les routes API
+    if request.url.path.startswith("/api/"):
+        response.headers["Access-Control-Allow-Origin"] = origin if origin != "*" else "*"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
+        response.headers["Access-Control-Max-Age"] = "3600"
+    
+    # CSP pour permettre l'embedding Shopify
     shop = request.query_params.get("shop", "")
     if shop:
-        response.headers["Content-Security-Policy"] = f"frame-ancestors https://{shop} https://admin.shopify.com;"
+        response.headers["Content-Security-Policy"] = f"frame-ancestors https://{shop} https://admin.shopify.com https://*.myshopify.com;"
+    else:
+        # Permissif si pas de shop spécifié
+        response.headers["Content-Security-Policy"] = "frame-ancestors https://*.myshopify.com https://admin.shopify.com;"
+    
     return response
 
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+# Gérer les requêtes OPTIONS (preflight)
+@app.options("/api/{path:path}")
+async def options_handler(request: Request):
+    origin = request.headers.get("origin", "*")
+    return JSONResponse(
+        content={"ok": True},
+        headers={
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
+            "Access-Control-Max-Age": "3600"
+        }
+    )
 
 # --- ROUTES ---
 @app.get("/", response_class=HTMLResponse)
@@ -244,6 +273,8 @@ async def generate(
     print(f"🚀 [GENERATE] Requête reçue")
     print(f"   - Shop: {shop}")
     print(f"   - Client IP: {request.client.host}")
+    print(f"   - Origin: {request.headers.get('origin', 'N/A')}")
+    print(f"   - Referer: {request.headers.get('referer', 'N/A')}")
     
     shop = clean_shop_url(shop)
     
