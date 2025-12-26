@@ -230,6 +230,91 @@ def billing_callback(shop: str, amt: int, charge_id: str):
     except: 
         return HTMLResponse("Billing Error")
 
+@app.post("/api/generate-public")
+async def generate_public(
+    request: Request,
+    shop: str = Form(...),
+    person_image: UploadFile = File(...),
+    clothing_file: Optional[UploadFile] = File(None),
+    clothing_url: Optional[str] = Form(None),
+    category: str = Form("upper_body")
+):
+    """Route publique pour les clients finaux (widget)"""
+    print(f"🌐 [PUBLIC] Requête client pour shop: {shop}")
+    
+    shop = clean_shop_url(shop)
+    
+    # Vérification basique : le shop existe-t-il ?
+    token = get_token_db(shop)
+    if not token:
+        return JSONResponse({"error": "Shop not configured"}, status_code=400)
+    
+    # IMPORTANT : Vérifier les crédits SANS activer la session Shopify
+    try:
+        get_shopify_session(shop, token)
+        current_credits = get_metafield("virtual_try_on", "wallet", 0)
+        max_tries = get_metafield("vton_security", "max_tries_per_user", 5)
+        
+        if current_credits < 1:
+            return JSONResponse({"error": "No credits available"}, status_code=402)
+        
+        # Vérification limite par IP (anti-abus)
+        client_ip = request.client.host
+        rate_key = f"{shop}_{client_ip}"
+        today = time.strftime("%Y-%m-%d")
+        
+        if rate_key not in RATE_LIMIT_DB:
+            RATE_LIMIT_DB[rate_key] = {"date": today, "count": 0}
+        
+        if RATE_LIMIT_DB[rate_key]["date"] != today:
+            RATE_LIMIT_DB[rate_key] = {"date": today, "count": 0}
+        
+        if RATE_LIMIT_DB[rate_key]["count"] >= max_tries:
+            return JSONResponse({"error": "Daily limit reached"}, status_code=429)
+        
+        # Traitement de l'image
+        person_bytes = await person_image.read()
+        person_file = io.BytesIO(person_bytes)
+        
+        garment_input = None
+        if clothing_file:
+            garment_bytes = await clothing_file.read()
+            garment_input = io.BytesIO(garment_bytes)
+        elif clothing_url:
+            garment_input = clothing_url
+            if garment_input.startswith("//"):
+                garment_input = "https:" + garment_input
+        else:
+            return JSONResponse({"error": "No garment provided"}, status_code=400)
+        
+        print("🤖 [REPLICATE] Envoi de la requête...")
+        
+        # Appel à Replicate
+        output = replicate.run(
+            MODEL_ID,
+            input={
+                "human_img": person_file,
+                "garm_img": garment_input,
+                "garment_des": category,
+                "category": "upper_body"
+            }
+        )
+        
+        result_url = str(output[0]) if isinstance(output, list) else str(output)
+        
+        # Décrémenter les crédits et incrémenter les stats
+        set_metafield("virtual_try_on", "wallet", current_credits - 1, "integer")
+        total_tryons = get_metafield("virtual_try_on", "total_tryons", 0)
+        set_metafield("virtual_try_on", "total_tryons", total_tryons + 1, "integer")
+        
+        # Incrémenter le compteur de limite
+        RATE_LIMIT_DB[rate_key]["count"] += 1
+        
+        return {"result_image_url": result_url}
+        
+    except Exception as e:
+        print(f"🔥 [ERROR PUBLIC] : {str(e)}")
+        return JSONResponse({"error": str(e)}, status_code=500)
 # --- GENERATE ---
 @app.post("/api/generate")
 async def generate(
@@ -313,4 +398,5 @@ def w2(): return {"ok": True}
 def w3(): return {"ok": True}
 @app.post("/webhooks/gdpr")
 def w4(): return {"ok": True}
+
 
