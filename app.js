@@ -1,19 +1,20 @@
 document.addEventListener("DOMContentLoaded", function() {
 
-    document.body.classList.add('loaded');
-    document.body.style.opacity = "1";
-
+    // --- FIX CRITIQUE : Récupération des paramètres Iframe ---
     const params = new URLSearchParams(window.location.search);
-    const mode = params.get('mode');
+    const mode = params.get('mode'); // 'client' ou null
+    
+    // On priorise le shop de l'URL (envoyé par le Liquid), sinon session
     let shop = params.get('shop') || sessionStorage.getItem('shop');
+    
+    // Sauvegarde pour la navigation interne
+    if (shop) sessionStorage.setItem('shop', shop);
+
     const autoProductImage = params.get('product_image');
 
-    // FIX SESSION
-    try {
-        if(!shop) shop = sessionStorage.getItem('shop');
-        if(shop) sessionStorage.setItem('shop', shop);
-    } catch(e) {}
+    console.log("VTON Init - Shop:", shop, "| Mode:", mode);
 
+    // --- AUTHENTIFICATION ---
     async function getSessionToken() {
         if (window.shopify && window.shopify.id) return await shopify.id.getToken();
         return null;
@@ -25,27 +26,61 @@ document.addEventListener("DOMContentLoaded", function() {
             const headers = options.headers || {};
             if (token) headers['Authorization'] = `Bearer ${token}`;
             const res = await fetch(url, { ...options, headers });
-            if (res.status === 401 && shop && mode !== 'client') { window.top.location.href = `/login?shop=${shop}`; return null; }
+            if (res.status === 401 && shop && mode !== 'client') { 
+                window.top.location.href = `/login?shop=${shop}`; 
+                return null; 
+            }
             return res;
         } catch (error) { throw error; }
     }
 
+    // --- INITIALISATION ---
     if(shop) {
         if (mode === 'client') initClientMode();
         else initAdminMode(shop);
+    } else {
+        console.warn("Aucun shop détecté. Le widget risque de ne pas fonctionner.");
     }
 
-    // --- DASHBOARD ---
+    // --- MODE CLIENT (STOREFRONT) ---
+    function initClientMode() {
+        console.log("Activation Mode Client");
+        document.body.classList.add('client-mode'); // Déclenche le CSS
+        
+        // Cache brutalement le dashboard JS si besoin
+        const adminZone = document.getElementById('admin-only-zone');
+        if(adminZone) adminZone.style.display = 'none';
+
+        // Gestion Image Produit Automatique
+        if (autoProductImage) {
+            const img = document.getElementById('prevC');
+            if(img) {
+                img.src = autoProductImage;
+                img.style.display = 'block';
+                // Masque l'upload vêtement car inutile
+                const garmentUploadBox = document.querySelector('label[for="cImg"]');
+                if (garmentUploadBox) garmentUploadBox.style.display = 'none';
+                
+                // On agrandit la boite photo utilisateur pour équilibrer
+                const userBox = document.querySelector('label[for="uImg"]');
+                if (userBox && document.body.classList.contains('client-mode')) {
+                    userBox.style.gridColumn = "span 2"; 
+                }
+            }
+        }
+        
+        document.body.classList.add('loaded');
+        document.body.style.opacity = "1";
+    }
+
+    // --- MODE ADMIN (DASHBOARD) ---
     async function initAdminMode(s) {
         const res = await authenticatedFetch(`/api/get-data?shop=${s}`);
         if (res && res.ok) {
             const data = await res.json();
-
-            // Affichage Stats
             updateDashboardStats(data.credits || 0);
             updateVIPStatus(data.lifetime || 0);
-
-            // Compteurs simples
+            
             const tryEl = document.getElementById('stat-tryons');
             const atcEl = document.getElementById('stat-atc');
             if(tryEl) tryEl.innerText = data.usage || 0;
@@ -56,30 +91,22 @@ document.addEventListener("DOMContentLoaded", function() {
                 document.getElementById('ws-color').value = data.widget.bg || "#000000";
                 document.getElementById('ws-text-color').value = data.widget.color || "#ffffff";
                 if(data.security) document.getElementById('ws-limit').value = data.security.max_tries || 5;
-                window.updateWidgetPreview();
+                if(window.updateWidgetPreview) window.updateWidgetPreview();
             }
         }
+        document.body.classList.add('loaded');
+        document.body.style.opacity = "1";
     }
 
+    // --- FONCTIONS UTILITAIRES ---
     function updateDashboardStats(credits) {
         const el = document.getElementById('credits');
         if(el) el.innerText = credits;
-        const supplyCard = document.querySelector('.smart-supply-card');
-        const alertBadge = document.querySelector('.alert-badge');
         const daysEl = document.querySelector('.rs-value');
-        if (supplyCard && daysEl) {
+        if (daysEl) {
             let daysLeft = Math.floor(credits / 8); 
             if(daysLeft < 1) daysLeft = "< 1";
             daysEl.innerText = daysLeft + (daysLeft === "< 1" ? " Day" : " Days");
-            if (credits < 20) {
-                supplyCard.style.background = "#fff0f0";
-                alertBadge.innerText = "CRITICAL";
-                alertBadge.style.background = "#dc2626";
-            } else {
-                supplyCard.style.background = "#f0fdf4";
-                alertBadge.innerText = "HEALTHY";
-                alertBadge.style.background = "#16a34a";
-            }
         }
     }
 
@@ -90,54 +117,6 @@ document.addEventListener("DOMContentLoaded", function() {
         if(percent > 100) percent = 100;
         if(fill) fill.style.width = percent + "%";
         if(marker) marker.style.left = percent + "%";
-        if(lifetime >= 500) {
-            const title = document.querySelector('.vip-title strong');
-            if(title) title.innerText = "Gold Member";
-        }
-    }
-
-    window.saveSettings = async function(btn) {
-        const oldText = btn.innerText;
-        btn.innerText = "Saving..."; btn.disabled = true;
-        const settings = {
-            shop: shop,
-            text: document.getElementById('ws-text').value,
-            bg: document.getElementById('ws-color').value,
-            color: document.getElementById('ws-text-color').value,
-            max_tries: parseInt(document.getElementById('ws-limit').value) || 5
-        };
-        try {
-            const res = await authenticatedFetch('/api/save-settings', {
-                method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(settings)
-            });
-            if(res.ok) { btn.innerText = "Saved! ✅"; setTimeout(() => btn.innerText = oldText, 2000); } 
-            else { alert("Save failed"); }
-        } catch(e) { console.error(e); alert("Error saving"); }
-        finally { btn.disabled = false; }
-    };
-
-    window.trackATC = async function() {
-        if(shop) {
-            try {
-                await fetch('/api/track-atc', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ shop: shop })
-                });
-            } catch(e) { console.error("Tracking Error", e); }
-        }
-    };
-
-    function initClientMode() {
-        document.body.classList.add('client-mode');
-        const adminZone = document.getElementById('admin-only-zone');
-        if(adminZone) adminZone.style.display = 'none';
-        if (autoProductImage) {
-            const img = document.getElementById('prevC');
-            if(img) {
-                img.src = autoProductImage;
-                img.style.display = 'block';
-                if(img.parentElement) img.parentElement.querySelector('.empty-state').style.display = 'none';
-            }
-        }
     }
 
     window.preview = function(inputId, imgId) {
@@ -168,12 +147,55 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
 
+    // --- ACTIONS BACKEND ---
+    window.saveSettings = async function(btn) {
+        const oldText = btn.innerText;
+        btn.innerText = "Saving..."; btn.disabled = true;
+        const settings = {
+            shop: shop,
+            text: document.getElementById('ws-text').value,
+            bg: document.getElementById('ws-color').value,
+            color: document.getElementById('ws-text-color').value,
+            max_tries: parseInt(document.getElementById('ws-limit').value) || 5
+        };
+        try {
+            const res = await authenticatedFetch('/api/save-settings', {
+                method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(settings)
+            });
+            if(res.ok) { btn.innerText = "Saved! ✅"; setTimeout(() => btn.innerText = oldText, 2000); } 
+            else { alert("Save failed"); }
+        } catch(e) { console.error(e); alert("Error saving"); }
+        finally { btn.disabled = false; }
+    };
+
+    window.trackATC = async function() {
+        if(shop) {
+            try {
+                // En mode client, on utilise fetch simple car pas de session token
+                const url = '/api/track-atc';
+                const payload = JSON.stringify({ shop: shop });
+                const headers = {'Content-Type': 'application/json'};
+                
+                if (mode === 'client') await fetch(url, { method: 'POST', headers: headers, body: payload });
+                else await authenticatedFetch(url, { method: 'POST', headers: headers, body: payload });
+                
+                // Petit feedback visuel
+                const btn = document.getElementById('shopBtn');
+                btn.innerHTML = "Redirecting... <i class='fa-solid fa-check'></i>";
+            } catch(e) { console.error("Tracking Error", e); }
+        }
+    };
+
+    // --- FONCTION GENERATE PRINCIPALE ---
     window.generate = async function() {
         const uFile = document.getElementById('uImg').files[0];
         const cFile = document.getElementById('cImg').files[0];
         const btn = document.getElementById('btnGo');
-        if (!uFile) return alert("Please upload your photo.");
-        if (!autoProductImage && !cFile) return alert("Please upload a garment.");
+
+        if (!shop) return alert("Erreur: Boutique non identifiée. Rechargement nécessaire.");
+        if (!uFile) return alert("Veuillez ajouter votre photo.");
+        // Si pas d'image auto ET pas de fichier uploadé
+        if (!autoProductImage && !cFile) return alert("Veuillez ajouter un vêtement.");
 
         const oldText = btn.innerHTML;
         btn.disabled = true; 
@@ -191,30 +213,53 @@ document.addEventListener("DOMContentLoaded", function() {
 
         try {
             const formData = new FormData();
-            formData.append("shop", shop);
+            formData.append("shop", shop); // CRUCIAL
             formData.append("person_image", uFile);
-            if(cFile) formData.append("clothing_file", cFile);
-            else formData.append("clothing_url", autoProductImage);
+            
+            if(cFile) {
+                formData.append("clothing_file", cFile);
+            } else if (autoProductImage) {
+                formData.append("clothing_url", autoProductImage);
+            }
             formData.append("category", "upper_body");
 
             let res;
-            if (mode === 'client') res = await fetch('/api/generate', { method: 'POST', body: formData });
-            else res = await authenticatedFetch('/api/generate', { method: 'POST', body: formData });
+            if (mode === 'client') {
+                // Mode client : Pas de Header Authorization Bearer
+                res = await fetch('/api/generate', { method: 'POST', body: formData });
+            } else {
+                // Mode admin : Avec Token Session
+                res = await authenticatedFetch('/api/generate', { method: 'POST', body: formData });
+            }
 
             clearInterval(interval);
 
-            if (!res) return;
-            if (res.status === 429) { alert("Daily limit reached."); document.getElementById('loader').style.display = 'none'; return; }
-            if (res.status === 402) { alert("Not enough credits!"); btn.disabled = false; btn.innerHTML = oldText; return; }
-            if (!res.ok) throw new Error("Server Error");
+            if (!res.ok) {
+                const errData = await res.json();
+                throw new Error(errData.error || "Server Error");
+            }
 
             const data = await res.json();
             if(data.result_image_url){
                 const ri = document.getElementById('resImg');
                 ri.src = data.result_image_url;
-                ri.onload = () => { ri.style.display = 'block'; document.getElementById('loader').style.display = 'none'; document.getElementById('post-actions').style.display = 'block'; };
-            } else { alert("Error: " + (data.error || "Unknown")); document.getElementById('loader').style.display = 'none'; }
-        } catch(e) { clearInterval(interval); console.error(e); alert("Network Error"); document.getElementById('loader').style.display = 'none'; }
-        finally { btn.disabled = false; btn.innerHTML = oldText; }
+                ri.onload = () => { 
+                    ri.style.display = 'block'; 
+                    document.getElementById('loader').style.display = 'none'; 
+                    document.getElementById('post-actions').style.display = 'block'; 
+                };
+            } else {
+                throw new Error("No image URL returned");
+            }
+
+        } catch(e) { 
+            clearInterval(interval); 
+            console.error(e); 
+            alert("Erreur: " + e.message); 
+            document.getElementById('loader').style.display = 'none'; 
+        } finally { 
+            btn.disabled = false; 
+            btn.innerHTML = oldText; 
+        }
     };
 });
