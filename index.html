@@ -2,192 +2,132 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VTON FINAL FIX</title>
+    <title>DEBUG MODE</title>
     <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js" data-api-key="{{ api_key }}"></script>
-    
     <style>
-        /* CSS INTÉGRÉ : On s'assure que rien ne gêne le clic */
-        body { font-family: 'Helvetica', sans-serif; padding: 20px; background-color: #f9f9f9; }
-        
-        /* Style Admin (Caché par défaut en JS) */
-        #admin-zone { border: 2px solid #333; padding: 20px; background: #fff; margin-bottom: 20px; }
-        
-        /* Style Client */
-        #client-zone { max-width: 500px; margin: 0 auto; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-        
-        .step-box { border: 2px dashed #ccc; padding: 20px; text-align: center; margin-bottom: 15px; border-radius: 8px; cursor: pointer; transition: 0.2s; }
-        .step-box:hover { border-color: #000; background: #f0f0f0; }
-        
-        img.preview { max-width: 100px; display: none; margin: 10px auto; border-radius: 4px; }
-        
-        /* LE BOUTON CRITIQUE */
-        #btnGo {
-            width: 100%;
-            padding: 18px;
-            background-color: #000;
-            color: #fff;
-            font-size: 18px;
-            font-weight: bold;
-            border: none;
-            border-radius: 50px;
-            cursor: pointer;
-            z-index: 9999; /* On le met au dessus de tout */
-            position: relative;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        body { font-family: sans-serif; padding: 20px; background: white; }
+        .box { border: 2px solid black; padding: 15px; margin-bottom: 15px; background: #f0f0f0; }
+        button { 
+            width: 100%; padding: 20px; background: blue; color: white; 
+            font-size: 20px; border: none; cursor: pointer; display: block;
         }
-        #btnGo:hover { background-color: #333; transform: scale(1.02); }
-        #btnGo:active { transform: scale(0.98); }
-        
-        /* Loader */
-        #loader { display: none; text-align: center; font-weight: bold; color: #000; margin-top: 10px; }
+        button:hover { background: darkblue; }
+        #log { background: #000; color: lime; padding: 10px; height: 150px; overflow: auto; font-family: monospace; }
     </style>
 </head>
 <body>
 
-    <div id="admin-zone" style="display:none;">
-        <h2>👑 Admin Dashboard</h2>
-        <p>Crédits : <b id="credits">Chargement...</b></p>
-        <button onclick="buy('pack_10', 0, this)" style="padding:10px;">Acheter des crédits</button>
+    <h1>🚨 MODE DÉPANNAGE</h1>
+    
+    <div id="log">Logs système...<br></div>
+
+    <div class="box">
+        <h3>1. Ta Photo</h3>
+        <input type="file" id="uImg" accept="image/*">
     </div>
 
-    <div id="client-zone">
-        <h2 style="text-align:center;">Cabine d'Essayage 🪄</h2>
+    <div class="box">
+        <h3>2. Vêtement</h3>
+        <input type="file" id="cImg" accept="image/*">
+        <input type="hidden" id="autoUrl"> 
+    </div>
 
-        <div class="step-box" onclick="document.getElementById('uImg').click()">
-            <p>📸 1. Cliquez pour ajouter votre photo</p>
-            <input type="file" id="uImg" accept="image/*" hidden onchange="preview(this, 'prevU')">
-            <img id="prevU" class="preview">
-        </div>
+    <button id="btnDebug" type="button">LANCER LE TEST 🚀</button>
 
-        <div class="step-box" onclick="document.getElementById('cImg').click()">
-            <p>👕 2. Le Vêtement</p>
-            <input type="file" id="cImg" accept="image/*" hidden onchange="preview(this, 'prevC')">
-            <img id="prevC" class="preview">
-        </div>
-
-        <button id="btnGo" type="button">LANCER L'ESSAYAGE 🚀</button>
-
-        <div id="loader">⏳ L'IA travaille... (Cela prend ~10s)</div>
-        <img id="resImg" style="width:100%; margin-top:20px; border-radius:8px; display:none;">
+    <div id="resZone" style="display:none; margin-top:20px;">
+        <h3>Résultat :</h3>
+        <img id="resImg" style="width:100%; border: 3px solid red;">
     </div>
 
     <script>
-        // --- 1. INITIALISATION ---
-        console.log("🟧 SCRIPT DÉMARRÉ");
-        
-        // Paramètres URL
-        const params = new URLSearchParams(window.location.search);
-        const mode = params.get('mode');
-        const shop = params.get('shop');
-        const autoImg = params.get('product_image');
-
-        // Affichage conditionnel
-        if (mode === 'client') {
-            document.getElementById('admin-zone').style.display = 'none';
-            document.getElementById('client-zone').style.display = 'block';
-            
-            // Auto-remplissage image vêtement
-            if (autoImg) {
-                const img = document.getElementById('prevC');
-                img.src = autoImg;
-                img.style.display = 'block';
-            }
-        } else {
-            document.getElementById('admin-zone').style.display = 'block';
-            document.getElementById('client-zone').style.display = 'none';
-            if(shop) initAdmin(shop);
+        function log(msg) {
+            const el = document.getElementById('log');
+            el.innerHTML += "> " + msg + "<br>";
+            console.log(msg);
         }
 
-        // --- 2. FONCTIONS DE PREVIEW ---
-        window.preview = function(input, imgId) {
-            if (input.files && input.files[0]) {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    const img = document.getElementById(imgId);
-                    img.src = e.target.result;
-                    img.style.display = 'block';
-                }
-                reader.readAsDataURL(input.files[0]);
+        document.addEventListener("DOMContentLoaded", function() {
+            log("Page chargée.");
+            
+            const params = new URLSearchParams(window.location.search);
+            const shop = params.get('shop');
+            const product_image = params.get('product_image');
+
+            log("Shop: " + (shop || "NON DÉTECTÉ"));
+            
+            if(product_image) {
+                log("Vêtement automatique détecté");
+                document.getElementById('autoUrl').value = product_image;
             }
-        };
 
-        // --- 3. LE CLIC (LA PARTIE IMPORTANTE) ---
-        const btn = document.getElementById('btnGo');
-        
-        btn.addEventListener('click', async function() {
-            // TEST DE VIE
-            console.log("✅ CLIC DÉTECTÉ !");
-            btn.innerText = "Envoi en cours...";
-            btn.disabled = true;
-            document.getElementById('loader').style.display = 'block';
+            const btn = document.getElementById('btnDebug');
+            
+            // TEST DE CLIC DIRECT
+            btn.onclick = async function() {
+                log("🔴 CLIC REÇU ! Lancement...");
+                btn.disabled = true;
+                btn.innerText = "Traitement en cours...";
 
-            // Vérifications
-            const uFile = document.getElementById('uImg').files[0];
-            const cFile = document.getElementById('cImg').files[0];
+                const uFile = document.getElementById('uImg').files[0];
+                const cFile = document.getElementById('cImg').files[0];
+                const autoUrl = document.getElementById('autoUrl').value;
 
-            if (!shop) { alert("Erreur: Shop manquant"); resetBtn(); return; }
-            if (!uFile) { alert("Ajoutez votre photo (Étape 1)"); resetBtn(); return; }
-            if (!autoImg && !cFile) { alert("Ajoutez le vêtement (Étape 2)"); resetBtn(); return; }
+                if(!shop) { alert("Erreur: Shop manquant"); btn.disabled=false; return; }
+                if(!uFile) { alert("Mets une photo !"); btn.disabled=false; return; }
 
-            // Envoi
-            try {
+                log("Préparation des données...");
                 const formData = new FormData();
                 formData.append("shop", shop);
                 formData.append("person_image", uFile);
-                if (autoImg) formData.append("clothing_url", autoImg);
-                else formData.append("clothing_file", cFile);
 
-                const res = await fetch('/api/generate', { method: 'POST', body: formData });
-                
-                if (!res.ok) {
-                    const txt = await res.text();
-                    throw new Error("Erreur serveur: " + txt);
-                }
-
-                const data = await res.json();
-                if (data.result_image_url) {
-                    const ri = document.getElementById('resImg');
-                    ri.src = data.result_image_url;
-                    ri.onload = () => {
-                        document.getElementById('loader').style.display = 'none';
-                        ri.style.display = 'block';
-                        btn.innerText = "ESSAYER UN AUTRE";
-                        btn.disabled = false;
-                    }
+                if(autoUrl) {
+                    log("Envoi URL vêtement: " + autoUrl);
+                    formData.append("clothing_url", autoUrl);
+                } else if(cFile) {
+                    log("Envoi Fichier vêtement");
+                    formData.append("clothing_file", cFile);
                 } else {
-                    throw new Error("Pas d'image reçue");
+                    alert("Mets un vêtement !"); btn.disabled=false; return;
                 }
 
-            } catch (e) {
-                alert("Erreur : " + e.message);
-                resetBtn();
-            }
+                try {
+                    log("📡 Envoi au serveur (Fetch)...");
+                    
+                    // On force le mode cors pour éviter le blocage
+                    const res = await fetch('/api/generate', {
+                        method: 'POST',
+                        body: formData,
+                        mode: 'cors' 
+                    });
+
+                    log("Réponse serveur : " + res.status);
+
+                    if(!res.ok) {
+                        const txt = await res.text();
+                        throw new Error("Erreur serveur: " + txt);
+                    }
+
+                    const data = await res.json();
+                    log("JSON reçu: " + JSON.stringify(data));
+
+                    if(data.result_image_url) {
+                        const img = document.getElementById('resImg');
+                        img.src = data.result_image_url;
+                        document.getElementById('resZone').style.display = 'block';
+                        log("✅ IMAGE AFFICHÉE !");
+                    } else {
+                        throw new Error("Pas d'URL dans la réponse");
+                    }
+
+                } catch(e) {
+                    log("☠️ ERREUR: " + e.message);
+                    alert("Erreur: " + e.message);
+                } finally {
+                    btn.disabled = false;
+                    btn.innerText = "RÉESSAYER";
+                }
+            };
         });
-
-        function resetBtn() {
-            btn.disabled = false;
-            btn.innerText = "LANCER L'ESSAYAGE 🚀";
-            document.getElementById('loader').style.display = 'none';
-        }
-
-        // --- 4. ADMIN ---
-        async function initAdmin(s) {
-            // Code admin minimal pour éviter les erreurs JS
-            try {
-                const r = await fetch(`/api/get-data?shop=${s}`); // Version simple sans auth complexe pour le test
-                if(r.ok) {
-                    const d = await r.json();
-                    document.getElementById('credits').innerText = d.credits;
-                }
-            } catch(e) {}
-        }
-        
-        // Fonctions d'achat (simplifiées)
-        window.buy = function(pack, amt) {
-             alert("Fonction achat désactivée en mode debug HTML unique.");
-        };
-
     </script>
 </body>
 </html>
