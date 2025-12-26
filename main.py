@@ -240,9 +240,14 @@ async def generate(
     clothing_url: Optional[str] = Form(None),
     category: str = Form("upper_body")
 ):
+    # AJOUT LOG DE DEBUG
+    print(f"🚀 DEBUG: Receiving request for shop: {shop}")
+    
     shop = clean_shop_url(shop)
     token = get_token_db(shop)
-    if not token: return JSONResponse({"error": "Shop not connected."}, status_code=403)
+    if not token: 
+        print(f"❌ Error: Token not found for {shop}")
+        return JSONResponse({"error": "Shop not connected."}, status_code=403)
 
     try:
         get_shopify_session(shop, token)
