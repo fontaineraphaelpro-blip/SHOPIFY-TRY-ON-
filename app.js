@@ -25,9 +25,14 @@ document.addEventListener("DOMContentLoaded", function() {
             const headers = options.headers || {};
             if (token) headers['Authorization'] = `Bearer ${token}`;
             const res = await fetch(url, { ...options, headers });
-            if (res.status === 401 && shop && mode !== 'client') { window.top.location.href = `/login?shop=${shop}`; return null; }
+            if (res.status === 401 && shop && mode !== 'client') { 
+                window.top.location.href = `/login?shop=${shop}`; 
+                return null; 
+            }
             return res;
-        } catch (error) { throw error; }
+        } catch (error) { 
+            throw error; 
+        }
     }
 
     if(shop) {
@@ -96,9 +101,11 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
 
+    // --- SAVE SETTINGS ---
     window.saveSettings = async function(btn) {
         const oldText = btn.innerText;
-        btn.innerText = "Saving..."; btn.disabled = true;
+        btn.innerText = "Saving..."; 
+        btn.disabled = true;
         const settings = {
             shop: shop,
             text: document.getElementById('ws-text').value,
@@ -108,24 +115,40 @@ document.addEventListener("DOMContentLoaded", function() {
         };
         try {
             const res = await authenticatedFetch('/api/save-settings', {
-                method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(settings)
+                method: 'POST', 
+                headers: {'Content-Type': 'application/json'}, 
+                body: JSON.stringify(settings)
             });
-            if(res.ok) { btn.innerText = "Saved! ✅"; setTimeout(() => btn.innerText = oldText, 2000); } 
-            else { alert("Save failed"); }
-        } catch(e) { console.error(e); alert("Error saving"); }
-        finally { btn.disabled = false; }
+            if(res && res.ok) { 
+                btn.innerText = "Saved! ✅"; 
+                setTimeout(() => btn.innerText = oldText, 2000); 
+            } else { 
+                alert("Save failed"); 
+            }
+        } catch(e) { 
+            console.error(e); 
+            alert("Error saving"); 
+        } finally { 
+            btn.disabled = false; 
+        }
     };
 
+    // --- TRACK ADD TO CART ---
     window.trackATC = async function() {
         if(shop) {
             try {
                 await fetch('/api/track-atc', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ shop: shop })
+                    method: 'POST', 
+                    headers: {'Content-Type': 'application/json'}, 
+                    body: JSON.stringify({ shop: shop })
                 });
-            } catch(e) { console.error("Tracking Error", e); }
+            } catch(e) { 
+                console.error("Tracking Error", e); 
+            }
         }
     };
 
+    // --- INIT CLIENT MODE ---
     function initClientMode() {
         document.body.classList.add('client-mode');
         const adminZone = document.getElementById('admin-only-zone');
@@ -135,11 +158,15 @@ document.addEventListener("DOMContentLoaded", function() {
             if(img) {
                 img.src = autoProductImage;
                 img.style.display = 'block';
-                if(img.parentElement) img.parentElement.querySelector('.empty-state').style.display = 'none';
+                if(img.parentElement) {
+                    const emptyState = img.parentElement.querySelector('.empty-state');
+                    if(emptyState) emptyState.style.display = 'none';
+                }
             }
         }
     }
 
+    // --- IMAGE PREVIEW ---
     window.preview = function(inputId, imgId) {
         const file = document.getElementById(inputId).files[0];
         if(file) {
@@ -155,6 +182,7 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     };
 
+    // --- UPDATE WIDGET PREVIEW ---
     window.updateWidgetPreview = function() {
         const text = document.getElementById('ws-text').value;
         const color = document.getElementById('ws-color').value;
@@ -168,10 +196,12 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
 
+    // --- GENERATE VIRTUAL TRY-ON ---
     window.generate = async function() {
         const uFile = document.getElementById('uImg').files[0];
         const cFile = document.getElementById('cImg').files[0];
         const btn = document.getElementById('btnGo');
+        
         if (!uFile) return alert("Please upload your photo.");
         if (!autoProductImage && !cFile) return alert("Please upload a garment.");
 
@@ -185,9 +215,16 @@ document.addEventListener("DOMContentLoaded", function() {
         document.getElementById('post-actions').style.display = 'none';
 
         const textEl = document.getElementById('loader-text');
-        const texts = ["Analyzing silhouette...", "Matching fabrics...", "Simulating drape...", "Rendering lighting..."];
+        const texts = [
+            "Analyzing silhouette...", 
+            "Matching fabrics...", 
+            "Simulating drape...", 
+            "Rendering lighting..."
+        ];
         let step = 0;
-        const interval = setInterval(() => { if(step < texts.length) textEl.innerText = texts[step++]; }, 2500);
+        const interval = setInterval(() => { 
+            if(step < texts.length) textEl.innerText = texts[step++]; 
+        }, 2500);
 
         try {
             const formData = new FormData();
@@ -198,23 +235,161 @@ document.addEventListener("DOMContentLoaded", function() {
             formData.append("category", "upper_body");
 
             let res;
-            if (mode === 'client') res = await fetch('/api/generate', { method: 'POST', body: formData });
-            else res = await authenticatedFetch('/api/generate', { method: 'POST', body: formData });
+            // CORRECTION : Utiliser la route publique pour les clients
+            if (mode === 'client') {
+                console.log("🌐 Mode CLIENT : Utilisation de /api/generate-public");
+                res = await fetch('/api/generate-public', { 
+                    method: 'POST', 
+                    body: formData 
+                });
+            } else {
+                console.log("🔒 Mode ADMIN : Utilisation de /api/generate avec auth");
+                res = await authenticatedFetch('/api/generate', { 
+                    method: 'POST', 
+                    body: formData 
+                });
+            }
 
             clearInterval(interval);
 
-            if (!res) return;
-            if (res.status === 429) { alert("Daily limit reached."); document.getElementById('loader').style.display = 'none'; return; }
-            if (res.status === 402) { alert("Not enough credits!"); btn.disabled = false; btn.innerHTML = oldText; return; }
-            if (!res.ok) throw new Error("Server Error");
+            if (!res) {
+                document.getElementById('loader').style.display = 'none';
+                return;
+            }
+            
+            if (res.status === 429) { 
+                alert("Daily limit reached. Please try again tomorrow."); 
+                document.getElementById('loader').style.display = 'none'; 
+                return; 
+            }
+            
+            if (res.status === 402) { 
+                alert("This shop has run out of credits!"); 
+                btn.disabled = false; 
+                btn.innerHTML = oldText; 
+                document.getElementById('loader').style.display = 'none';
+                return; 
+            }
+            
+            if (!res.ok) {
+                const errorData = await res.json().catch(() => ({}));
+                throw new Error(errorData.error || "Server Error");
+            }
 
             const data = await res.json();
             if(data.result_image_url){
                 const ri = document.getElementById('resImg');
                 ri.src = data.result_image_url;
-                ri.onload = () => { ri.style.display = 'block'; document.getElementById('loader').style.display = 'none'; document.getElementById('post-actions').style.display = 'block'; };
-            } else { alert("Error: " + (data.error || "Unknown")); document.getElementById('loader').style.display = 'none'; }
-        } catch(e) { clearInterval(interval); console.error(e); alert("Network Error"); document.getElementById('loader').style.display = 'none'; }
-        finally { btn.disabled = false; btn.innerHTML = oldText; }
+                ri.onload = () => { 
+                    ri.style.display = 'block'; 
+                    document.getElementById('loader').style.display = 'none'; 
+                    document.getElementById('post-actions').style.display = 'block'; 
+                };
+            } else { 
+                alert("Error: " + (data.error || "Unknown error occurred")); 
+                document.getElementById('loader').style.display = 'none'; 
+            }
+        } catch(e) { 
+            clearInterval(interval); 
+            console.error("❌ Generate Error:", e); 
+            alert("Network Error: " + e.message); 
+            document.getElementById('loader').style.display = 'none'; 
+        } finally { 
+            btn.disabled = false; 
+            btn.innerHTML = oldText; 
+        }
     };
+
+    // --- BUY CREDITS (PACKS) ---
+    window.buy = async function(packId, customAmount, btnElement) {
+        if(!shop) return alert("Shop not detected!");
+        
+        const originalContent = btnElement.innerHTML;
+        btnElement.innerHTML = "Processing...";
+        btnElement.disabled = true;
+
+        try {
+            const payload = {
+                shop: shop,
+                pack_id: packId,
+                custom_amount: customAmount || 0
+            };
+
+            const res = await authenticatedFetch('/api/buy-credits', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+
+            if(res && res.ok) {
+                const data = await res.json();
+                if(data.confirmation_url) {
+                    // Redirection vers la page de paiement Shopify
+                    window.top.location.href = data.confirmation_url;
+                } else {
+                    alert("Error: No confirmation URL received");
+                }
+            } else {
+                const errorData = await res.json().catch(() => ({}));
+                alert("Purchase failed: " + (errorData.error || "Unknown error"));
+            }
+        } catch(e) {
+            console.error("Buy Error:", e);
+            alert("Network error during purchase");
+        } finally {
+            btnElement.innerHTML = originalContent;
+            btnElement.disabled = false;
+        }
+    };
+
+    // --- BUY CUSTOM AMOUNT ---
+    window.buyCustom = async function(btn) {
+        const customAmountInput = document.getElementById('customAmount');
+        const amount = parseInt(customAmountInput.value);
+
+        if(!amount || amount < 10) {
+            return alert("Please enter at least 10 credits");
+        }
+
+        if(amount > 10000) {
+            return alert("Maximum 10,000 credits per order. Contact support for larger volumes.");
+        }
+
+        const originalText = btn.innerHTML;
+        btn.innerHTML = "Processing...";
+        btn.disabled = true;
+
+        try {
+            const payload = {
+                shop: shop,
+                pack_id: 'pack_custom',
+                custom_amount: amount
+            };
+
+            const res = await authenticatedFetch('/api/buy-credits', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+
+            if(res && res.ok) {
+                const data = await res.json();
+                if(data.confirmation_url) {
+                    window.top.location.href = data.confirmation_url;
+                } else {
+                    alert("Error: No confirmation URL received");
+                }
+            } else {
+                const errorData = await res.json().catch(() => ({}));
+                alert("Purchase failed: " + (errorData.error || "Unknown error"));
+            }
+        } catch(e) {
+            console.error("Custom Buy Error:", e);
+            alert("Network error during purchase");
+        } finally {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        }
+    };
+
 });
