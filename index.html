@@ -1,124 +1,99 @@
-import os
-import io
-import time
-import sqlite3
-import shopify
-import replicate
-from typing import Optional, Dict
-from fastapi import FastAPI, Request, Form, File, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.templating import Jinja2Templates
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VTON AI</title>
+    <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js" data-api-key="{{ api_key }}"></script>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;1,600&display=swap" rel="stylesheet">
+</head>
+<body>
 
-# --- CONFIGURATION ---
-SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
-SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
-# Token Replicate
-REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN") 
-MODEL_ID = "cuuupid/idm-vton:c871bb9b0466074280c2aec71dc6746146c6374507d3b0704332973e44075193"
+    <div class="app-container">
+        <div id="admin-only-zone">
+            
+            <header class="glass-header">
+                <div class="brand"><div class="logo-icon"><i class="fa-solid fa-wand-magic-sparkles"></i></div><div class="logo-text"><h1>VTON<span>AI</span></h1><span class="badge-beta">PRO DASHBOARD</span></div></div>
+                <div class="system-status"><span class="pulse-dot"></span> System Operational</div>
+            </header>
 
-app = FastAPI()
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-templates = Jinja2Templates(directory=".")
+            <div id="billing-section" class="stats-grid">
+                <div class="stat-card credit-card-style">
+                    <div class="card-bg-glow"></div>
+                    <div class="card-top"><span class="card-label">CURRENT BALANCE</span><i class="fa-brands fa-cc-stripe"></i></div>
+                    <div class="credits-count"><span id="credits">--</span></div>
+                    <div class="card-bottom"><span><i class="fa-solid fa-infinity"></i> Credits never expire</span><button onclick="document.querySelector('.pricing-container').scrollIntoView({behavior: 'smooth'})" class="btn-xs-glass">Refill</button></div>
+                </div>
 
-# --- DATABASE ---
-def get_token_db(shop):
-    try:
-        with sqlite3.connect("database.db") as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT token FROM shops WHERE domain = ?", (shop,))
-            row = cur.fetchone()
-            return row[0] if row else None
-    except: return None
+                <div class="stat-card analytics-card">
+                    <div class="analytics-header"><h3><i class="fa-solid fa-chart-line"></i> Usage Statistics</h3><span class="trend-badge positive">LIVE</span></div>
+                    <div class="metrics-row">
+                        <div class="metric"><span class="m-label">Total Try-Ons</span><span id="stat-tryons" class="m-value">0</span></div>
+                        <div class="metric highlight"><span class="m-label">Added to Cart</span><span id="stat-atc" class="m-value">0</span></div>
+                    </div>
+                    <div class="mini-chart-bar"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+                </div>
+                
+                <div class="stat-card smart-supply-card">
+                    <div class="supply-header"><h3><i class="fa-solid fa-gas-pump"></i> Credits Forecast</h3><span class="alert-badge">LOW STOCK</span></div>
+                    <div class="supply-body"><div class="runway-stat"><span class="rs-label">Empty Tank In</span><span class="rs-value">3 Days</span></div><div class="burn-rate"><i class="fa-solid fa-fire"></i> High Traffic Detected</div></div>
+                    <button onclick="document.querySelector('.pricing-container').scrollIntoView({behavior: 'smooth'})" class="btn-secure-stock">⚡ Secure Stock Now</button>
+                </div>
+            </div>
 
-# --- HELPERS ---
-def clean_shop(url):
-    return url.replace("https://", "").replace("http://", "").strip("/") if url else ""
+            <div class="widget-studio-section">
+                <div class="studio-header"><h3><i class="fa-solid fa-paintbrush"></i> Widget & Security</h3><p>Customize appearance and set usage limits.</p></div>
+                <div class="studio-workspace">
+                    <div class="studio-controls">
+                        <div class="control-group"><label>Button Text</label><input type="text" id="ws-text" value="Try It On Now ✨" oninput="updateWidgetPreview()"></div>
+                        <div class="control-group-row"><div class="control-group half"><label>Background</label><div class="color-picker-wrapper"><input type="color" id="ws-color" value="#000000" oninput="updateWidgetPreview()"></div></div><div class="control-group half"><label>Text Ink</label><div class="color-picker-wrapper"><input type="color" id="ws-text-color" value="#ffffff" oninput="updateWidgetPreview()"></div></div></div>
+                        <div class="control-group" style="margin-top: 15px; border-top: 1px solid #eee; padding-top: 15px;"><label><i class="fa-solid fa-shield-halved"></i> Max Try-Ons per User (Daily)</label><input type="number" id="ws-limit" value="5" min="1" max="20" style="width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px;"><small style="color: #64748b; font-size: 0.8rem;">Controls your costs & prevents abuse.</small></div>
+                        <button class="btn-save-widget" onclick="saveSettings(this)">Save Settings</button>
+                    </div>
+                    <div class="studio-preview"><div class="preview-label">Live Preview</div><div class="fake-product-page"><div class="fake-img"></div><div class="fake-info"><div class="fake-line title"></div><div class="fake-line price"></div><button id="ws-preview-btn" class="preview-widget-btn"><i class="fa-solid fa-shirt"></i> <span>Try It On Now ✨</span></button></div></div></div>
+                </div>
+            </div>
 
-# Middleware pour autoriser l'iframe dans Shopify
-@app.middleware("http")
-async def add_csp_header(request: Request, call_next):
-    response = await call_next(request)
-    shop = request.query_params.get("shop", "")
-    if shop:
-        response.headers["Content-Security-Policy"] = f"frame-ancestors https://{shop} https://admin.shopify.com;"
-    return response
+            <div class="pricing-container">
+                <h2 class="section-title">Purchase Credits</h2>
+                <p class="section-subtitle">1 Credit = 1 Virtual Try-On Result</p>
+                <div class="pricing-row">
+                    <div class="pricing-card" onclick="buy('pack_10', 0, this)">
+                        <div class="pc-header"><span class="pc-name">Starter Pack</span><span class="pc-credits">10</span><span class="pc-unit">Credits</span></div>
+                        <div class="pc-price"><span class="currency">€</span>4.99<span class="per-try">€0.50 / try</span></div>
+                        <ul class="pc-features"><li><i class="fa-solid fa-check"></i> Standard Quality</li><li><i class="fa-solid fa-check"></i> Email Support</li><li><i class="fa-solid fa-check"></i> No Expiration</li></ul>
+                        <button class="btn-buy">Buy Starter</button>
+                    </div>
+                    <div class="pricing-card featured" onclick="buy('pack_30', 0, this)">
+                        <div class="popular-badge">MOST POPULAR</div>
+                        <div class="pc-header"><span class="pc-name">Growth Pack</span><span class="pc-credits">30</span><span class="pc-unit">Credits</span></div>
+                        <div class="pc-price"><span class="currency">€</span>12.99<span class="per-try highlight">€0.43 / try</span></div>
+                        <ul class="pc-features"><li><i class="fa-solid fa-check"></i> <strong>High Speed GPU</strong></li><li><i class="fa-solid fa-check"></i> <strong>Best Conversion Rate</strong></li><li><i class="fa-solid fa-check"></i> Priority Support</li></ul>
+                        <button class="btn-buy featured-btn">Buy Growth 🚀</button>
+                    </div>
+                    <div class="pricing-card" onclick="buy('pack_100', 0, this)">
+                        <div class="pc-header"><span class="pc-name">Business Pack</span><span class="pc-credits">100</span><span class="pc-unit">Credits</span></div>
+                        <div class="pc-price"><span class="currency">€</span>29.99<span class="per-try">€0.30 / try</span></div>
+                        <ul class="pc-features"><li><i class="fa-solid fa-check"></i> Bulk Discount</li><li><i class="fa-solid fa-check"></i> Dedicated Manager</li><li><i class="fa-solid fa-check"></i> API Access</li></ul>
+                        <button class="btn-buy">Buy Business</button>
+                    </div>
+                </div>
+                <div class="bulk-order-section"><p class="bulk-text">Need massive volume? <span class="bulk-trigger" onclick="document.getElementById('custom-panel').style.display='flex'">Open Custom Order</span></p><div id="custom-panel" class="custom-order-panel" style="display:none;"><div class="custom-input-group-pro"><input type="number" id="customAmount" placeholder="500" value="500"></div><button onclick="buyCustom(this)" class="btn-custom-action">Get Pack Now</button></div></div>
+            </div>
+            <div class="divider"><span>TRY-ON PREVIEW TOOL</span></div>
+        </div>
 
-# --- ROUTES ---
-
-@app.get("/styles.css")
-def styles(): return FileResponse('styles.css', media_type='text/css')
-
-@app.get("/app.js")
-def javascript(): return FileResponse('app.js', media_type='application/javascript')
-
-@app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
-    # Charge le fichier HTML unique
-    return templates.TemplateResponse("index.html", {"request": request})
-
-# --- API GENERATE (LE COEUR DU SYSTEME) ---
-@app.post("/api/generate")
-async def generate(
-    shop: str = Form(...),
-    person_image: UploadFile = File(...),
-    clothing_url: str = Form(...) # On force l'URL ici car le widget envoie toujours une URL
-):
-    print(f"🚀 REÇU: Shop={shop} | Vêtement={clothing_url}")
-    
-    shop = clean_shop(shop)
-    token = get_token_db(shop)
-    
-    # 1. Sécurité simple : est-ce que la boutique a installé l'app ?
-    if not token:
-        print("❌ ERREUR: Boutique non reconnue dans la DB")
-        return JSONResponse({"error": "App non installée ou token manquant."}, status_code=403)
-
-    try:
-        # 2. Vérification Crédits Shopify
-        shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
-        session = shopify.Session(shop, "2024-10", token)
-        shopify.ShopifyResource.activate_session(session)
-        
-        # Récupération crédits
-        meta = shopify.Metafield.find(namespace="virtual_try_on", key="wallet")
-        credits = int(float(meta[0].value)) if meta else 0
-        
-        if credits < 1:
-            return JSONResponse({"error": "Plus de crédits disponibles."}, status_code=402)
-
-        # 3. Appel Replicate
-        # On lit l'image utilisateur en RAM
-        person_bytes = await person_image.read()
-        
-        print("🤖 Envoi à Replicate...")
-        output = replicate.run(
-            MODEL_ID,
-            input={
-                "human_img": io.BytesIO(person_bytes),
-                "garm_img": clothing_url, # On passe l'URL directe de Shopify
-                "garment_des": "upper_body",
-                "category": "upper_body",
-                "crop": False,
-                "seed": 42
-            }
-        )
-        
-        result_url = str(output[0]) if isinstance(output, list) else str(output)
-        print(f"✅ SUCCÈS: {result_url}")
-
-        # 4. Débit Crédit
-        new_credits = credits - 1
-        # Mise à jour metafield
-        m = shopify.Metafield()
-        m.namespace = "virtual_try_on"
-        m.key = "wallet"
-        m.value = new_credits
-        m.type = "integer"
-        m.save()
-
-        return {"result_image_url": result_url}
-
-    except Exception as e:
-        print(f"🔥 CRASH: {str(e)}")
-        return JSONResponse({"error": str(e)}, status_code=500)
+        <div class="main-content">
+            <div class="studio-grid">
+                <label for="uImg" class="studio-box"><div class="step-number">01</div><img id="prevU" src="" style="display:none;"><div class="empty-state"><div class="icon-circle"><i class="fa-solid fa-camera"></i></div><span class="fashion-font">Your Photo</span></div><input type="file" id="uImg" accept="image/*" onchange="preview('uImg', 'prevU')"></label>
+                <label for="cImg" class="studio-box"><div class="step-number">02</div><img id="prevC" src="" style="display:none;"><div class="empty-state"><div class="icon-circle"><i class="fa-solid fa-shirt"></i></div><span class="fashion-font">The Look</span></div><input type="file" id="cImg" accept="image/*" onchange="preview('cImg', 'prevC')"></label>
+            </div>
+            <div class="action-area"><button id="btnGo" onclick="generate()" class="btn-magic"><span class="btn-content">Try It On Now <i class="fa-solid fa-wand-magic-sparkles"></i></span><div class="btn-glow"></div></button></div>
+            <div id="resZone" style="display:none;" class="result-display"><div id="loader" style="display:none;"><div class="spinner-modern"></div><p id="loader-text" class="fashion-loader-text">Analyzing silhouette...</p></div><img id="resImg" src="" style="display:none;"><div id="post-actions" style="display:none;" class="post-result-actions"><button id="shopBtn" class="btn-shop-now" onclick="trackATC()">Shop This Look <i class="fa-solid fa-bag-shopping"></i></button></div></div>
+        </div>
+    </div>
+    <script src="/app.js"></script>
+</body>
+</html>
