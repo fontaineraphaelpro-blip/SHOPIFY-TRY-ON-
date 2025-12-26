@@ -9,6 +9,9 @@ from fastapi import FastAPI, HTTPException, Request, Form, File, UploadFile
 from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
+# --- CORRECTION ICI : L'IMPORT MANQUANT A ÉTÉ AJOUTÉ ---
+from pydantic import BaseModel
+# -------------------------------------------------------
 from sqlalchemy import create_engine, Column, String, MetaData, Table, select
 from sqlalchemy.pool import QueuePool
 
