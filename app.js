@@ -8,11 +8,54 @@ document.addEventListener("DOMContentLoaded", function() {
     let shop = params.get('shop') || sessionStorage.getItem('shop');
     const autoProductImage = params.get('product_image');
 
+    // === CORRECTION CRITIQUE MODE CLIENT ===
+    // En mode client, si shop n'est pas dans l'URL, on doit le récupérer depuis le parent (Shopify)
+    if (mode === 'client' && !shop) {
+        console.log("⚠️ Mode client détecté mais shop manquant, tentative de récupération...");
+        
+        // Essayer de récupérer depuis window.location (si passé en fragment)
+        const hash = window.location.hash;
+        if (hash.includes('shop=')) {
+            const match = hash.match(/shop=([^&]+)/);
+            if (match) shop = match[1];
+        }
+        
+        // Si toujours pas trouvé, on doit le récupérer depuis Shopify
+        if (!shop && window.Shopify && window.Shopify.shop) {
+            shop = window.Shopify.shop;
+            console.log("✅ Shop récupéré depuis Shopify.shop:", shop);
+        }
+        
+        // Dernière tentative : parser depuis le domaine parent
+        if (!shop) {
+            try {
+                const parentUrl = document.referrer || window.location.ancestorOrigins?.[0];
+                if (parentUrl && parentUrl.includes('.myshopify.com')) {
+                    const match = parentUrl.match(/https?:\/\/([^\/]+)/);
+                    if (match) shop = match[1];
+                    console.log("✅ Shop extrait du referrer:", shop);
+                }
+            } catch(e) {
+                console.error("Impossible d'extraire le shop:", e);
+            }
+        }
+    }
+
     // FIX SESSION
     try {
         if(!shop) shop = sessionStorage.getItem('shop');
         if(shop) sessionStorage.setItem('shop', shop);
     } catch(e) {}
+
+    console.log("🏪 Shop actif:", shop, "| Mode:", mode);
+
+    // Si shop manquant après tous les essais
+    if (!shop) {
+        console.error("❌ ERREUR CRITIQUE : Shop introuvable !");
+        if (mode !== 'client') {
+            alert("Configuration error: Shop not found. Please reload the page.");
+        }
+    }
 
     async function getSessionToken() {
         if (window.shopify && window.shopify.id) return await shopify.id.getToken();
@@ -150,10 +193,13 @@ document.addEventListener("DOMContentLoaded", function() {
 
     // --- INIT CLIENT MODE ---
     function initClientMode() {
+        console.log("🌐 Initialisation mode CLIENT");
         document.body.classList.add('client-mode');
         const adminZone = document.getElementById('admin-only-zone');
         if(adminZone) adminZone.style.display = 'none';
+        
         if (autoProductImage) {
+            console.log("📸 Image produit auto-chargée:", autoProductImage);
             const img = document.getElementById('prevC');
             if(img) {
                 img.src = autoProductImage;
@@ -198,12 +244,30 @@ document.addEventListener("DOMContentLoaded", function() {
 
     // --- GENERATE VIRTUAL TRY-ON ---
     window.generate = async function() {
+        console.log("🚀 Début de la génération...");
+        console.log("   - Shop:", shop);
+        console.log("   - Mode:", mode);
+        
         const uFile = document.getElementById('uImg').files[0];
         const cFile = document.getElementById('cImg').files[0];
         const btn = document.getElementById('btnGo');
         
-        if (!uFile) return alert("Please upload your photo.");
-        if (!autoProductImage && !cFile) return alert("Please upload a garment.");
+        // VALIDATION CRITIQUE
+        if (!shop) {
+            console.error("❌ SHOP MANQUANT !");
+            alert("Configuration error: Shop not found. Please contact support.");
+            return;
+        }
+        
+        if (!uFile) {
+            alert("Please upload your photo.");
+            return;
+        }
+        
+        if (!autoProductImage && !cFile) {
+            alert("Please upload a garment.");
+            return;
+        }
 
         const oldText = btn.innerHTML;
         btn.disabled = true; 
@@ -228,22 +292,33 @@ document.addEventListener("DOMContentLoaded", function() {
 
         try {
             const formData = new FormData();
-            formData.append("shop", shop);
+            formData.append("shop", shop); // LE SHOP DOIT ÊTRE LÀ !
             formData.append("person_image", uFile);
-            if(cFile) formData.append("clothing_file", cFile);
-            else formData.append("clothing_url", autoProductImage);
+            
+            if(cFile) {
+                formData.append("clothing_file", cFile);
+                console.log("👕 Fichier vêtement ajouté");
+            } else {
+                formData.append("clothing_url", autoProductImage);
+                console.log("🔗 URL vêtement:", autoProductImage);
+            }
+            
             formData.append("category", "upper_body");
 
             let res;
-            // CORRECTION : Utiliser la route publique pour les clients
+            // Utiliser la route publique pour les clients
             if (mode === 'client') {
-                console.log("🌐 Mode CLIENT : Utilisation de /api/generate-public");
+                console.log("🌐 Mode CLIENT : Appel /api/generate-public");
+                console.log("   - Endpoint:", window.location.origin + '/api/generate-public');
+                
                 res = await fetch('/api/generate-public', { 
                     method: 'POST', 
                     body: formData 
                 });
+                
+                console.log("📡 Réponse reçue, status:", res.status);
             } else {
-                console.log("🔒 Mode ADMIN : Utilisation de /api/generate avec auth");
+                console.log("🔒 Mode ADMIN : Appel /api/generate");
                 res = await authenticatedFetch('/api/generate', { 
                     method: 'POST', 
                     body: formData 
@@ -253,9 +328,13 @@ document.addEventListener("DOMContentLoaded", function() {
             clearInterval(interval);
 
             if (!res) {
+                console.error("❌ Pas de réponse du serveur");
                 document.getElementById('loader').style.display = 'none';
+                alert("Network error: No response from server");
                 return;
             }
+            
+            console.log("📊 Status HTTP:", res.status);
             
             if (res.status === 429) { 
                 alert("Daily limit reached. Please try again tomorrow."); 
@@ -272,27 +351,43 @@ document.addEventListener("DOMContentLoaded", function() {
             }
             
             if (!res.ok) {
-                const errorData = await res.json().catch(() => ({}));
-                throw new Error(errorData.error || "Server Error");
+                const errorText = await res.text();
+                console.error("❌ Erreur serveur:", errorText);
+                
+                try {
+                    const errorData = JSON.parse(errorText);
+                    throw new Error(errorData.error || "Server Error");
+                } catch(e) {
+                    throw new Error(`Server Error (${res.status}): ${errorText.substring(0, 100)}`);
+                }
             }
 
             const data = await res.json();
+            console.log("✅ Données reçues:", data);
+            
             if(data.result_image_url){
                 const ri = document.getElementById('resImg');
                 ri.src = data.result_image_url;
                 ri.onload = () => { 
                     ri.style.display = 'block'; 
                     document.getElementById('loader').style.display = 'none'; 
-                    document.getElementById('post-actions').style.display = 'block'; 
+                    document.getElementById('post-actions').style.display = 'block';
+                    console.log("✅ Image affichée avec succès");
+                };
+                ri.onerror = () => {
+                    console.error("❌ Erreur chargement image:", data.result_image_url);
+                    alert("Error loading result image");
+                    document.getElementById('loader').style.display = 'none';
                 };
             } else { 
-                alert("Error: " + (data.error || "Unknown error occurred")); 
+                console.error("❌ Pas d'URL d'image dans la réponse");
+                alert("Error: " + (data.error || "No image URL received")); 
                 document.getElementById('loader').style.display = 'none'; 
             }
         } catch(e) { 
             clearInterval(interval); 
-            console.error("❌ Generate Error:", e); 
-            alert("Network Error: " + e.message); 
+            console.error("❌ Exception Generate:", e); 
+            alert("Error: " + e.message); 
             document.getElementById('loader').style.display = 'none'; 
         } finally { 
             btn.disabled = false; 
@@ -324,7 +419,6 @@ document.addEventListener("DOMContentLoaded", function() {
             if(res && res.ok) {
                 const data = await res.json();
                 if(data.confirmation_url) {
-                    // Redirection vers la page de paiement Shopify
                     window.top.location.href = data.confirmation_url;
                 } else {
                     alert("Error: No confirmation URL received");
