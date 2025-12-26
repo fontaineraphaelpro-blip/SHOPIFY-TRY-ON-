@@ -169,24 +169,38 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // 
+// 
 window.generate = async function() {
+    // 1. On récupère les éléments
     const uFile = document.getElementById('uImg').files[0];
     const cFile = document.getElementById('cImg').files[0];
     const btn = document.getElementById('btnGo');
-    
+
+    // 2. CRUCIAL : On relit les paramètres URL ici pour être sûr à 100%
+    const params = new URLSearchParams(window.location.search);
+    const mode = params.get('mode'); 
+    // En mode client, le shop EST dans l'URL. En admin, on le prend du storage si besoin.
+    const shop = params.get('shop') || sessionStorage.getItem('shop'); 
+    const autoProductImage = params.get('product_image');
+
+    console.log("🚀 START GENERATE -> Shop:", shop, "Mode:", mode); // Pour le debug navigateur
+
+    // 3. Vérifications de base
+    if (!shop) return alert("System Error: Shop ID missing. Please reload.");
     if (!uFile) return alert("Please upload your photo.");
-    // Si on n'a ni URL auto, ni fichier uploadé manuellement
     if (!autoProductImage && !cFile) return alert("Please upload a garment.");
 
+    // 4. UI Loading
     const oldText = btn.innerHTML;
     btn.disabled = true; 
-    btn.innerHTML = "Generating...";
-
+    btn.innerHTML = "Generating... <i class='fa-solid fa-spinner fa-spin'></i>";
+    
     document.getElementById('resZone').style.display = 'block';
     document.getElementById('loader').style.display = 'block';
     document.getElementById('resImg').style.display = 'none';
     document.getElementById('post-actions').style.display = 'none';
 
+    // Animation texte
     const textEl = document.getElementById('loader-text');
     const texts = ["Analyzing silhouette...", "Matching fabrics...", "Simulating drape...", "Rendering lighting..."];
     let step = 0;
@@ -195,40 +209,66 @@ window.generate = async function() {
     try {
         const formData = new FormData();
         formData.append("shop", shop);
-        formData.append("person_image", uFile); // La photo de l'utilisateur reste un fichier
+        formData.append("person_image", uFile);
         formData.append("category", "upper_body");
 
-        // --- CORRECTION MAJEURE ICI ---
-        // Si on a l'URL du produit (Mode Client/Widget), on envoie l'URL.
-        // C'est beaucoup plus stable pour Replicate.
+        // Gestion URL vs Fichier
         if (autoProductImage) {
             console.log("Using Product URL:", autoProductImage);
             formData.append("clothing_url", autoProductImage); 
-            // On n'envoie PAS clothing_file pour ne pas embrouiller le serveur
         } else {
-            // Sinon (Mode Admin ou test manuel), on envoie le fichier
             formData.append("clothing_file", cFile);
         }
 
         let res;
-        if (mode === 'client') res = await fetch('/api/generate', { method: 'POST', body: formData });
-        else res = await authenticatedFetch('/api/generate', { method: 'POST', body: formData });
+        
+        // 5. BRANCHEMENT CRITIQUE : Fetch vs AuthenticatedFetch
+        if (mode === 'client') {
+            // Mode Client (Widget) : On utilise fetch STANDARD (pas d'auth Shopify nécessaire ici)
+            console.log("📡 Sending via Standard Fetch...");
+            res = await fetch('/api/generate', { method: 'POST', body: formData });
+        } else {
+            // Mode Admin : On utilise l'auth Shopify
+            console.log("🔐 Sending via Authenticated Fetch...");
+            res = await authenticatedFetch('/api/generate', { method: 'POST', body: formData });
+        }
 
         clearInterval(interval);
 
-        if (!res) return;
-        if (res.status === 429) { alert("Daily limit reached."); document.getElementById('loader').style.display = 'none'; return; }
-        if (res.status === 402) { alert("Not enough credits!"); btn.disabled = false; btn.innerHTML = oldText; return; }
-        if (!res.ok) throw new Error("Server Error");
+        if (!res) throw new Error("No response from server");
+        
+        console.log("✅ Response Status:", res.status); // Debug
+
+        if (res.status === 429) { alert("Daily limit reached 🛑"); document.getElementById('loader').style.display = 'none'; return; }
+        if (res.status === 402) { alert("Store has no credits left 💳"); btn.disabled = false; btn.innerHTML = oldText; return; }
+        if (!res.ok) {
+            const errText = await res.text();
+            throw new Error("Server Error: " + errText);
+        }
 
         const data = await res.json();
         if(data.result_image_url){
             const ri = document.getElementById('resImg');
             ri.src = data.result_image_url;
-            ri.onload = () => { ri.style.display = 'block'; document.getElementById('loader').style.display = 'none'; document.getElementById('post-actions').style.display = 'block'; };
-        } else { alert("Error: " + (data.error || "Unknown")); document.getElementById('loader').style.display = 'none'; }
-    } catch(e) { clearInterval(interval); console.error(e); alert("Network Error"); document.getElementById('loader').style.display = 'none'; }
-    finally { btn.disabled = false; btn.innerHTML = oldText; }
+            ri.onload = () => { 
+                ri.style.display = 'block'; 
+                document.getElementById('loader').style.display = 'none'; 
+                document.getElementById('post-actions').style.display = 'block'; 
+            };
+        } else { 
+            alert("Error: " + (data.error || "Unknown")); 
+            document.getElementById('loader').style.display = 'none'; 
+        }
+
+    } catch(e) { 
+        clearInterval(interval); 
+        console.error("❌ GENERATE ERROR:", e); 
+        alert("Error: " + e.message); 
+        document.getElementById('loader').style.display = 'none'; 
+    } finally { 
+        btn.disabled = false; 
+        btn.innerHTML = oldText; 
+    }
 };
 
     // --- FONCTIONS DE PAIEMENT (MANQUANTES) ---
