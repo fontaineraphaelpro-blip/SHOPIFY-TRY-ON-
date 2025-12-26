@@ -1,149 +1,134 @@
 import os
-import io
 import time
-import shopify
-import requests
 import replicate
-from typing import Optional, Dict
-from fastapi import FastAPI, HTTPException, Request, Form, File, UploadFile
-from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse, JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
-from sqlalchemy import create_engine, Column, String, MetaData, Table, select
+from flask import Flask, render_template, request, jsonify, abort
+from werkzeug.utils import secure_filename
 
-# --- CONFIG ---
-SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
-SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
-HOST = os.getenv("HOST", "https://ton-app.onrender.com").rstrip('/')
-MODEL_ID = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985"
+# --- CONFIGURATION STRUCTURE PLATE ---
+app = Flask(__name__, template_folder='.', static_folder='.', static_url_path='')
 
-app = FastAPI()
-templates = Jinja2Templates(directory=".")
+# Configuration des uploads
+UPLOAD_FOLDER = 'uploads'
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024 
 
-# --- DB SETUP (Minimaliste pour éviter les crashs) ---
-DATABASE_URL = os.getenv("DATABASE_URL")
-if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-if not DATABASE_URL: DATABASE_URL = "sqlite:///./local_storage.db"
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-engine = create_engine(DATABASE_URL)
-metadata = MetaData()
-shops_table = Table("shops", metadata, Column("domain", String, primary_key=True), Column("token", String))
-metadata.create_all(engine)
+# Base de données simulée
+db = {
+    "credits": 15,
+    "settings": {
+        "button_text": "Try It On Now ✨",
+        "button_color": "#000000",
+        "text_color": "#ffffff",
+        "limit": 5
+    }
+}
 
-# --- MIDDLEWARE & CORS (LA CLÉ DU PROBLÈME) ---
-# On autorise TOUT pour être sûr que le navigateur ne bloque pas
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"], 
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# --- SÉCURITÉ FICHIERS ---
+@app.route('/main.py')
+@app.route('/requirements.txt')
+@app.route('/shopify.app.toml')
+@app.route('/.env')
+def block_sensitive_files():
+    abort(403)
 
-# --- FIX SÉCURITÉ IFRAME ---
-@app.middleware("http")
-async def add_security_headers(request: Request, call_next):
-    response = await call_next(request)
-    response.headers["Content-Security-Policy"] = "frame-ancestors https://*.myshopify.com https://admin.shopify.com;"
-    return response
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # --- ROUTES ---
 
-# 1. Route de Test (Pour vérifier si le serveur est vivant)
-@app.get("/api/health")
-def health():
-    return {"status": "alive"}
+@app.route('/')
+def index():
+    return render_template('index.html', api_key="demo_key_123")
 
-# 2. Gestion explicite de OPTIONS (Pour calmer le navigateur)
-@app.options("/api/generate")
-def options_generate():
-    return JSONResponse(content={"ok": "go"}, headers={
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "*"
-    })
+@app.route('/api/stats', methods=['GET'])
+def get_stats():
+    return jsonify(db)
 
-# 3. La génération (Logique blindée)
-@app.post("/api/generate")
-async def generate(
-    shop: str = Form(...),
-    person_image: UploadFile = File(...),
-    clothing_url: Optional[str] = Form(None),
-    clothing_file: Optional[UploadFile] = File(None)
-):
-    print(f"🔥 REQUÊTE REÇUE pour {shop}")
-    
-    try:
-        # 1. Lecture Images
-        person_bytes = await person_image.read()
-        
-        garment_file = None
-        if clothing_url:
-            c_url = str(clothing_url)
-            if c_url.startswith("//"): c_url = "https:" + c_url
-            print(f"📥 Téléchargement URL: {c_url}")
-            resp = requests.get(c_url, timeout=10)
-            if resp.status_code == 200:
-                garment_file = io.BytesIO(resp.content)
-            else:
-                return JSONResponse({"error": "Impossible de télécharger le vêtement"}, status_code=400)
-        elif clothing_file:
-            print("📥 Fichier vêtement reçu")
-            g_bytes = await clothing_file.read()
-            garment_file = io.BytesIO(g_bytes)
-        
-        if not garment_file:
-             return JSONResponse({"error": "Pas de vêtement fourni"}, status_code=400)
+@app.route('/api/save-settings', methods=['POST'])
+def save_settings():
+    data = request.json
+    db['settings'] = data
+    return jsonify({"status": "success", "message": "Settings saved!"})
 
-        # 2. Envoi Replicate
-        print("🚀 Envoi à Replicate...")
-        output = replicate.run(
-            MODEL_ID,
-            input={
-                "human_img": io.BytesIO(person_bytes),
-                "garm_img": garment_file,
-                "category": "upper_body"
-            }
-        )
-        
-        if not output: return JSONResponse({"error": "L'IA n'a rien renvoyé"}, status_code=500)
-        
-        res_url = str(output[0]) if isinstance(output, list) else str(output)
-        print(f"✅ SUCCÈS: {res_url}")
-        
-        return {"result_image_url": res_url}
+@app.route('/api/buy-credits', methods=['POST'])
+def buy_credits():
+    amount = request.json.get('amount', 0)
+    db['credits'] += int(amount)
+    return jsonify({"status": "success", "new_balance": db['credits']})
 
-    except Exception as e:
-        print(f"❌ CRASH: {str(e)}")
-        return JSONResponse({"error": str(e)}, status_code=500)
+@app.route('/generate', methods=['POST'])
+def generate_vton():
+    # 1. Vérification des crédits
+    if db['credits'] <= 0:
+        return jsonify({"error": "No credits left. Please recharge."}), 402
 
-# --- ESSENTIELS FRONTEND ---
-@app.get("/")
-def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request, "api_key": SHOPIFY_API_KEY})
+    # 2. Vérification de la clé API Replicate
+    if not os.environ.get("REPLICATE_API_TOKEN"):
+        print("ERREUR: La variable d'environnement REPLICATE_API_TOKEN est manquante.")
+        return jsonify({"error": "Server configuration error (API Token missing)"}), 500
 
-@app.get("/login")
-def login(shop: str):
-    return RedirectResponse(f"https://{shop}/admin/oauth/authorize?client_id={SHOPIFY_API_KEY}&scope=read_products&redirect_uri={HOST}/auth/callback")
+    # 3. Vérification des fichiers
+    if 'human_img' not in request.files or 'cloth_img' not in request.files:
+        return jsonify({"error": "Missing images"}), 400
 
-@app.get("/auth/callback")
-def callback(shop: str, code: str):
-    # Sauvegarde simplifiée pour débloquer
-    with engine.connect() as conn:
+    u_file = request.files['human_img']
+    c_file = request.files['cloth_img']
+
+    if u_file and c_file:
         try:
-            url = f"https://{shop}/admin/oauth/access_token"
-            r = requests.post(url, json={"client_id": SHOPIFY_API_KEY, "client_secret": SHOPIFY_API_SECRET, "code": code})
-            token = r.json().get('access_token')
-            # Sauvegarde brute
-            try: conn.execute(shops_table.insert().values(domain=shop, token=token))
-            except: conn.execute(shops_table.update().where(shops_table.c.domain == shop).values(token=token))
-            conn.commit()
-        except: pass
-    return RedirectResponse(f"https://admin.shopify.com/store/{shop.replace('.myshopify.com','')}/apps/{SHOPIFY_API_KEY}")
+            # A. Sauvegarde locale temporaire
+            u_filename = secure_filename(f"human_{int(time.time())}.jpg")
+            c_filename = secure_filename(f"cloth_{int(time.time())}.jpg")
+            
+            u_path = os.path.join(app.config['UPLOAD_FOLDER'], u_filename)
+            c_path = os.path.join(app.config['UPLOAD_FOLDER'], c_filename)
+            
+            u_file.save(u_path)
+            c_file.save(c_path)
 
-@app.get("/api/get-data")
-def get_data(): return {"credits": 999, "usage": 0} # Crédits illimités pour le test
-@app.post("/api/buy-credits")
-def buy(): return {"confirmation_url": "https://google.com"} # Fake buy pour test
+            # B. Appel à Replicate (IDM-VTON)
+            # On ouvre les fichiers en mode binaire pour les envoyer
+            print(f"🚀 Envoi à Replicate: {u_filename} + {c_filename}...")
+            
+            output = replicate.run(
+                "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985",
+                input={
+                    "human_img": open(u_path, "rb"),
+                    "garm_img": open(c_path, "rb"),
+                    "garment_des": "fashion garment", # Description générique, le modèle gère bien sans
+                    "category": "upper_body",         # Par défaut "upper_body", peut être "lower_body" ou "dresses"
+                    "crop": False,
+                    "seed": 42,
+                    "steps": 30
+                }
+            )
+
+            print(f"✅ Résultat reçu: {output}")
+
+            # Le modèle renvoie généralement l'URL de l'image (parfois dans une liste)
+            # L'URL est hébergée chez Replicate, on peut l'utiliser directement.
+            result_url = str(output)
+            
+            # C. Mise à jour des crédits
+            db['credits'] -= 1
+            
+            return jsonify({
+                "status": "success",
+                "result_url": result_url,
+                "credits_remaining": db['credits']
+            })
+
+        except replicate.exceptions.ReplicateError as e:
+            print(f"❌ Erreur Replicate: {e}")
+            return jsonify({"error": "AI Processing failed (NSFW filter or timeout)"}), 500
+        except Exception as e:
+            print(f"❌ Erreur Serveur: {e}")
+            return jsonify({"error": str(e)}), 500
+
+    return jsonify({"error": "Upload failed"}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True, port=5000)
