@@ -4,18 +4,23 @@ import replicate
 from flask import Flask, render_template, request, jsonify, abort
 from werkzeug.utils import secure_filename
 
-# --- CONFIGURATION STRUCTURE PLATE ---
+# --- CONFIGURATION STRUCTURE PLATE (RENDER) ---
+# template_folder='.' : Cherche index.html à la racine
+# static_folder='.'   : Cherche styles.css et app.js à la racine
+# static_url_path=''  : Permet d'appeler /styles.css directement
 app = Flask(__name__, template_folder='.', static_folder='.', static_url_path='')
 
 # Configuration des uploads
+# Render a un disque éphémère, ce dossier sera vidé à chaque redémarrage (ce qui est bien pour la privacy)
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024 
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # Max 16MB
 
+# Création du dossier au lancement
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# Base de données simulée
+# Base de données simulée (en mémoire)
 db = {
     "credits": 15,
     "settings": {
@@ -26,7 +31,8 @@ db = {
     }
 }
 
-# --- SÉCURITÉ FICHIERS ---
+# --- SÉCURITÉ ---
+# Empêche le téléchargement de tes fichiers sensibles via le navigateur
 @app.route('/main.py')
 @app.route('/requirements.txt')
 @app.route('/shopify.app.toml')
@@ -41,6 +47,7 @@ def allowed_file(filename):
 
 @app.route('/')
 def index():
+    # On sert le fichier index.html qui est à la racine
     return render_template('index.html', api_key="demo_key_123")
 
 @app.route('/api/stats', methods=['GET'])
@@ -65,12 +72,13 @@ def generate_vton():
     if db['credits'] <= 0:
         return jsonify({"error": "No credits left. Please recharge."}), 402
 
-    # 2. Vérification de la clé API Replicate
+    # 2. Vérification de la configuration API
     if not os.environ.get("REPLICATE_API_TOKEN"):
-        print("ERREUR: La variable d'environnement REPLICATE_API_TOKEN est manquante.")
+        # Log pour le dashboard Render
+        print("ERREUR CRITIQUE: La variable REPLICATE_API_TOKEN est absente.")
         return jsonify({"error": "Server configuration error (API Token missing)"}), 500
 
-    # 3. Vérification des fichiers
+    # 3. Vérification des images
     if 'human_img' not in request.files or 'cloth_img' not in request.files:
         return jsonify({"error": "Missing images"}), 400
 
@@ -79,7 +87,7 @@ def generate_vton():
 
     if u_file and c_file:
         try:
-            # A. Sauvegarde locale temporaire
+            # A. Sauvegarde temporaire sur le serveur Render
             u_filename = secure_filename(f"human_{int(time.time())}.jpg")
             c_filename = secure_filename(f"cloth_{int(time.time())}.jpg")
             
@@ -89,32 +97,38 @@ def generate_vton():
             u_file.save(u_path)
             c_file.save(c_path)
 
-            # B. Appel à Replicate (IDM-VTON)
-            # On ouvre les fichiers en mode binaire pour les envoyer
-            print(f"🚀 Envoi à Replicate: {u_filename} + {c_filename}...")
-            
+            print(f"🚀 Envoi vers Replicate (IDM-VTON)...")
+
+            # B. Appel à l'IA via la librairie officielle replicate
+            # Note: On ouvre les fichiers en mode 'rb' (read binary)
             output = replicate.run(
                 "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985",
                 input={
                     "human_img": open(u_path, "rb"),
                     "garm_img": open(c_path, "rb"),
-                    "garment_des": "fashion garment", # Description générique, le modèle gère bien sans
-                    "category": "upper_body",         # Par défaut "upper_body", peut être "lower_body" ou "dresses"
+                    "garment_des": "fashion garment", # Description facultative mais aide parfois
+                    "category": "upper_body",         # Force le haut du corps pour de meilleurs résultats
                     "crop": False,
                     "seed": 42,
                     "steps": 30
                 }
             )
 
-            print(f"✅ Résultat reçu: {output}")
+            print(f"✅ Succès Replicate: {output}")
 
-            # Le modèle renvoie généralement l'URL de l'image (parfois dans une liste)
-            # L'URL est hébergée chez Replicate, on peut l'utiliser directement.
+            # Replicate renvoie l'URL de l'image hébergée chez eux
             result_url = str(output)
             
-            # C. Mise à jour des crédits
+            # C. Déduction crédit
             db['credits'] -= 1
             
+            # D. Nettoyage (Optionnel, Render le fait au redémarrage, mais c'est propre de le faire)
+            try:
+                os.remove(u_path)
+                os.remove(c_path)
+            except:
+                pass
+
             return jsonify({
                 "status": "success",
                 "result_url": result_url,
@@ -122,8 +136,8 @@ def generate_vton():
             })
 
         except replicate.exceptions.ReplicateError as e:
-            print(f"❌ Erreur Replicate: {e}")
-            return jsonify({"error": "AI Processing failed (NSFW filter or timeout)"}), 500
+            print(f"❌ Erreur API Replicate: {e}")
+            return jsonify({"error": "AI Processing failed (NSFW content or API error)"}), 500
         except Exception as e:
             print(f"❌ Erreur Serveur: {e}")
             return jsonify({"error": str(e)}), 500
@@ -131,4 +145,5 @@ def generate_vton():
     return jsonify({"error": "Upload failed"}), 500
 
 if __name__ == '__main__':
+    # Le debug est True pour tes tests locaux, mais Gunicorn l'ignorera sur Render (c'est normal)
     app.run(debug=True, port=5000)
