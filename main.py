@@ -240,14 +240,9 @@ async def generate(
     clothing_url: Optional[str] = Form(None),
     category: str = Form("upper_body")
 ):
-    # AJOUT LOG DE DEBUG
-    print(f"🚀 DEBUG: Receiving request for shop: {shop}")
-    
     shop = clean_shop_url(shop)
     token = get_token_db(shop)
-    if not token: 
-        print(f"❌ Error: Token not found for {shop}")
-        return JSONResponse({"error": "Shop not connected."}, status_code=403)
+    if not token: return JSONResponse({"error": "Shop not connected."}, status_code=403)
 
     try:
         get_shopify_session(shop, token)
@@ -262,19 +257,24 @@ async def generate(
         if user_stats["count"] >= max_tries:
             return JSONResponse({"error": "Daily limit reached."}, status_code=429)
 
-        # Préparer images
-        person_bytes = await person_image.read()
-        person_file = io.BytesIO(person_bytes)
+        # [cite_start]NOUVEAU BLOC : Priorité à l'URL [cite: 1]
         garment_input = None
-        if clothing_file:
+
+        # 1. On vérifie d'abord si une URL est fournie (pour le widget Shopify)
+        if clothing_url and len(str(clothing_url)) > 5:
+            garment_input = str(clothing_url)
+            # Correction des URLs Shopify relatives (//cdn...)
+            if garment_input.startswith("//"): 
+                garment_input = "https:" + garment_input
+        
+        # 2. Sinon, on regarde si un fichier a été uploadé
+        elif clothing_file:
             garment_bytes = await clothing_file.read()
             garment_input = io.BytesIO(garment_bytes)
-        elif clothing_url:
-            garment_input = clothing_url
-            if garment_input.startswith("//"): garment_input = "https:" + garment_input
+            
+        # 3. Erreur si aucun des deux n'est présent
         else:
-            return JSONResponse({"error": "No garment"}, status_code=400)
-
+            return JSONResponse({"error": "No garment provided (URL or File missing)"}, status_code=400)
         # Envoyer à Replicate
         output = replicate.run(MODEL_ID, input={"human_img": person_file, "garm_img": garment_input, "garment_des": category, "category": "upper_body"})
 
