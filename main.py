@@ -11,21 +11,24 @@ from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse, JSON
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
+import hmac
+import hashlib
+import base64
 
 # --- CONFIG ---
 SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
 SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
 REPLICATE_TOKEN_CHECK = os.getenv("REPLICATE_API_TOKEN")
-HOST = os.getenv("HOST", "https://ton-app.onrender.com").rstrip('/')
+HOST = os.getenv("HOST", "https://stylelab-vtonn.onrender.com").rstrip('/')
 SCOPES = ['read_products', 'write_products', 'read_themes', 'write_themes']
 API_VERSION = "2024-10"
 MODEL_ID = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985"
 
 app = FastAPI()
 templates = Jinja2Templates(directory=".")
-RATE_LIMIT_DB: Dict[str, Dict] = {}  # Pour limiter par IP/jour
+RATE_LIMIT_DB: Dict[str, Dict] = {}
 
-# --- 1. COFFRE-FORT LOCAL (SQLite) ---
+# --- 1. DATABASE ---
 def init_db():
     with sqlite3.connect("database.db") as conn:
         conn.execute("CREATE TABLE IF NOT EXISTS shops (domain TEXT PRIMARY KEY, token TEXT)")
@@ -121,6 +124,17 @@ def auth_callback(request: Request):
         if res.status_code == 200:
             token = res.json().get('access_token')
             save_token_db(shop, token)
+            
+            # Initialiser avec 10 crédits gratuits
+            try:
+                get_shopify_session(shop, token)
+                set_metafield("virtual_try_on", "wallet", 10, "integer")
+                set_metafield("virtual_try_on", "lifetime_credits", 0, "integer")
+                set_metafield("virtual_try_on", "total_tryons", 0, "integer")
+                set_metafield("virtual_try_on", "total_atc", 0, "integer")
+            except:
+                pass
+            
             target_url = f"https://admin.shopify.com/store/{shop.replace('.myshopify.com','')}/apps/{SHOPIFY_API_KEY}"
             return RedirectResponse(target_url)
         return HTMLResponse(f"Token Error: {res.text}", status_code=400)
@@ -230,92 +244,9 @@ def billing_callback(shop: str, amt: int, charge_id: str):
     except: 
         return HTMLResponse("Billing Error")
 
-@app.post("/api/generate-public")
-async def generate_public(
-    request: Request,
-    shop: str = Form(...),
-    person_image: UploadFile = File(...),
-    clothing_file: Optional[UploadFile] = File(None),
-    clothing_url: Optional[str] = Form(None),
-    category: str = Form("upper_body")
-):
-    """Route publique pour les clients finaux (widget)"""
-    print(f"🌐 [PUBLIC] Requête client pour shop: {shop}")
-    
-    shop = clean_shop_url(shop)
-    
-    # Vérification basique : le shop existe-t-il ?
-    token = get_token_db(shop)
-    if not token:
-        return JSONResponse({"error": "Shop not configured"}, status_code=400)
-    
-    # IMPORTANT : Vérifier les crédits SANS activer la session Shopify
-    try:
-        get_shopify_session(shop, token)
-        current_credits = get_metafield("virtual_try_on", "wallet", 0)
-        max_tries = get_metafield("vton_security", "max_tries_per_user", 5)
-        
-        if current_credits < 1:
-            return JSONResponse({"error": "No credits available"}, status_code=402)
-        
-        # Vérification limite par IP (anti-abus)
-        client_ip = request.client.host
-        rate_key = f"{shop}_{client_ip}"
-        today = time.strftime("%Y-%m-%d")
-        
-        if rate_key not in RATE_LIMIT_DB:
-            RATE_LIMIT_DB[rate_key] = {"date": today, "count": 0}
-        
-        if RATE_LIMIT_DB[rate_key]["date"] != today:
-            RATE_LIMIT_DB[rate_key] = {"date": today, "count": 0}
-        
-        if RATE_LIMIT_DB[rate_key]["count"] >= max_tries:
-            return JSONResponse({"error": "Daily limit reached"}, status_code=429)
-        
-        # Traitement de l'image
-        person_bytes = await person_image.read()
-        person_file = io.BytesIO(person_bytes)
-        
-        garment_input = None
-        if clothing_file:
-            garment_bytes = await clothing_file.read()
-            garment_input = io.BytesIO(garment_bytes)
-        elif clothing_url:
-            garment_input = clothing_url
-            if garment_input.startswith("//"):
-                garment_input = "https:" + garment_input
-        else:
-            return JSONResponse({"error": "No garment provided"}, status_code=400)
-        
-        print("🤖 [REPLICATE] Envoi de la requête...")
-        
-        # Appel à Replicate
-        output = replicate.run(
-            MODEL_ID,
-            input={
-                "human_img": person_file,
-                "garm_img": garment_input,
-                "garment_des": category,
-                "category": "upper_body"
-            }
-        )
-        
-        result_url = str(output[0]) if isinstance(output, list) else str(output)
-        
-        # Décrémenter les crédits et incrémenter les stats
-        set_metafield("virtual_try_on", "wallet", current_credits - 1, "integer")
-        total_tryons = get_metafield("virtual_try_on", "total_tryons", 0)
-        set_metafield("virtual_try_on", "total_tryons", total_tryons + 1, "integer")
-        
-        # Incrémenter le compteur de limite
-        RATE_LIMIT_DB[rate_key]["count"] += 1
-        
-        return {"result_image_url": result_url}
-        
-    except Exception as e:
-        print(f"🔥 [ERROR PUBLIC] : {str(e)}")
-        return JSONResponse({"error": str(e)}, status_code=500)
-# --- GENERATE ---
+# ====================================================================
+# UNE SEULE ROUTE GENERATE QUI MARCHE POUR TOUT LE MONDE
+# ====================================================================
 @app.post("/api/generate")
 async def generate(
     request: Request,
@@ -325,30 +256,31 @@ async def generate(
     clothing_url: Optional[str] = Form(None),
     category: str = Form("upper_body")
 ):
-    print(f"🚀 [DEBUG] Requête reçue pour shop: {shop}") # DEBUG 1
+    """Route unique qui fonctionne en mode admin ET client"""
+    print("="*80)
+    print(f"🚀 [GENERATE] Requête reçue pour shop: {shop}")
+    print("="*80)
 
-    # 1. Verification Token Shop
     shop = clean_shop_url(shop)
     token = get_token_db(shop)
+    
     if not token:
-        print("❌ [ERROR] Shop non connecté ou token manquant")
+        print("❌ [ERROR] Shop non connecté")
         return JSONResponse({"error": "Shop not connected."}, status_code=401)
     
     try:
-        # 2. Vérification Crédits
         get_shopify_session(shop, token)
-        # Note: Tu peux commenter la verif de crédits temporairement pour tester
-        # current_credits = get_metafield("virtual_try_on", "wallet", 0)
+        current_credits = get_metafield("virtual_try_on", "wallet", 0)
+        print(f"💳 Crédits: {current_credits}")
+        
+        # Vérification crédits (désactivé pour debug)
         # if current_credits < 1: 
-        #     print("❌ [ERROR] Pas assez de crédits")
         #     return JSONResponse({"error": "No credits"}, status_code=402)
 
-        # 3. Préparation des images
-        print("📸 [DEBUG] Lecture de l'image personne...")
+        # Lecture images
+        print("📸 [DEBUG] Lecture image personne...")
         person_bytes = await person_image.read()
-        
-        # IMPORTANT: Replicate a besoin d'un fichier ouvert, pas juste des bytes
-        person_file = io.BytesIO(person_bytes) 
+        person_file = io.BytesIO(person_bytes)
         
         garment_input = None
         
@@ -357,17 +289,16 @@ async def generate(
             garment_bytes = await clothing_file.read()
             garment_input = io.BytesIO(garment_bytes)
         elif clothing_url:
-            print(f"🔗 [DEBUG] Utilisation URL vêtement: {clothing_url}")
+            print(f"🔗 [DEBUG] URL vêtement: {clothing_url}")
             garment_input = clothing_url
-            if garment_input.startswith("//"): garment_input = "https:" + garment_input
+            if garment_input.startswith("//"): 
+                garment_input = "https:" + garment_input
         else:
-            print("❌ [ERROR] Aucun vêtement fourni")
+            print("❌ [ERROR] Aucun vêtement")
             return JSONResponse({"error": "No garment"}, status_code=400)
 
-        print("🤖 [DEBUG] Envoi à Replicate (MODEL_ID vérifié ?)...")
-        print(f"    - Model: {MODEL_ID}")
+        print(f"🤖 [REPLICATE] Appel du modèle {MODEL_ID}...")
         
-        # 4. L'APPEL REPLICATE (C'est souvent ici que ça plante)
         output = replicate.run(
             MODEL_ID,
             input={
@@ -378,25 +309,65 @@ async def generate(
             }
         )
         
-        print(f"✅ [SUCCESS] Réponse Replicate reçue: {output}")
+        print(f"✅ [SUCCESS] Réponse Replicate: {output}")
 
-        # 5. Extraction URL
         result_url = str(output[0]) if isinstance(output, list) else str(output)
+        
+        # Décrémenter crédits (désactivé pour debug)
+        # set_metafield("virtual_try_on", "wallet", current_credits - 1, "integer")
+        # total_tryons = get_metafield("virtual_try_on", "total_tryons", 0)
+        # set_metafield("virtual_try_on", "total_tryons", total_tryons + 1, "integer")
+        
+        print("="*80)
+        print("✅ [SUCCESS] Génération terminée")
+        print("="*80)
         
         return {"result_image_url": result_url}
 
     except Exception as e:
-        print(f"🔥 [CRITICAL ERROR] : {str(e)}") # C'est ça qu'on veut voir dans les logs !
+        print(f"🔥 [CRITICAL ERROR] : {str(e)}")
+        import traceback
+        traceback.print_exc()
         return JSONResponse({"error": str(e)}, status_code=500)
 
-# --- WEBHOOKS GDPR (dummy) ---
+# --- WEBHOOKS GDPR ---
+def verify_webhook(data: bytes, hmac_header: str, secret: str) -> bool:
+    computed_hmac = hmac.new(secret.encode('utf-8'), data, hashlib.sha256).digest()
+    computed_hmac_base64 = base64.b64encode(computed_hmac).decode()
+    return hmac.compare_digest(computed_hmac_base64, hmac_header)
+
+@app.post("/webhooks/app/uninstalled")
+async def webhook_app_uninstalled(request: Request):
+    try:
+        hmac_header = request.headers.get('X-Shopify-Hmac-Sha256', '')
+        body = await request.body()
+        if not verify_webhook(body, hmac_header, SHOPIFY_API_SECRET):
+            return JSONResponse({"error": "Invalid signature"}, status_code=401)
+        data = await request.json()
+        shop_domain = data.get('domain') or data.get('myshopify_domain')
+        if shop_domain:
+            with sqlite3.connect("database.db") as conn:
+                conn.execute("DELETE FROM shops WHERE domain = ?", (shop_domain,))
+                conn.commit()
+        return {"ok": True}
+    except: return {"ok": False}
+
 @app.post("/webhooks/customers/data_request")
-def w1(): return {"ok": True}
+async def webhook_data_request(request: Request):
+    return {"ok": True, "message": "No customer data stored"}
+
 @app.post("/webhooks/customers/redact")
-def w2(): return {"ok": True}
+async def webhook_customer_redact(request: Request):
+    return {"ok": True, "message": "No customer data to redact"}
+
 @app.post("/webhooks/shop/redact")
-def w3(): return {"ok": True}
-@app.post("/webhooks/gdpr")
-def w4(): return {"ok": True}
-
-
+async def webhook_shop_redact(request: Request):
+    try:
+        data = await request.json()
+        shop_domain = data.get('shop_domain')
+        if shop_domain:
+            with sqlite3.connect("database.db") as conn:
+                conn.execute("DELETE FROM shops WHERE domain = ?", (shop_domain,))
+                conn.commit()
+        return {"ok": True}
+    except: return {"ok": True}
