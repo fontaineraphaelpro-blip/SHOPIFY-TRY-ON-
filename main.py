@@ -17,7 +17,7 @@ SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN") 
 
 # MODÈLE CORRIGÉ (Version stable vérifiée)
-MODEL_ID = "cuuupid/idm-vton:906425dbca90663f8c950892a2b9617e76527b3f9d3f5ce6bb2c29664b7856d9"
+MODEL_ID = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985"
 
 app = FastAPI()
 
@@ -111,3 +111,4 @@ async def generate(
         print(f"🔥 CRASH: {str(e)}")
         # Affiche l'erreur exacte dans le widget pour comprendre
         return JSONResponse({"error": f"Erreur IA: {str(e)}"}, status_code=500)
+
