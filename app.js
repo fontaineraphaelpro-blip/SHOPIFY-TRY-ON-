@@ -1,143 +1,58 @@
-document.addEventListener("DOMContentLoaded", function() {
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VTON DEBUG</title>
+    <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js" data-api-key="{{ api_key }}"></script>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        /* Force l'affichage pour le debug */
+        .debug-box { border: 2px solid red; padding: 10px; margin: 10px; }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
 
-    // --- CONFIG ---
-    const params = new URLSearchParams(window.location.search);
-    const mode = params.get('mode'); 
-    const shop = params.get('shop'); 
-    const autoProductImage = params.get('product_image');
+    <div id="admin-zone" class="hidden">
+        <h1>👑 ADMIN DASHBOARD</h1>
+        <p>Crédits: <span id="credits">--</span></p>
+        <button onclick="buy('pack_10', 0, this)">Acheter 10 Crédits</button>
+    </div>
 
-    document.body.classList.add('loaded');
-    document.body.style.opacity = "1";
-
-    // --- INTERFACE MODE ---
-    if (mode === 'client') {
-        console.log("👋 Mode Client:", shop);
-        document.body.classList.add('client-mode');
-        if(document.getElementById('admin-only-zone')) 
-            document.getElementById('admin-only-zone').style.display = 'none';
-
-        if (autoProductImage && document.getElementById('prevC')) {
-            document.getElementById('prevC').src = autoProductImage;
-            document.getElementById('prevC').style.display = 'block';
-            document.getElementById('prevC').parentElement.querySelector('.empty-state').style.display = 'none';
-        }
-    } else {
-        console.log("👑 Mode Admin");
-        if (shop) initAdminMode(shop);
-    }
-
-    // --- UPLOAD PREVIEW ---
-    window.preview = function(inputId, imgId) {
-        const file = document.getElementById(inputId).files[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onload = e => {
-                document.getElementById(imgId).src = e.target.result;
-                document.getElementById(imgId).style.display = 'block';
-                document.getElementById(imgId).parentElement.querySelector('.empty-state').style.display = 'none';
-            };
-            reader.readAsDataURL(file);
-        }
-    };
-
-    // --- GENERATE ---
-    window.generate = async function() {
-        const uFile = document.getElementById('uImg').files[0];
-        const cFile = document.getElementById('cImg').files[0];
-        const btn = document.getElementById('btnGo');
+    <div id="client-zone">
+        <h2 style="text-align:center;">Cabine d'Essayage</h2>
         
-        if (!shop) return alert("Erreur: Boutique non identifiée.");
-        if (!uFile) return alert("Photo manquante (Étape 1).");
-        if (!autoProductImage && !cFile) return alert("Vêtement manquant (Étape 2).");
+        <div style="background:#eee; padding:5px; font-size:10px; text-align:center;">
+            Mode: <span id="debug-mode">Inconnu</span> | Shop: <span id="debug-shop">Inconnu</span>
+        </div>
 
-        const oldText = btn.innerHTML;
-        btn.disabled = true;
-        btn.innerHTML = "Création... <i class='fa-solid fa-spinner fa-spin'></i>";
-        
-        document.getElementById('resZone').style.display = 'block';
-        document.getElementById('loader').style.display = 'block';
-        document.getElementById('resImg').style.display = 'none';
-        
-        try {
-            const formData = new FormData();
-            formData.append("shop", shop);
-            formData.append("person_image", uFile);
-            
-            if (autoProductImage) formData.append("clothing_url", autoProductImage);
-            else formData.append("clothing_file", cFile);
+        <div class="app-container">
+            <div style="margin: 20px 0; text-align:center;">
+                <h3>1. Votre Photo</h3>
+                <input type="file" id="uImg" accept="image/*" style="display:block; margin:0 auto;">
+                <img id="prevU" src="" style="max-width:100px; display:none; margin:10px auto;">
+            </div>
 
-            let res;
-            if (mode === 'client') {
-                res = await fetch('/api/generate', { method: 'POST', body: formData });
-            } else {
-                res = await authenticatedFetch('/api/generate', { method: 'POST', body: formData });
-            }
+            <div style="margin: 20px 0; text-align:center;">
+                <h3>2. Le Vêtement</h3>
+                <img id="prevC" src="" style="max-width:150px; display:none; margin:10px auto; border: 2px solid blue;">
+                <input type="file" id="cImg" accept="image/*" style="display:block; margin:0 auto;">
+            </div>
 
-            if (!res.ok) {
-                const txt = await res.text();
-                let msg = txt;
-                try { msg = JSON.parse(txt).error; } catch(e){}
-                throw new Error(msg);
-            }
+            <button id="btnGo" style="width:100%; padding:20px; background:black; color:white; font-size:18px; cursor:pointer;">
+                LANCER L'ESSAYAGE 🚀
+            </button>
 
-            const data = await res.json();
-            if (data.result_image_url) {
-                const ri = document.getElementById('resImg');
-                ri.src = data.result_image_url;
-                ri.onload = () => {
-                    document.getElementById('loader').style.display = 'none';
-                    ri.style.display = 'block';
-                    ri.scrollIntoView({behavior: "smooth", block: "center"});
-                };
-            } else throw new Error("Pas d'image reçue.");
+            <div id="resZone" style="margin-top:20px; text-align:center; display:none;">
+                <p id="loader">⏳ Chargement en cours...</p>
+                <img id="resImg" src="" style="width:100%; display:none;">
+            </div>
+        </div>
+    </div>
 
-        } catch (e) {
-            console.error(e);
-            alert("Erreur: " + e.message);
-            document.getElementById('loader').style.display = 'none';
-        } finally {
-            btn.disabled = false;
-            btn.innerHTML = oldText;
-        }
-    };
-
-    // --- ADMIN FUNCS ---
-    async function getSessionToken() {
-        if (window.shopify && window.shopify.id) return await shopify.id.getToken();
-        return null;
-    }
-    async function authenticatedFetch(url, options = {}) {
-        try {
-            const token = await getSessionToken();
-            const headers = options.headers || {};
-            if (token) headers['Authorization'] = `Bearer ${token}`;
-            return fetch(url, { ...options, headers });
-        } catch (e) { throw e; }
-    }
-    async function initAdminMode(s) {
-        try {
-            const res = await authenticatedFetch(`/api/get-data?shop=${s}`);
-            if (res.ok) {
-                const data = await res.json();
-                if(document.getElementById('credits')) document.getElementById('credits').innerText = data.credits;
-            }
-        } catch (e) {}
-    }
-    window.buy = async function(pid, amt, btn) {
-        const oldText = btn.innerHTML;
-        btn.disabled = true; btn.innerHTML = '...';
-        try {
-            const res = await authenticatedFetch('/api/buy-credits', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ shop: shop, pack_id: pid, custom_amount: parseInt(amt) })
-            });
-            const data = await res.json();
-            if (data.confirmation_url) window.top.location.href = data.confirmation_url;
-            else alert("Erreur paiement");
-        } catch (e) { alert("Erreur réseau"); }
-        finally { btn.disabled = false; btn.innerHTML = oldText; }
-    };
-    window.buyCustom = function(btn) {
-        window.buy('pack_custom', document.getElementById('customAmount').value, btn);
-    };
-});
+    <script src="/app.js"></script>
+</body>
+</html>
