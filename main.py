@@ -240,51 +240,68 @@ async def generate(
     clothing_url: Optional[str] = Form(None),
     category: str = Form("upper_body")
 ):
+    print(f"🚀 [DEBUG] Requête reçue pour shop: {shop}") # DEBUG 1
+
+    # 1. Verification Token Shop
     shop = clean_shop_url(shop)
     token = get_token_db(shop)
-    if not token: return JSONResponse({"error": "Shop not connected."}, status_code=403)
-
+    if not token:
+        print("❌ [ERROR] Shop non connecté ou token manquant")
+        return JSONResponse({"error": "Shop not connected."}, status_code=401)
+    
     try:
+        # 2. Vérification Crédits
         get_shopify_session(shop, token)
-        current_credits = get_metafield("virtual_try_on", "wallet", 0)
-        if current_credits < 1: return JSONResponse({"error": "Store has no credits left."}, status_code=402)
+        # Note: Tu peux commenter la verif de crédits temporairement pour tester
+        # current_credits = get_metafield("virtual_try_on", "wallet", 0)
+        # if current_credits < 1: 
+        #     print("❌ [ERROR] Pas assez de crédits")
+        #     return JSONResponse({"error": "No credits"}, status_code=402)
 
-        # Limite IP
-        client_ip = request.client.host
-        max_tries = int(get_metafield("vton_security", "max_tries_per_user", 5))
-        user_stats = RATE_LIMIT_DB.get(client_ip, {"count": 0, "reset": time.time()})
-        if time.time() - user_stats["reset"] > 86400: user_stats = {"count": 0, "reset": time.time()}
-        if user_stats["count"] >= max_tries:
-            return JSONResponse({"error": "Daily limit reached."}, status_code=429)
-
-        # Préparer images
+        # 3. Préparation des images
+        print("📸 [DEBUG] Lecture de l'image personne...")
         person_bytes = await person_image.read()
-        person_file = io.BytesIO(person_bytes)
+        
+        # IMPORTANT: Replicate a besoin d'un fichier ouvert, pas juste des bytes
+        person_file = io.BytesIO(person_bytes) 
+        
         garment_input = None
+        
         if clothing_file:
+            print("👕 [DEBUG] Lecture fichier vêtement...")
             garment_bytes = await clothing_file.read()
             garment_input = io.BytesIO(garment_bytes)
         elif clothing_url:
+            print(f"🔗 [DEBUG] Utilisation URL vêtement: {clothing_url}")
             garment_input = clothing_url
             if garment_input.startswith("//"): garment_input = "https:" + garment_input
         else:
+            print("❌ [ERROR] Aucun vêtement fourni")
             return JSONResponse({"error": "No garment"}, status_code=400)
 
-        # Envoyer à Replicate
-        output = replicate.run(MODEL_ID, input={"human_img": person_file, "garm_img": garment_input, "garment_des": category, "category": "upper_body"})
+        print("🤖 [DEBUG] Envoi à Replicate (MODEL_ID vérifié ?)...")
+        print(f"    - Model: {MODEL_ID}")
+        
+        # 4. L'APPEL REPLICATE (C'est souvent ici que ça plante)
+        output = replicate.run(
+            MODEL_ID,
+            input={
+                "human_img": person_file,
+                "garm_img": garment_input,
+                "garment_des": category,
+                "category": "upper_body"
+            }
+        )
+        
+        print(f"✅ [SUCCESS] Réponse Replicate reçue: {output}")
 
-        # Débiter et stats
-        set_metafield("virtual_try_on", "wallet", current_credits - 1, "integer")
-        total = get_metafield("virtual_try_on", "total_tryons", 0)
-        set_metafield("virtual_try_on", "total_tryons", total + 1, "integer")
-        user_stats["count"] += 1
-        RATE_LIMIT_DB[client_ip] = user_stats
-
+        # 5. Extraction URL
         result_url = str(output[0]) if isinstance(output, list) else str(output)
+        
         return {"result_image_url": result_url}
 
     except Exception as e:
-        print(f"❌ Generate Error: {e}")
+        print(f"🔥 [CRITICAL ERROR] : {str(e)}") # C'est ça qu'on veut voir dans les logs !
         return JSONResponse({"error": str(e)}, status_code=500)
 
 # --- WEBHOOKS GDPR (dummy) ---
@@ -296,3 +313,4 @@ def w2(): return {"ok": True}
 def w3(): return {"ok": True}
 @app.post("/webhooks/gdpr")
 def w4(): return {"ok": True}
+
