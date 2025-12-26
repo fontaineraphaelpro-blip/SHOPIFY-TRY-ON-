@@ -15,8 +15,9 @@ from fastapi.staticfiles import StaticFiles
 SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
 SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN") 
-# IMPORTANT : Assure-toi que MODEL_ID est correct
-MODEL_ID = "cuuupid/idm-vton:c871bb9b0466074280c2aec71dc6746146c6374507d3b0704332973e44075193"
+
+# MODÈLE CORRIGÉ (Version stable vérifiée)
+MODEL_ID = "cuuupid/idm-vton:906425dbca90663f8c950892a2b9617e76527b3f9d3f5ce6bb2c29664b7856d9"
 
 app = FastAPI()
 
@@ -35,20 +36,13 @@ templates = Jinja2Templates(directory=".")
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
-    
-    # On récupère le shop s'il est dans l'URL, sinon on autorise large pour le debug
     shop = request.query_params.get("shop")
-    
     if shop:
-        # Autorise spécifiquement cette boutique
         policy = f"frame-ancestors https://{shop} https://admin.shopify.com https://*.myshopify.com;"
     else:
-        # FALLBACK : Autorise tout le monde (pour éviter l'écran blanc si le param shop saute)
         policy = "frame-ancestors *;"
-
-    # On force les headers qui permettent l'iframe
     response.headers["Content-Security-Policy"] = policy
-    response.headers["X-Frame-Options"] = "ALLOWALL" # Vieux navigateurs
+    response.headers["X-Frame-Options"] = "ALLOWALL"
     return response
 
 # --- DATABASE ---
@@ -66,11 +60,9 @@ def clean_shop(url):
     return url.replace("https://", "").replace("http://", "").strip("/") if url else ""
 
 # --- ROUTES ---
-
 @app.get("/styles.css")
 def styles(): return FileResponse('styles.css', media_type='text/css')
 
-# Note: On a supprimé app.js car on a tout mis dans index.html pour simplifier
 @app.get("/app.js")
 def javascript(): return HTMLResponse("") 
 
@@ -91,15 +83,12 @@ async def generate(
     token = get_token_db(shop)
     
     if not token:
-        # Pour le debug, on laisse passer même sans token si c'est toi qui testes
-        print("⚠️ Token manquant, mais on tente quand même (Mode Debug)")
-        # return JSONResponse({"error": "App non installée."}, status_code=403)
+        print("⚠️ Token manquant (Debug Mode)")
 
     try:
-        # Appel Replicate direct
         person_bytes = await person_image.read()
         
-        print("🤖 Envoi à Replicate...")
+        print(f"🤖 Envoi à Replicate ({MODEL_ID})...")
         output = replicate.run(
             MODEL_ID,
             input={
@@ -108,7 +97,8 @@ async def generate(
                 "garment_des": "upper_body",
                 "category": "upper_body",
                 "crop": False,
-                "seed": 42
+                "seed": 42,
+                "steps": 30 
             }
         )
         
@@ -119,4 +109,5 @@ async def generate(
 
     except Exception as e:
         print(f"🔥 CRASH: {str(e)}")
-        return JSONResponse({"error": str(e)}, status_code=500)
+        # Affiche l'erreur exacte dans le widget pour comprendre
+        return JSONResponse({"error": f"Erreur IA: {str(e)}"}, status_code=500)
