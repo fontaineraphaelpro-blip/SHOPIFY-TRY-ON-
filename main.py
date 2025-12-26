@@ -1,124 +1,157 @@
-import os
-import io
-import time
-import sqlite3
-import shopify
-import replicate
-from typing import Optional, Dict
-from fastapi import FastAPI, Request, Form, File, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.templating import Jinja2Templates
-
-# --- CONFIGURATION ---
-SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
-SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
-# Token Replicate
-REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN") 
-MODEL_ID = "cuuupid/idm-vton:c871bb9b0466074280c2aec71dc6746146c6374507d3b0704332973e44075193"
-
-app = FastAPI()
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-templates = Jinja2Templates(directory=".")
-
-# --- DATABASE ---
-def get_token_db(shop):
-    try:
-        with sqlite3.connect("database.db") as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT token FROM shops WHERE domain = ?", (shop,))
-            row = cur.fetchone()
-            return row[0] if row else None
-    except: return None
-
-# --- HELPERS ---
-def clean_shop(url):
-    return url.replace("https://", "").replace("http://", "").strip("/") if url else ""
-
-# Middleware pour autoriser l'iframe dans Shopify
-@app.middleware("http")
-async def add_csp_header(request: Request, call_next):
-    response = await call_next(request)
-    shop = request.query_params.get("shop", "")
-    if shop:
-        response.headers["Content-Security-Policy"] = f"frame-ancestors https://{shop} https://admin.shopify.com;"
-    return response
-
-# --- ROUTES ---
-
-@app.get("/styles.css")
-def styles(): return FileResponse('styles.css', media_type='text/css')
-
-@app.get("/app.js")
-def javascript(): return FileResponse('app.js', media_type='application/javascript')
-
-@app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
-    # Charge le fichier HTML unique
-    return templates.TemplateResponse("index.html", {"request": request})
-
-# --- API GENERATE (LE COEUR DU SYSTEME) ---
-@app.post("/api/generate")
-async def generate(
-    shop: str = Form(...),
-    person_image: UploadFile = File(...),
-    clothing_url: str = Form(...) # On force l'URL ici car le widget envoie toujours une URL
-):
-    print(f"🚀 REÇU: Shop={shop} | Vêtement={clothing_url}")
-    
-    shop = clean_shop(shop)
-    token = get_token_db(shop)
-    
-    # 1. Sécurité simple : est-ce que la boutique a installé l'app ?
-    if not token:
-        print("❌ ERREUR: Boutique non reconnue dans la DB")
-        return JSONResponse({"error": "App non installée ou token manquant."}, status_code=403)
-
-    try:
-        # 2. Vérification Crédits Shopify
-        shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
-        session = shopify.Session(shop, "2024-10", token)
-        shopify.ShopifyResource.activate_session(session)
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VTON App</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 0; background: #f4f4f4; }
         
-        # Récupération crédits
-        meta = shopify.Metafield.find(namespace="virtual_try_on", key="wallet")
-        credits = int(float(meta[0].value)) if meta else 0
-        
-        if credits < 1:
-            return JSONResponse({"error": "Plus de crédits disponibles."}, status_code=402)
+        /* MODE CLIENT (Widget) */
+        body.client-mode { background: transparent; }
+        body.client-mode .admin-panel { display: none !important; }
+        body.client-mode .client-panel { display: flex; flex-direction: column; height: 100vh; }
 
-        # 3. Appel Replicate
-        # On lit l'image utilisateur en RAM
-        person_bytes = await person_image.read()
+        /* Interface Client */
+        .client-panel { display: none; padding: 20px; box-sizing: border-box; text-align: center; }
         
-        print("🤖 Envoi à Replicate...")
-        output = replicate.run(
-            MODEL_ID,
-            input={
-                "human_img": io.BytesIO(person_bytes),
-                "garm_img": clothing_url, # On passe l'URL directe de Shopify
-                "garment_des": "upper_body",
-                "category": "upper_body",
-                "crop": False,
-                "seed": 42
+        .grid-upload {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;
+        }
+        .box {
+            background: white; border: 2px dashed #ccc; border-radius: 10px;
+            height: 150px; display: flex; align-items: center; justify-content: center;
+            position: relative; overflow: hidden;
+        }
+        .box img { width: 100%; height: 100%; object-fit: contain; }
+        
+        .btn-main {
+            background: black; color: white; border: none; padding: 15px;
+            width: 100%; border-radius: 50px; font-size: 16px; font-weight: bold;
+            cursor: pointer;
+        }
+        .btn-main:disabled { background: #ccc; }
+
+        /* Loader */
+        .loader { display: none; margin-top: 20px; }
+        .spinner { width: 30px; height: 30px; border: 4px solid #f3f3f3; border-top: 4px solid #000; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Resultat */
+        #resultImage { max-width: 100%; border-radius: 10px; display: none; margin-top: 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
+    </style>
+</head>
+<body>
+
+    <div id="clientZone" class="client-panel">
+        <h3>Cabine d'Essayage</h3>
+        
+        <div class="grid-upload">
+            <label class="box" for="userUpload">
+                <img id="userPreview" style="display:none;">
+                <span id="userText">📸 Ta Photo</span>
+                <input type="file" id="userUpload" accept="image/*" style="display:none;">
+            </label>
+
+            <div class="box">
+                <img id="productPreview">
+            </div>
+        </div>
+
+        <button id="generateBtn" class="btn-main">Générer l'Essayage ✨</button>
+
+        <div id="loader" class="loader">
+            <div class="spinner"></div>
+            <p>L'IA travaille... (10-15s)</p>
+        </div>
+
+        <img id="resultImage">
+    </div>
+
+    <div class="admin-panel" style="padding: 50px; text-align: center;">
+        <h1>Dashboard Admin</h1>
+        <p>Pour voir le widget, allez sur une page produit de votre boutique.</p>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const params = new URLSearchParams(window.location.search);
+            const mode = params.get('mode');
+            const shop = params.get('shop');
+            const productImg = params.get('product_image');
+
+            // 1. DÉTECTION MODE
+            if (mode === 'client') {
+                document.body.classList.add('client-mode');
+                document.getElementById('clientZone').style.display = 'flex';
+                
+                // Afficher l'image produit reçue de Shopify
+                if (productImg) {
+                    document.getElementById('productPreview').src = productImg;
+                }
             }
-        )
-        
-        result_url = str(output[0]) if isinstance(output, list) else str(output)
-        print(f"✅ SUCCÈS: {result_url}")
 
-        # 4. Débit Crédit
-        new_credits = credits - 1
-        # Mise à jour metafield
-        m = shopify.Metafield()
-        m.namespace = "virtual_try_on"
-        m.key = "wallet"
-        m.value = new_credits
-        m.type = "integer"
-        m.save()
+            // 2. PREVIEW PHOTO UTILISATEUR
+            const userUpload = document.getElementById('userUpload');
+            const userPreview = document.getElementById('userPreview');
+            const userText = document.getElementById('userText');
 
-        return {"result_image_url": result_url}
+            userUpload.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                        userPreview.src = ev.target.result;
+                        userPreview.style.display = 'block';
+                        userText.style.display = 'none';
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
 
-    except Exception as e:
-        print(f"🔥 CRASH: {str(e)}")
-        return JSONResponse({"error": str(e)}, status_code=500)
+            // 3. GÉNÉRATION
+            document.getElementById('generateBtn').addEventListener('click', async () => {
+                const file = userUpload.files[0];
+                if (!file) return alert("Ajoute ta photo d'abord !");
+                if (!shop) return alert("Erreur: Boutique non détectée.");
+
+                // UI Loading
+                const btn = document.getElementById('generateBtn');
+                btn.disabled = true;
+                btn.innerText = "Traitement en cours...";
+                document.getElementById('loader').style.display = 'block';
+                document.getElementById('resultImage').style.display = 'none';
+
+                // Préparation Données
+                const formData = new FormData();
+                formData.append('shop', shop);
+                formData.append('person_image', file);
+                formData.append('clothing_url', productImg); // On renvoie l'URL reçue
+
+                try {
+                    const res = await fetch('/api/generate', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    const data = await res.json();
+
+                    if (!res.ok) throw new Error(data.error || "Erreur serveur");
+
+                    // Succès
+                    const img = document.getElementById('resultImage');
+                    img.src = data.result_image_url;
+                    img.style.display = 'block';
+
+                } catch (err) {
+                    alert("Oups : " + err.message);
+                } finally {
+                    btn.disabled = false;
+                    btn.innerText = "Générer l'Essayage ✨";
+                    document.getElementById('loader').style.display = 'none';
+                }
+            });
+        });
+    </script>
+</body>
+</html>
