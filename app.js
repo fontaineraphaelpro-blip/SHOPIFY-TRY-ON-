@@ -230,4 +230,50 @@ window.generate = async function() {
     } catch(e) { clearInterval(interval); console.error(e); alert("Network Error"); document.getElementById('loader').style.display = 'none'; }
     finally { btn.disabled = false; btn.innerHTML = oldText; }
 };
+
+    // --- FONCTIONS DE PAIEMENT (MANQUANTES) ---
+
+    window.buy = async function(packId, amount, btn) {
+        const oldText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing...';
+
+        try {
+            // 1. On appelle ton backend pour créer le lien de paiement
+            const res = await authenticatedFetch('/api/buy-credits', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    shop: shop,
+                    pack_id: packId,
+                    custom_amount: parseInt(amount)
+                })
+            });
+
+            const data = await res.json();
+
+            // 2. Si on reçoit l'URL de confirmation, on redirige la fenêtre PRINCIPALE (pas l'iframe)
+            if (data.confirmation_url) {
+                // Important: window.top pour sortir de l'iframe
+                window.top.location.href = data.confirmation_url; 
+            } else {
+                alert("Payment Error: " + (data.error || "Unknown error"));
+                btn.disabled = false;
+                btn.innerHTML = oldText;
+            }
+        } catch (e) {
+            console.error(e);
+            alert("Network Error");
+            btn.disabled = false;
+            btn.innerHTML = oldText;
+        }
+    };
+
+    // Pour le bouton "Custom Order"
+    window.buyCustom = function(btn) {
+        const amount = document.getElementById('customAmount').value;
+        if(amount < 50) return alert("Minimum 50 credits for custom order.");
+        // On appelle la fonction buy avec le pack 'pack_custom'
+        buy('pack_custom', amount, btn);
+    };
 });
