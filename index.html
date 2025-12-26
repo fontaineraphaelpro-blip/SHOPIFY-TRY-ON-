@@ -1,55 +1,43 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VTON DEBUG</title>
+    <title>VTON TEST</title>
     <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js" data-api-key="{{ api_key }}"></script>
-    <link rel="stylesheet" href="/styles.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
     <style>
-        /* Force l'affichage pour le debug */
-        .debug-box { border: 2px solid red; padding: 10px; margin: 10px; }
-        .hidden { display: none !important; }
+        body { background-color: #f0f0f0; font-family: sans-serif; padding: 20px; }
+        .box { background: white; padding: 20px; margin: 20px 0; border: 2px solid black; }
+        h2 { margin-top: 0; }
+        img { max-width: 100px; display: block; margin: 10px 0; border: 1px solid #ccc; }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer; background: black; color: white; border: none; }
     </style>
 </head>
 <body>
 
-    <div id="admin-zone" class="hidden">
-        <h1>👑 ADMIN DASHBOARD</h1>
-        <p>Crédits: <span id="credits">--</span></p>
-        <button onclick="buy('pack_10', 0, this)">Acheter 10 Crédits</button>
+    <h1>🚨 DEBUG MODE - PAGE SANS STYLE</h1>
+
+    <div class="box" id="admin-zone">
+        <h2>👑 Zone Admin</h2>
+        <p>Crédits: <strong id="credits">Chargement...</strong></p>
+        <button onclick="buy('pack_10', 0, this)">Acheter Crédits</button>
     </div>
 
-    <div id="client-zone">
-        <h2 style="text-align:center;">Cabine d'Essayage</h2>
+    <div class="box" id="client-zone">
+        <h2>🛍️ Zone Client (Widget)</h2>
         
-        <div style="background:#eee; padding:5px; font-size:10px; text-align:center;">
-            Mode: <span id="debug-mode">Inconnu</span> | Shop: <span id="debug-shop">Inconnu</span>
-        </div>
+        <h3>1. Photo</h3>
+        <input type="file" id="uImg">
+        <img id="prevU">
 
-        <div class="app-container">
-            <div style="margin: 20px 0; text-align:center;">
-                <h3>1. Votre Photo</h3>
-                <input type="file" id="uImg" accept="image/*" style="display:block; margin:0 auto;">
-                <img id="prevU" src="" style="max-width:100px; display:none; margin:10px auto;">
-            </div>
+        <h3>2. Vêtement</h3>
+        <input type="file" id="cImg">
+        <img id="prevC"> <br><br>
+        <button id="btnGo">LANCER ESSAYAGE</button>
 
-            <div style="margin: 20px 0; text-align:center;">
-                <h3>2. Le Vêtement</h3>
-                <img id="prevC" src="" style="max-width:150px; display:none; margin:10px auto; border: 2px solid blue;">
-                <input type="file" id="cImg" accept="image/*" style="display:block; margin:0 auto;">
-            </div>
-
-            <button id="btnGo" style="width:100%; padding:20px; background:black; color:white; font-size:18px; cursor:pointer;">
-                LANCER L'ESSAYAGE 🚀
-            </button>
-
-            <div id="resZone" style="margin-top:20px; text-align:center; display:none;">
-                <p id="loader">⏳ Chargement en cours...</p>
-                <img id="resImg" src="" style="width:100%; display:none;">
-            </div>
+        <div id="resZone" style="display:none; margin-top:20px; background:#e0ffe0; padding:10px;">
+            <p id="loader">⏳ IA en cours...</p>
+            <img id="resImg" style="max-width:300px;">
         </div>
     </div>
 
