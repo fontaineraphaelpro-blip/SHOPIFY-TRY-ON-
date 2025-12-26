@@ -1,58 +1,219 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VTON DEBUG</title>
-    <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js" data-api-key="{{ api_key }}"></script>
-    <link rel="stylesheet" href="/styles.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
-    <style>
-        /* Force l'affichage pour le debug */
-        .debug-box { border: 2px solid red; padding: 10px; margin: 10px; }
-        .hidden { display: none !important; }
-    </style>
-</head>
-<body>
+document.addEventListener("DOMContentLoaded", function() {
 
-    <div id="admin-zone" class="hidden">
-        <h1>👑 ADMIN DASHBOARD</h1>
-        <p>Crédits: <span id="credits">--</span></p>
-        <button onclick="buy('pack_10', 0, this)">Acheter 10 Crédits</button>
-    </div>
+    // --- 1. RÉCUPÉRATION DES PARAMÈTRES ---
+    const params = new URLSearchParams(window.location.search);
+    const mode = params.get('mode'); 
+    const shop = params.get('shop'); 
+    const autoProductImage = params.get('product_image');
 
-    <div id="client-zone">
-        <h2 style="text-align:center;">Cabine d'Essayage</h2>
+    console.log("🚀 App démarrée. Mode:", mode, "| Shop:", shop);
+
+    // --- 2. GESTION DE L'AFFICHAGE (Client vs Admin) ---
+    if (mode === 'client') {
+        // MODE WIDGET
+        document.body.classList.add('client-mode');
         
-        <div style="background:#eee; padding:5px; font-size:10px; text-align:center;">
-            Mode: <span id="debug-mode">Inconnu</span> | Shop: <span id="debug-shop">Inconnu</span>
-        </div>
+        // On cache l'admin, on montre le client
+        const adminZone = document.getElementById('admin-only-zone');
+        const clientZone = document.getElementById('client-only-wrapper');
+        
+        if (adminZone) adminZone.style.display = 'none';
+        if (clientZone) clientZone.style.display = 'block'; // Ou 'flex' selon ton CSS
 
-        <div class="app-container">
-            <div style="margin: 20px 0; text-align:center;">
-                <h3>1. Votre Photo</h3>
-                <input type="file" id="uImg" accept="image/*" style="display:block; margin:0 auto;">
-                <img id="prevU" src="" style="max-width:100px; display:none; margin:10px auto;">
-            </div>
+        // Pré-remplissage de l'image vêtement (envoyée par le widget Shopify)
+        if (autoProductImage) {
+            const img = document.getElementById('prevC');
+            if (img) {
+                img.src = autoProductImage;
+                img.style.display = 'block';
+                // Cacher l'état vide s'il existe
+                const emptyState = img.parentElement.querySelector('.empty-state');
+                if (emptyState) emptyState.style.display = 'none';
+            }
+        }
+    } else {
+        // MODE DASHBOARD (ADMIN)
+        console.log("👑 Mode Admin activé");
+        if (shop) initAdminMode(shop);
+    }
 
-            <div style="margin: 20px 0; text-align:center;">
-                <h3>2. Le Vêtement</h3>
-                <img id="prevC" src="" style="max-width:150px; display:none; margin:10px auto; border: 2px solid blue;">
-                <input type="file" id="cImg" accept="image/*" style="display:block; margin:0 auto;">
-            </div>
+    // --- 3. FONCTIONS GLOBALES (Pour les onclick="..." du HTML) ---
 
-            <button id="btnGo" style="width:100%; padding:20px; background:black; color:white; font-size:18px; cursor:pointer;">
-                LANCER L'ESSAYAGE 🚀
-            </button>
+    // Prévisualisation des images uploadées
+    window.preview = function(inputId, imgId) {
+        const file = document.getElementById(inputId).files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = e => {
+                const img = document.getElementById(imgId);
+                img.src = e.target.result;
+                img.style.display = 'block';
+                const empty = img.parentElement.querySelector('.empty-state');
+                if(empty) empty.style.display = 'none';
+            };
+            reader.readAsDataURL(file);
+        }
+    };
 
-            <div id="resZone" style="margin-top:20px; text-align:center; display:none;">
-                <p id="loader">⏳ Chargement en cours...</p>
-                <img id="resImg" src="" style="width:100%; display:none;">
-            </div>
-        </div>
-    </div>
+    // ACTION PRINCIPALE : GÉNÉRER L'IMAGE
+    window.generate = async function() {
+        console.log("⚡ Bouton cliqué !");
 
-    <script src="/app.js"></script>
-</body>
-</html>
+        // Récupération des éléments
+        const uFile = document.getElementById('uImg').files[0];
+        const cFile = document.getElementById('cImg').files[0]; // Peut être null si on a autoProductImage
+        const btn = document.getElementById('btnGo');
+        
+        // Vérifications de base
+        if (!shop) return alert("Erreur technique : Boutique non identifiée (paramètre 'shop' manquant).");
+        if (!uFile) return alert("Veuillez ajouter votre photo (Case 1).");
+        if (!autoProductImage && !cFile) return alert("Veuillez ajouter un vêtement (Case 2).");
+
+        // UI : Chargement
+        const oldText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = "Création en cours... <i class='fa-solid fa-spinner fa-spin'></i>";
+        
+        document.getElementById('resZone').style.display = 'block';
+        document.getElementById('loader').style.display = 'block';
+        document.getElementById('resImg').style.display = 'none';
+        
+        try {
+            // Préparation des données
+            const formData = new FormData();
+            formData.append("shop", shop);
+            formData.append("person_image", uFile);
+            
+            if (autoProductImage) {
+                formData.append("clothing_url", autoProductImage);
+            } else if (cFile) {
+                formData.append("clothing_file", cFile);
+            }
+
+            // Choix de la méthode d'envoi (Public vs Admin)
+            let res;
+            if (mode === 'client') {
+                // Fetch standard pour le widget
+                res = await fetch('/api/generate', { method: 'POST', body: formData });
+            } else {
+                // Fetch authentifié pour l'admin (si tu testes depuis le dashboard)
+                res = await authenticatedFetch('/api/generate', { method: 'POST', body: formData });
+            }
+
+            // Gestion des erreurs HTTP
+            if (!res.ok) {
+                const errTxt = await res.text();
+                let errMsg = "Erreur serveur";
+                try { errMsg = JSON.parse(errTxt).error; } catch(e) { errMsg = errTxt; }
+                throw new Error(errMsg);
+            }
+
+            // Traitement du résultat
+            const data = await res.json();
+            
+            if (data.result_image_url) {
+                const ri = document.getElementById('resImg');
+                ri.src = data.result_image_url;
+                
+                ri.onload = () => {
+                    document.getElementById('loader').style.display = 'none';
+                    ri.style.display = 'block';
+                    ri.scrollIntoView({behavior: "smooth", block: "center"});
+                };
+                ri.onerror = () => {
+                    throw new Error("L'image générée est illisible.");
+                };
+            } else {
+                throw new Error("L'IA n'a pas renvoyé d'image.");
+            }
+
+        } catch (e) {
+            console.error("ERREUR:", e);
+            alert("Oups ! " + e.message);
+            document.getElementById('loader').style.display = 'none';
+            document.getElementById('resZone').style.display = 'none';
+        } finally {
+            // Rétablir le bouton
+            btn.disabled = false;
+            btn.innerHTML = oldText;
+        }
+    };
+
+    // --- 4. LOGIQUE ADMIN (Authentification & Crédits) ---
+
+    // Récupérer le token de session Shopify (App Bridge)
+    async function getSessionToken() {
+        if (window.shopify && window.shopify.id) {
+            return await shopify.id.getToken();
+        }
+        return null;
+    }
+
+    // Fetch avec Header d'autorisation
+    async function authenticatedFetch(url, options = {}) {
+        try {
+            const token = await getSessionToken();
+            const headers = options.headers || {};
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+            return fetch(url, { ...options, headers });
+        } catch (e) {
+            console.error("Auth Fetch Error:", e);
+            throw e;
+        }
+    }
+
+    // Initialisation Dashboard Admin
+    async function initAdminMode(s) {
+        try {
+            const res = await authenticatedFetch(`/api/get-data?shop=${s}`);
+            
+            // Auto-Redirect si session expirée (401)
+            if (res.status === 401) {
+                console.warn("Session expirée, redirection vers login...");
+                if (window.top) window.top.location.href = `/login?shop=${s}`;
+                else window.location.href = `/login?shop=${s}`;
+                return;
+            }
+
+            if (res.ok) {
+                const data = await res.json();
+                if(document.getElementById('credits')) document.getElementById('credits').innerText = data.credits;
+                if(document.getElementById('stat-tryons')) document.getElementById('stat-tryons').innerText = data.usage;
+            }
+        } catch (e) { console.log("Init Admin Failed", e); }
+    }
+    
+    // Fonction d'achat (Appelée par onclick dans le HTML Admin)
+    window.buy = async function(packId, amount, btn) {
+        const oldText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = 'Patientez...';
+        try {
+            const res = await authenticatedFetch('/api/buy-credits', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ shop: shop, pack_id: packId, custom_amount: parseInt(amount) })
+            });
+            const data = await res.json();
+            if (data.confirmation_url) {
+                // Redirection parent pour sortir de l'iframe et payer
+                window.top.location.href = data.confirmation_url; 
+            } else {
+                alert("Erreur lors de la création du paiement.");
+            }
+        } catch (e) { 
+            alert("Erreur réseau : " + e.message); 
+        } finally { 
+            btn.disabled = false; 
+            btn.innerHTML = oldText; 
+        }
+    };
+    
+    // Achat personnalisé
+    window.buyCustom = function(btn) {
+        const val = document.getElementById('customAmount').value;
+        if(val) window.buy('pack_custom', val, btn);
+    };
+});
