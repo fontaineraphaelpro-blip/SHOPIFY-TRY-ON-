@@ -3,129 +3,56 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VTON AI</title>
+    <title>VTON DEBUG</title>
     <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js" data-api-key="{{ api_key }}"></script>
     <link rel="stylesheet" href="/styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;1,600&display=swap" rel="stylesheet">
     
     <style>
-        /* Styles spécifiques pour cacher proprement */
-        body.client-mode #admin-only-zone { display: none !important; }
-        body:not(.client-mode) #client-only-wrapper { display: none !important; }
-        
-        /* Style simple pour le widget client pour éviter les conflits */
-        .client-widget-container {
-            max-width: 500px; margin: 0 auto; padding: 20px;
-            font-family: 'Outfit', sans-serif;
-            background: #fff; border-radius: 20px;
-        }
+        /* Force l'affichage pour le debug */
+        .debug-box { border: 2px solid red; padding: 10px; margin: 10px; }
+        .hidden { display: none !important; }
     </style>
 </head>
 <body>
 
-    <div id="admin-only-zone">
-        <header class="glass-header">
-            <div class="brand"><div class="logo-icon"><i class="fa-solid fa-wand-magic-sparkles"></i></div><div class="logo-text"><h1>VTON<span>AI</span></h1><span class="badge-beta">PRO DASHBOARD</span></div></div>
-            <div class="system-status"><span class="pulse-dot"></span> System Operational</div>
-        </header>
-
-        <div id="billing-section" class="stats-grid">
-            <div class="stat-card credit-card-style">
-                <div class="card-bg-glow"></div>
-                <div class="card-top"><span class="card-label">CURRENT BALANCE</span><i class="fa-brands fa-cc-stripe"></i></div>
-                <div class="credits-count"><span id="credits">--</span></div>
-                <div class="card-bottom"><span><i class="fa-solid fa-infinity"></i> Credits never expire</span><button onclick="document.querySelector('.pricing-container').scrollIntoView({behavior: 'smooth'})" class="btn-xs-glass">Refill</button></div>
-            </div>
-            <div class="stat-card analytics-card">
-                <div class="analytics-header"><h3><i class="fa-solid fa-chart-line"></i> Usage Statistics</h3><span class="trend-badge positive">LIVE</span></div>
-                <div class="metrics-row"><div class="metric"><span class="m-label">Total Try-Ons</span><span id="stat-tryons" class="m-value">0</span></div></div>
-            </div>
-        </div>
-
-        <div class="pricing-container">
-            <h2 class="section-title">Purchase Credits</h2>
-            <div class="pricing-row">
-                <div class="pricing-card" onclick="buy('pack_10', 0, this)"><div class="pc-header"><span class="pc-name">Starter</span><span class="pc-credits">10</span></div><div class="pc-price">€4.99</div><button class="btn-buy">Buy</button></div>
-                <div class="pricing-card featured" onclick="buy('pack_30', 0, this)"><div class="popular-badge">POPULAR</div><div class="pc-header"><span class="pc-name">Growth</span><span class="pc-credits">30</span></div><div class="pc-price">€12.99</div><button class="btn-buy featured-btn">Buy</button></div>
-                <div class="pricing-card" onclick="buy('pack_100', 0, this)"><div class="pc-header"><span class="pc-name">Business</span><span class="pc-credits">100</span></div><div class="pc-price">€29.99</div><button class="btn-buy">Buy</button></div>
-            </div>
-        </div>
-
-        <div class="divider"><span>ADMIN PREVIEW TOOL</span></div>
-        <div class="main-content" style="max-width: 600px; margin: 0 auto;">
-             <div class="studio-grid">
-                <label class="studio-box"><div class="step-number">A1</div><img id="prevU_admin" src="" style="display:none;"><div class="empty-state"><i class="fa-solid fa-camera"></i> User Photo</div><input type="file" id="uImg_admin" accept="image/*" onchange="preview('uImg_admin', 'prevU_admin')"></label>
-                <label class="studio-box"><div class="step-number">A2</div><img id="prevC_admin" src="" style="display:none;"><div class="empty-state"><i class="fa-solid fa-shirt"></i> Garment</div><input type="file" id="cImg_admin" accept="image/*" onchange="preview('cImg_admin', 'prevC_admin')"></label>
-            </div>
-            <div class="action-area"><button id="btnGo_admin" onclick="generateAdmin()" class="btn-magic">Test as Admin <i class="fa-solid fa-wand-magic-sparkles"></i></button></div>
-        </div>
+    <div id="admin-zone" class="hidden">
+        <h1>👑 ADMIN DASHBOARD</h1>
+        <p>Crédits: <span id="credits">--</span></p>
+        <button onclick="buy('pack_10', 0, this)">Acheter 10 Crédits</button>
     </div>
 
-    <div id="client-only-wrapper" class="client-widget-container">
+    <div id="client-zone">
+        <h2 style="text-align:center;">Cabine d'Essayage</h2>
         
-        <div style="text-align:center; margin-bottom:20px;">
-            <h2 style="font-family:'Playfair Display', serif; font-size:24px;">Virtual Fitting Room</h2>
-            <p style="color:#666; font-size:14px;">Upload your photo to see how it fits.</p>
+        <div style="background:#eee; padding:5px; font-size:10px; text-align:center;">
+            Mode: <span id="debug-mode">Inconnu</span> | Shop: <span id="debug-shop">Inconnu</span>
         </div>
 
-        <div class="studio-grid">
-            <label for="uImg" class="studio-box">
-                <div class="step-number">01</div>
-                <img id="prevU" src="" style="display:none;">
-                <div class="empty-state">
-                    <div class="icon-circle"><i class="fa-solid fa-camera"></i></div>
-                    <span class="fashion-font">Your Photo</span>
-                </div>
-                <input type="file" id="uImg" accept="image/*" onchange="preview('uImg', 'prevU')">
-            </label>
-
-            <label for="cImg" class="studio-box">
-                <div class="step-number">02</div>
-                <img id="prevC" src="" style="display:none;">
-                <div class="empty-state">
-                    <div class="icon-circle"><i class="fa-solid fa-shirt"></i></div>
-                    <span class="fashion-font">The Look</span>
-                </div>
-                <input type="file" id="cImg" accept="image/*" onchange="preview('cImg', 'prevC')">
-            </label>
-        </div>
-
-        <div class="action-area">
-            <button id="btnGo" onclick="generate()" class="btn-magic" style="width:100%;">
-                <span class="btn-content">Try It On Now <i class="fa-solid fa-wand-magic-sparkles"></i></span>
-            </button>
-        </div>
-
-        <div id="resZone" style="display:none; margin-top:20px; text-align:center;">
-            <div id="loader" style="display:none;">
-                <div class="spinner-modern" style="margin:0 auto;"></div>
-                <p id="loader-text" class="fashion-loader-text" style="margin-top:10px;">Creating your look...</p>
+        <div class="app-container">
+            <div style="margin: 20px 0; text-align:center;">
+                <h3>1. Votre Photo</h3>
+                <input type="file" id="uImg" accept="image/*" style="display:block; margin:0 auto;">
+                <img id="prevU" src="" style="max-width:100px; display:none; margin:10px auto;">
             </div>
-            <img id="resImg" src="" style="width:100%; border-radius:10px; display:none;">
+
+            <div style="margin: 20px 0; text-align:center;">
+                <h3>2. Le Vêtement</h3>
+                <img id="prevC" src="" style="max-width:150px; display:none; margin:10px auto; border: 2px solid blue;">
+                <input type="file" id="cImg" accept="image/*" style="display:block; margin:0 auto;">
+            </div>
+
+            <button id="btnGo" style="width:100%; padding:20px; background:black; color:white; font-size:18px; cursor:pointer;">
+                LANCER L'ESSAYAGE 🚀
+            </button>
+
+            <div id="resZone" style="margin-top:20px; text-align:center; display:none;">
+                <p id="loader">⏳ Chargement en cours...</p>
+                <img id="resImg" src="" style="width:100%; display:none;">
+            </div>
         </div>
     </div>
 
     <script src="/app.js"></script>
-    <script>
-        // Petite fonction locale pour mapper l'admin vers la fonction principale
-        function generateAdmin() {
-            // On copie les inputs admin vers les inputs principaux (hack rapide)
-            const ua = document.getElementById('uImg_admin').files[0];
-            const ca = document.getElementById('cImg_admin').files[0];
-            
-            // On simule l'upload sur les IDs principaux que app.js écoute
-            if(ua) {
-                const dt = new DataTransfer(); dt.items.add(ua);
-                document.getElementById('uImg').files = dt.files;
-            }
-            if(ca) {
-                const dt2 = new DataTransfer(); dt2.items.add(ca);
-                document.getElementById('cImg').files = dt2.files;
-            }
-            // On lance la fonction standard
-            generate();
-        }
-    </script>
 </body>
 </html>
