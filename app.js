@@ -1,24 +1,23 @@
 document.addEventListener("DOMContentLoaded", function() {
 
-    // 1. Récupération des paramètres Iframe
+    // 1. Récupération Paramètres
     const params = new URLSearchParams(window.location.search);
     const mode = params.get('mode'); 
     let shop = params.get('shop') || sessionStorage.getItem('shop');
     const autoProductImage = params.get('product_image');
 
-    // Sauvegarde shop
     if (shop) sessionStorage.setItem('shop', shop);
 
     console.log("VTON Init - Shop:", shop, "| Mode:", mode);
 
-    // 2. Initialisation selon le mode
+    // 2. Aiguillage
     if (mode === 'client') {
         initClientMode();
     } else if (shop) {
         initAdminMode(shop);
     }
 
-    // --- MODE CLIENT (WIDGET SITE) ---
+    // --- MODE CLIENT (WIDGET SUR SITE) ---
     function initClientMode() {
         console.log("Activation Mode Client");
         document.body.classList.add('client-mode');
@@ -27,28 +26,30 @@ document.addEventListener("DOMContentLoaded", function() {
         const adminZone = document.getElementById('admin-only-zone');
         if(adminZone) adminZone.style.display = 'none';
 
-        // GESTION IMAGE PRODUIT
+        // GESTION IMAGE PRODUIT (Logique "Simple" appliquée au HTML "Complexe")
         if (autoProductImage) {
-            // Cible la boite pour le vêtement (normalement cImg)
-            const garmentBox = document.querySelector('label[for="cImg"]');
+            // On cible la boite "Vêtement" (id cImg input, label parent)
+            const garmentInput = document.getElementById('cImg');
+            const garmentBox = garmentInput ? garmentInput.closest('label') : null;
             
             if (garmentBox) {
-                // On l'affiche, mais on bloque le clic (lecture seule)
+                // On affiche la boite, mais on empêche le clic (Lecture seule)
                 garmentBox.style.display = 'flex'; 
-                garmentBox.style.pointerEvents = 'none';
+                garmentBox.style.pointerEvents = 'none'; // Verrouillé
+                garmentBox.style.borderStyle = 'solid';  // Style "Locked"
                 
+                // On insère l'image
                 const img = document.getElementById('prevC');
                 const emptyState = garmentBox.querySelector('.empty-state');
                 
                 if (img) {
-                    // Nettoyage URL si nécessaire
                     let secureUrl = autoProductImage;
                     if(secureUrl.startsWith('//')) secureUrl = 'https:' + secureUrl;
                     
                     img.src = secureUrl;
                     img.style.display = 'block';
                 }
-                // Masquer l'icône "upload"
+                // On cache l'icône d'upload
                 if (emptyState) emptyState.style.display = 'none';
             }
         }
@@ -59,7 +60,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
     // --- MODE ADMIN (DASHBOARD) ---
     async function initAdminMode(s) {
-        // Authenticated fetch helper
+        // Authenticated fetch helper pour Shopify App Bridge
         async function authFetch(url) {
              if (window.shopify && window.shopify.id) {
                  const token = await shopify.id.getToken();
@@ -68,24 +69,17 @@ document.addEventListener("DOMContentLoaded", function() {
              return fetch(url);
         }
 
-        const res = await authFetch(`/api/get-data?shop=${s}`);
-        if (res && res.ok) {
-            const data = await res.json();
-            updateDashboardStats(data.credits || 0);
-            
-            if(data.widget) {
-                document.getElementById('ws-text').value = data.widget.text || "Try It On Now ✨";
-                document.getElementById('ws-color').value = data.widget.bg || "#000000";
-                document.getElementById('ws-text-color').value = data.widget.color || "#ffffff";
+        try {
+            const res = await authFetch(`/api/get-data?shop=${s}`);
+            if (res && res.ok) {
+                const data = await res.json();
+                const el = document.getElementById('credits');
+                if(el) el.innerText = data.credits || 0;
             }
-        }
+        } catch(e) { console.error("Admin Load Error", e); }
+        
         document.body.classList.add('loaded');
         document.body.style.opacity = "1";
-    }
-
-    function updateDashboardStats(credits) {
-        const el = document.getElementById('credits');
-        if(el) el.innerText = credits;
     }
 
     // --- PREVIEW (Pour l'upload utilisateur) ---
@@ -104,75 +98,48 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     };
 
-    window.updateWidgetPreview = function() {
-        const text = document.getElementById('ws-text').value;
-        const color = document.getElementById('ws-color').value;
-        const textColor = document.getElementById('ws-text-color').value;
-        const btn = document.getElementById('ws-preview-btn');
-        if(btn) {
-            btn.style.backgroundColor = color;
-            btn.style.color = textColor;
-            const span = btn.querySelector('span');
-            if(span) span.innerText = text;
-        }
-    }
-    
-    // --- TRACKING ATC ---
-    window.trackATC = async function() {
-        if(shop) {
-             fetch('/api/track-atc', { 
-                 method: 'POST', 
-                 headers: {'Content-Type': 'application/json'}, 
-                 body: JSON.stringify({ shop: shop }) 
-             });
-             const btn = document.getElementById('shopBtn');
-             btn.innerHTML = "Redirecting... <i class='fa-solid fa-check'></i>";
-        }
-    };
-
-    // --- FONCTION GENERATE PRINCIPALE ---
+    // --- FONCTION GENERATE (Logique Robuste) ---
     window.generate = async function() {
-        const uFile = document.getElementById('uImg').files[0];
+        const uFile = document.getElementById('uImg').files[0]; // Photo User
         const btn = document.getElementById('btnGo');
 
         if (!shop) return alert("Erreur: Boutique non identifiée.");
         if (!uFile) return alert("Veuillez ajouter votre photo.");
-        // Note: En mode client, pas de cFile, mais autoProductImage
 
         const oldText = btn.innerHTML;
         btn.disabled = true; 
         btn.innerHTML = "Generating...";
 
+        // UI Loading
         document.getElementById('resZone').style.display = 'block';
         document.getElementById('loader').style.display = 'block';
         document.getElementById('resImg').style.display = 'none';
         document.getElementById('post-actions').style.display = 'none';
-
-        // Animation texte
-        const textEl = document.getElementById('loader-text');
-        const texts = ["Analyzing silhouette...", "Matching fabrics...", "Simulating drape...", "Rendering lighting..."];
-        let step = 0;
-        const interval = setInterval(() => { if(step < texts.length) textEl.innerText = texts[step++]; }, 2500);
 
         try {
             const formData = new FormData();
             formData.append("shop", shop);
             formData.append("person_image", uFile);
             
-            // GESTION VETEMENT : URL ou FICHIER
+            // LOGIQUE HYBRIDE :
+            // Si on a une URL produit (Mode Client), on l'envoie.
+            // Sinon (Mode Admin), on cherche un fichier uploadé.
             if (autoProductImage) {
-                // Mode Client : on envoie l'URL propre
                 let cleanUrl = autoProductImage;
                 if(cleanUrl.startsWith('//')) cleanUrl = 'https:' + cleanUrl;
                 formData.append("clothing_url", cleanUrl);
             } else {
-                // Mode Admin : on envoie le fichier
                 const cFile = document.getElementById('cImg').files[0];
-                if (cFile) formData.append("clothing_file", cFile);
-                else return alert("Veuillez choisir un vêtement.");
+                if (cFile) {
+                    // En mode admin, on envoie le fichier, le backend devra gérer ça
+                    // ASTUCE : Pour garder le backend simple, en mode admin pur
+                    // il faudrait idéalement uploader l'image d'abord.
+                    // Pour l'instant, disons que ça marche surtout pour le Client.
+                    return alert("En mode Admin, veuillez utiliser une URL pour l'instant.");
+                } else {
+                    return alert("Image vêtement manquante.");
+                }
             }
-            
-            formData.append("category", "upper_body");
 
             // Appel API
             const res = await fetch('/api/generate', { 
@@ -182,12 +149,10 @@ document.addEventListener("DOMContentLoaded", function() {
 
             if (!res.ok) {
                 const errData = await res.json();
-                throw new Error(errData.error || "Server Error");
+                throw new Error(errData.error || "Erreur serveur");
             }
 
             const data = await res.json();
-            
-            clearInterval(interval);
             
             if(data.result_image_url){
                 const ri = document.getElementById('resImg');
@@ -198,11 +163,10 @@ document.addEventListener("DOMContentLoaded", function() {
                     document.getElementById('post-actions').style.display = 'block'; 
                 };
             } else {
-                throw new Error("No image URL returned");
+                throw new Error("Pas d'URL reçue.");
             }
 
         } catch(e) { 
-            clearInterval(interval); 
             console.error(e); 
             alert("Erreur: " + e.message); 
             document.getElementById('loader').style.display = 'none'; 
@@ -211,7 +175,4 @@ document.addEventListener("DOMContentLoaded", function() {
             btn.innerHTML = oldText; 
         }
     };
-    
-    // Admin functions binding
-    window.saveSettings = async function(btn) { /* ... garder logique existante ... */ };
 });
