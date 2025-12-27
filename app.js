@@ -249,6 +249,33 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
 
+    // --- TEST CORS (TEMPORAIRE) ---
+    window.testCORS = async function() {
+        console.log("🧪 TEST CORS DÉMARRÉ");
+        const testUrl = 'https://stylelab-vtonn.onrender.com/api/test-cors';
+        console.log("   URL:", testUrl);
+        
+        try {
+            const response = await fetch(testUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ test: true }),
+                mode: 'cors',
+                credentials: 'omit'
+            });
+            
+            console.log("✅ Réponse reçue:", response.status);
+            const data = await response.json();
+            console.log("   Data:", data);
+            alert(`✅ CORS OK: ${data.message}`);
+        } catch (error) {
+            console.error("❌ Erreur CORS:", error);
+            alert(`❌ CORS BLOQUÉ: ${error.message}`);
+        }
+    }
+
     // --- GENERATE (VERSION CORRIGÉE CORS) ---
     window.generate = async function(event) {
         // EMPÊCHER toute navigation par défaut
@@ -348,8 +375,18 @@ document.addEventListener("DOMContentLoaded", function() {
                 category: payload.category
             });
 
-            // URL ABSOLUE pour éviter les problèmes iframe
-            const apiUrl = `${window.location.origin}/api/generate`;
+            // DÉTECTION DU BON ENDPOINT selon le contexte
+            let apiUrl;
+            
+            // Si on est en iframe Shopify (mode client), utiliser l'URL absolue du serveur
+            if (mode === 'client' || window.self !== window.top) {
+                apiUrl = 'https://stylelab-vtonn.onrender.com/api/generate';
+                console.log("🌐 Mode iframe détecté - URL directe vers serveur");
+            } else {
+                // Sinon, URL relative (admin mode)
+                apiUrl = '/api/generate';
+                console.log("🏠 Mode admin - URL relative");
+            }
             
             console.log("🎯 URL cible:", apiUrl);
             console.log("📤 Envoi de la requête POST (JSON)...");
@@ -367,7 +404,8 @@ document.addEventListener("DOMContentLoaded", function() {
                     },
                     body: JSON.stringify(payload),
                     mode: 'cors', // Explicite
-                    cache: 'no-cache' // Éviter cache problématique
+                    credentials: 'omit', // IMPORTANT: pas de cookies en cross-origin
+                    cache: 'no-cache'
                 });
                 console.log("✅ Fetch returned successfully");
             } catch (fetchError) {
