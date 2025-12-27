@@ -298,6 +298,19 @@ async def generate_options():
         }
     )
 
+# Route GET pour debugging (retourne une erreur explicite)
+@app.get("/api/generate")
+async def generate_get_error():
+    """Cette route ne devrait JAMAIS être appelée - c'est un diagnostic"""
+    print("⚠️ WARNING: GET reçu sur /api/generate - Le frontend envoie GET au lieu de POST!")
+    return JSONResponse(
+        {
+            "error": "Method Not Allowed - Use POST",
+            "hint": "Le bouton déclenche probablement une navigation au lieu d'un fetch()"
+        },
+        status_code=405
+    )
+
 @app.post("/api/generate")
 async def generate(request: Request, req: GenerateRequest):
     """Route unifiée pour admin ET clients - VERSION JSON/BASE64"""
