@@ -334,12 +334,37 @@ document.addEventListener("DOMContentLoaded", function() {
             
             console.log("📍 URL cible:", apiUrl);
             
+            // Test de connectivité préalable
+            console.log("🔍 Test OPTIONS...");
+            try {
+                const optionsTest = await fetch(apiUrl, { method: 'OPTIONS' });
+                console.log("✅ OPTIONS OK:", optionsTest.status);
+            } catch(e) {
+                console.warn("⚠️ OPTIONS failed:", e);
+            }
+            
             // ROUTE UNIFIÉE avec headers CORS explicites
-            const res = await fetch(apiUrl, { 
-                method: 'POST', 
-                body: formData,
-                mode: 'cors',
-                credentials: 'omit'
+            console.log("📤 Envoi POST avec FormData...");
+            
+            // Alternative avec XMLHttpRequest pour éviter les problèmes CORS/Preflight
+            const res = await new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', apiUrl, true);
+                
+                xhr.onload = function() {
+                    resolve({
+                        ok: xhr.status >= 200 && xhr.status < 300,
+                        status: xhr.status,
+                        json: async () => JSON.parse(xhr.responseText),
+                        text: async () => xhr.responseText
+                    });
+                };
+                
+                xhr.onerror = function() {
+                    reject(new Error('Network error'));
+                };
+                
+                xhr.send(formData);
             });
             
             console.log("📡 Réponse reçue, status:", res.status);
