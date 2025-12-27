@@ -262,6 +262,13 @@ def billing_callback(shop: str, amt: int, charge_id: str):
         return HTMLResponse("Billing Error")
 
 # --- ROUTE GENERATE ---
+class GenerateRequest(BaseModel):
+    shop: str
+    person_image_base64: str
+    clothing_file_base64: Optional[str] = None
+    clothing_url: Optional[str] = None
+    category: str = "upper_body"
+
 @app.options("/api/generate")
 async def generate_options(request: Request):
     """Preflight CORS explicite"""
@@ -280,23 +287,15 @@ async def generate_options(request: Request):
     )
 
 @app.post("/api/generate")
-async def generate(
-    request: Request,
-    shop: str = Form(...),
-    person_image: UploadFile = File(...),
-    clothing_file: Optional[UploadFile] = File(None),
-    clothing_url: Optional[str] = Form(None),
-    category: str = Form("upper_body")
-):
-    """Route unifiée pour admin ET clients"""
-    print(f"🚀 [GENERATE] Requête POST reçue")
-    print(f"   - Shop: {shop}")
+async def generate(request: Request, req: GenerateRequest):
+    """Route unifiée pour admin ET clients - VERSION JSON/BASE64"""
+    print(f"🚀 [GENERATE] Requête POST reçue (JSON)")
+    print(f"   - Shop: {req.shop}")
     print(f"   - Client IP: {request.client.host}")
     print(f"   - Origin: {request.headers.get('origin', 'N/A')}")
-    print(f"   - Referer: {request.headers.get('referer', 'N/A')}")
-    print(f"   - User-Agent: {request.headers.get('user-agent', 'N/A')[:80]}")
+    print(f"   - Person image length: {len(req.person_image_base64)} chars")
     
-    shop = clean_shop_url(shop)
+    shop = clean_shop_url(req.shop)
     
     if not shop:
         print("❌ [ERROR] Shop manquant")
@@ -334,19 +333,21 @@ async def generate(
             print(f"⚠️ [RATE LIMIT] IP {client_ip}")
             return JSONResponse({"error": "Daily limit reached"}, status_code=429)
         
-        # 4. Traitement Images
-        print("📸 Lecture images...")
-        person_bytes = await person_image.read()
+        # 4. Conversion Base64 → Bytes
+        import base64
+        print("📸 Conversion Base64 → BytesIO...")
+        
+        person_bytes = base64.b64decode(req.person_image_base64)
         person_file = io.BytesIO(person_bytes)
         print(f"   - Person image: {len(person_bytes)} bytes")
         
         garment_input = None
-        if clothing_file:
-            garment_bytes = await clothing_file.read()
+        if req.clothing_file_base64:
+            garment_bytes = base64.b64decode(req.clothing_file_base64)
             garment_input = io.BytesIO(garment_bytes)
             print(f"   - Clothing file: {len(garment_bytes)} bytes")
-        elif clothing_url:
-            garment_input = clothing_url
+        elif req.clothing_url:
+            garment_input = req.clothing_url
             if garment_input.startswith("//"):
                 garment_input = "https:" + garment_input
             print(f"   - Clothing URL: {garment_input}")
@@ -361,7 +362,7 @@ async def generate(
             input={
                 "human_img": person_file,
                 "garm_img": garment_input,
-                "garment_des": category,
+                "garment_des": req.category,
                 "category": "upper_body"
             }
         )
