@@ -82,18 +82,22 @@ def clean_shop_url(url):
 # --- MIDDLEWARE CORS ULTRA-PERMISSIF ---
 @app.middleware("http")
 async def cors_and_csp_middleware(request: Request, call_next):
+    # Log de toutes les requêtes entrantes
+    print(f"📥 [{request.method}] {request.url.path}")
+    print(f"   Origin: {request.headers.get('origin', 'N/A')}")
+    print(f"   Referer: {request.headers.get('referer', 'N/A')}")
+    
     # Récupérer l'origin de la requête
     origin = request.headers.get("origin", "*")
     
     response = await call_next(request)
     
-    # CORS très permissif pour les routes API
-    if request.url.path.startswith("/api/"):
-        response.headers["Access-Control-Allow-Origin"] = origin if origin != "*" else "*"
-        response.headers["Access-Control-Allow-Credentials"] = "true"
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
-        response.headers["Access-Control-Max-Age"] = "3600"
+    # CORS très permissif pour TOUTES les routes (temporaire pour debug)
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    response.headers["Access-Control-Max-Age"] = "3600"
     
     # CSP pour permettre l'embedding Shopify
     shop = request.query_params.get("shop", "")
@@ -105,16 +109,16 @@ async def cors_and_csp_middleware(request: Request, call_next):
     
     return response
 
-# Gérer les requêtes OPTIONS (preflight)
+# Gérer les requêtes OPTIONS (preflight) pour TOUTES les routes API
 @app.options("/api/{path:path}")
-async def options_handler(request: Request):
-    origin = request.headers.get("origin", "*")
+async def options_handler(request: Request, path: str):
+    print(f"🔄 OPTIONS preflight pour /api/{path}")
     return JSONResponse(
         content={"ok": True},
         headers={
-            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
+            "Access-Control-Allow-Headers": "*",
             "Access-Control-Max-Age": "3600"
         }
     )
@@ -260,6 +264,15 @@ def billing_callback(shop: str, amt: int, charge_id: str):
         return HTMLResponse("Billing Error")
 
 # --- ROUTE UNIFIÉE /api/generate ---
+@app.get("/api/generate")
+async def generate_get_debug():
+    """Route GET pour debug - ne devrait jamais être appelée"""
+    print("⚠️ [WARNING] GET request received on /api/generate - should be POST!")
+    return JSONResponse(
+        {"error": "Method Not Allowed - Use POST"},
+        status_code=405
+    )
+
 @app.post("/api/generate")
 async def generate(
     request: Request,
