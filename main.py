@@ -7,7 +7,7 @@ import requests
 import replicate
 from typing import Optional, Dict
 from fastapi import FastAPI, HTTPException, Request, Form, File, UploadFile
-from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -89,9 +89,9 @@ def set_metafield(namespace, key, value, type_val):
 def clean_shop_url(url):
     return url.replace("https://", "").replace("http://", "").strip("/") if url else ""
 
-# --- MIDDLEWARE LOGGING + CSP (APRÈS CORS) ---
+# --- MIDDLEWARE LOGGING + HEADERS SÉCURITÉ (APRÈS CORS) ---
 @app.middleware("http")
-async def logging_and_csp_middleware(request: Request, call_next):
+async def security_and_logging_middleware(request: Request, call_next):
     # Log uniquement les requêtes non-OPTIONS
     if request.method != "OPTIONS":
         print(f"🔥 [{request.method}] {request.url.path}")
@@ -101,12 +101,23 @@ async def logging_and_csp_middleware(request: Request, call_next):
     
     response = await call_next(request)
     
+    # Headers de sécurité pour iframe et cookies tiers
+    origin = request.headers.get("origin", "*")
+    
     # CSP pour embedding Shopify
     shop = request.query_params.get("shop", "")
     if shop:
         response.headers["Content-Security-Policy"] = f"frame-ancestors https://{shop} https://admin.shopify.com https://*.myshopify.com;"
     else:
         response.headers["Content-Security-Policy"] = "frame-ancestors https://*.myshopify.com https://admin.shopify.com;"
+    
+    # Headers critiques pour iframe cross-origin
+    response.headers["Cross-Origin-Embedder-Policy"] = "unsafe-none"
+    response.headers["Cross-Origin-Opener-Policy"] = "unsafe-none"
+    response.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
+    
+    # Permissions iframe
+    response.headers["Permissions-Policy"] = "camera=*, microphone=*, cross-origin-isolated=()"
     
     return response
 
@@ -252,16 +263,19 @@ def billing_callback(shop: str, amt: int, charge_id: str):
 
 # --- ROUTE GENERATE ---
 @app.options("/api/generate")
-async def generate_options():
-    """Gestion explicite du preflight CORS"""
+async def generate_options(request: Request):
+    """Preflight CORS explicite"""
     print("🔄 OPTIONS preflight reçu pour /api/generate")
-    return JSONResponse(
-        {"ok": True},
+    print(f"   - Origin: {request.headers.get('origin', 'N/A')}")
+    
+    return Response(
+        status_code=200,
         headers={
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Methods": "POST, OPTIONS",
             "Access-Control-Allow-Headers": "*",
-            "Access-Control-Max-Age": "3600"
+            "Access-Control-Max-Age": "3600",
+            "Access-Control-Allow-Credentials": "true"
         }
     )
 
@@ -279,7 +293,8 @@ async def generate(
     print(f"   - Shop: {shop}")
     print(f"   - Client IP: {request.client.host}")
     print(f"   - Origin: {request.headers.get('origin', 'N/A')}")
-    print(f"   - User-Agent: {request.headers.get('user-agent', 'N/A')[:50]}")
+    print(f"   - Referer: {request.headers.get('referer', 'N/A')}")
+    print(f"   - User-Agent: {request.headers.get('user-agent', 'N/A')[:80]}")
     
     shop = clean_shop_url(shop)
     
@@ -364,7 +379,13 @@ async def generate(
         
         print(f"📊 Crédits restants: {current_credits - 1}")
         
-        return JSONResponse({"result_image_url": result_url})
+        return JSONResponse(
+            {"result_image_url": result_url},
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Credentials": "true"
+            }
+        )
         
     except Exception as e:
         print(f"🔥 [CRITICAL ERROR]: {str(e)}")
