@@ -8,11 +8,11 @@ document.addEventListener("DOMContentLoaded", function() {
     let shop = params.get('shop') || sessionStorage.getItem('shop');
     const autoProductImage = params.get('product_image');
 
-    // === CORRECTION CRITIQUE MODE CLIENT ===
+    // === RÉCUPÉRATION DU SHOP EN MODE CLIENT ===
     if (mode === 'client' && !shop) {
-        console.log("⚠️ Mode client détecté mais shop manquant, tentative de récupération...");
+        console.log("⚠️ Mode client détecté, recherche du shop...");
         
-        // Essayer depuis le hash
+        // Depuis le hash
         const hash = window.location.hash;
         if (hash.includes('shop=')) {
             const match = hash.match(/shop=([^&]+)/);
@@ -22,7 +22,7 @@ document.addEventListener("DOMContentLoaded", function() {
         // Depuis window.Shopify
         if (!shop && window.Shopify && window.Shopify.shop) {
             shop = window.Shopify.shop;
-            console.log("✅ Shop récupéré depuis Shopify.shop:", shop);
+            console.log("✅ Shop depuis Shopify.shop:", shop);
         }
         
         // Depuis le referrer
@@ -32,21 +32,21 @@ document.addEventListener("DOMContentLoaded", function() {
                 if (parentUrl && parentUrl.includes('.myshopify.com')) {
                     const match = parentUrl.match(/https?:\/\/([^\/]+)/);
                     if (match) shop = match[1];
-                    console.log("✅ Shop extrait du referrer:", shop);
+                    console.log("✅ Shop depuis referrer:", shop);
                 }
             } catch(e) {
-                console.error("Impossible d'extraire le shop:", e);
+                console.error("Erreur extraction shop:", e);
             }
         }
 
-        // DERNIER RECOURS : Parser depuis l'URL parente
+        // Depuis le parent
         if (!shop) {
             try {
                 if (window.parent !== window) {
                     const parentShop = window.parent.location.hostname;
                     if (parentShop.includes('.myshopify.com')) {
                         shop = parentShop;
-                        console.log("✅ Shop extrait du parent:", shop);
+                        console.log("✅ Shop depuis parent:", shop);
                     }
                 }
             } catch(e) {
@@ -63,13 +63,10 @@ document.addEventListener("DOMContentLoaded", function() {
 
     console.log("🪧 Shop actif:", shop, "| Mode:", mode);
 
-    // Si shop manquant après tous les essais
     if (!shop) {
-        console.error("❌ ERREUR CRITIQUE : Shop introuvable !");
+        console.error("❌ ERREUR: Shop introuvable!");
         if (mode !== 'client') {
             alert("Configuration error: Shop not found. Please reload the page.");
-        } else {
-            console.error("⚠️ MODE CLIENT SANS SHOP - L'essayage ne fonctionnera pas");
         }
     }
 
@@ -207,13 +204,13 @@ document.addEventListener("DOMContentLoaded", function() {
 
     // --- INIT CLIENT MODE ---
     function initClientMode() {
-        console.log("🌐 Initialisation mode CLIENT");
+        console.log("🌐 Mode CLIENT activé");
         document.body.classList.add('client-mode');
         const adminZone = document.getElementById('admin-only-zone');
         if(adminZone) adminZone.style.display = 'none';
         
         if (autoProductImage) {
-            console.log("📸 Image produit auto-chargée:", autoProductImage);
+            console.log("📸 Image produit:", autoProductImage);
             const img = document.getElementById('prevC');
             if(img) {
                 img.src = autoProductImage;
@@ -256,15 +253,15 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
 
-    // --- GENERATE VIRTUAL TRY-ON (MODE UNIFIÉ) ---
+    // --- GENERATE (CRITIQUE) ---
     window.generate = async function() {
-        console.log("🚀 Début de la génération...");
+        console.log("🚀 Début génération...");
         console.log("   - Shop:", shop);
         console.log("   - Mode:", mode);
         
-        // VALIDATION CRITIQUE DU SHOP
+        // VALIDATION SHOP
         if (!shop) {
-            console.error("❌ SHOP MANQUANT - ABANDON");
+            console.error("❌ SHOP MANQUANT");
             alert("Configuration error: Shop information missing. Please contact support.");
             return;
         }
@@ -307,8 +304,7 @@ document.addEventListener("DOMContentLoaded", function() {
         try {
             const formData = new FormData();
             
-            // LE SHOP EST CRITIQUE - ON LE LOG EXPLICITEMENT
-            console.log("📦 Construction FormData avec shop:", shop);
+            console.log("📦 Construction FormData");
             formData.append("shop", shop);
             formData.append("person_image", uFile);
             
@@ -322,57 +318,27 @@ document.addEventListener("DOMContentLoaded", function() {
             
             formData.append("category", "upper_body");
 
-            // LOG AVANT L'ENVOI
-            console.log("🚀 Envoi vers /api/generate");
-            console.log("   - Mode actuel:", mode);
-            console.log("   - Shop dans FormData:", shop);
-            
-            // IMPORTANT : Utiliser l'URL ABSOLUE en mode client
+            // URL selon le mode
             const apiUrl = mode === 'client' 
                 ? 'https://stylelab-vtonn.onrender.com/api/generate'
                 : '/api/generate';
             
-            console.log("📍 URL cible:", apiUrl);
+            console.log("🎯 URL cible:", apiUrl);
             
-            // Test de connectivité préalable
-            console.log("🔍 Test OPTIONS...");
-            try {
-                const optionsTest = await fetch(apiUrl, { method: 'OPTIONS' });
-                console.log("✅ OPTIONS OK:", optionsTest.status);
-            } catch(e) {
-                console.warn("⚠️ OPTIONS failed:", e);
-            }
-            
-            // ROUTE UNIFIÉE avec headers CORS explicites
-            console.log("📤 Envoi POST avec FormData...");
-            
-            // Alternative avec XMLHttpRequest pour éviter les problèmes CORS/Preflight
-            const res = await new Promise((resolve, reject) => {
-                const xhr = new XMLHttpRequest();
-                xhr.open('POST', apiUrl, true);
-                
-                xhr.onload = function() {
-                    resolve({
-                        ok: xhr.status >= 200 && xhr.status < 300,
-                        status: xhr.status,
-                        json: async () => JSON.parse(xhr.responseText),
-                        text: async () => xhr.responseText
-                    });
-                };
-                
-                xhr.onerror = function() {
-                    reject(new Error('Network error'));
-                };
-                
-                xhr.send(formData);
+            // FETCH SIMPLE (pas XMLHttpRequest)
+            console.log("📤 Envoi POST...");
+            const res = await fetch(apiUrl, {
+                method: 'POST',
+                body: formData
+                // Pas de Content-Type pour FormData, laisse le navigateur le gérer
             });
             
-            console.log("📡 Réponse reçue, status:", res.status);
+            console.log("📡 Réponse status:", res.status);
 
             clearInterval(interval);
 
             if (!res) {
-                console.error("❌ Pas de réponse du serveur");
+                console.error("❌ Pas de réponse");
                 document.getElementById('loader').style.display = 'none';
                 alert("Network error: No response from server");
                 return;
@@ -414,7 +380,7 @@ document.addEventListener("DOMContentLoaded", function() {
                     ri.style.display = 'block'; 
                     document.getElementById('loader').style.display = 'none'; 
                     document.getElementById('post-actions').style.display = 'block';
-                    console.log("✅ Image affichée avec succès");
+                    console.log("✅ Image affichée");
                 };
                 ri.onerror = () => {
                     console.error("❌ Erreur chargement image:", data.result_image_url);
@@ -422,13 +388,13 @@ document.addEventListener("DOMContentLoaded", function() {
                     document.getElementById('loader').style.display = 'none';
                 };
             } else { 
-                console.error("❌ Pas d'URL d'image dans la réponse");
+                console.error("❌ Pas d'URL d'image");
                 alert("Error: " + (data.error || "No image URL received")); 
                 document.getElementById('loader').style.display = 'none'; 
             }
         } catch(e) { 
             clearInterval(interval); 
-            console.error("❌ Exception Generate:", e); 
+            console.error("❌ Exception:", e); 
             alert("Error: " + e.message); 
             document.getElementById('loader').style.display = 'none'; 
         } finally { 
