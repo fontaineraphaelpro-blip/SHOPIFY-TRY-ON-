@@ -251,8 +251,19 @@ document.addEventListener("DOMContentLoaded", function() {
 
     // --- TEST CORS (TEMPORAIRE) ---
     window.testCORS = async function() {
-        console.log("🧪 TEST CORS DÉMARRÉ");
-        const testUrl = 'https://stylelab-vtonn.onrender.com/api/test-cors';
+        console.log("🧪 TEST CORS/PROXY DÉMARRÉ");
+        
+        let testUrl;
+        if (mode === 'client' || window.self !== window.top) {
+            // En mode client, utiliser le proxy Shopify
+            testUrl = `https://${shop}/apps/tryon/test`;
+            console.log("   Mode: PROXY via Shopify");
+        } else {
+            // En mode admin, direct
+            testUrl = 'https://stylelab-vtonn.onrender.com/api/test-cors';
+            console.log("   Mode: DIRECT");
+        }
+        
         console.log("   URL:", testUrl);
         
         try {
@@ -261,18 +272,16 @@ document.addEventListener("DOMContentLoaded", function() {
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ test: true }),
-                mode: 'cors',
-                credentials: 'omit'
+                body: JSON.stringify({ test: true })
             });
             
             console.log("✅ Réponse reçue:", response.status);
             const data = await response.json();
             console.log("   Data:", data);
-            alert(`✅ CORS OK: ${data.message}`);
+            alert(`✅ CONNECTION OK: ${data.message}`);
         } catch (error) {
-            console.error("❌ Erreur CORS:", error);
-            alert(`❌ CORS BLOQUÉ: ${error.message}`);
+            console.error("❌ Erreur:", error);
+            alert(`❌ CONNECTION FAILED: ${error.message}`);
         }
     }
 
@@ -378,14 +387,14 @@ document.addEventListener("DOMContentLoaded", function() {
             // DÉTECTION DU BON ENDPOINT selon le contexte
             let apiUrl;
             
-            // Si on est en iframe Shopify (mode client), utiliser l'URL absolue du serveur
+            // Si on est en iframe Shopify (mode client), utiliser le PROXY Shopify
             if (mode === 'client' || window.self !== window.top) {
-                apiUrl = 'https://stylelab-vtonn.onrender.com/api/generate';
-                console.log("🌐 Mode iframe détecté - URL directe vers serveur");
+                apiUrl = `https://${shop}/apps/tryon/generate`;
+                console.log("🔄 Mode iframe - Utilisation du Proxy Shopify");
             } else {
-                // Sinon, URL relative (admin mode)
-                apiUrl = '/api/generate';
-                console.log("🏠 Mode admin - URL relative");
+                // Sinon, URL directe (admin mode)
+                apiUrl = 'https://stylelab-vtonn.onrender.com/api/generate';
+                console.log("🏠 Mode admin - URL directe");
             }
             
             console.log("🎯 URL cible:", apiUrl);
@@ -393,7 +402,7 @@ document.addEventListener("DOMContentLoaded", function() {
             
             const fetchStartTime = Date.now();
             
-            // FETCH avec configuration CORS explicite
+            // FETCH simplifié (pas besoin de mode: 'cors' avec le proxy)
             let res;
             try {
                 res = await fetch(apiUrl, {
@@ -403,8 +412,6 @@ document.addEventListener("DOMContentLoaded", function() {
                         'Accept': 'application/json'
                     },
                     body: JSON.stringify(payload),
-                    mode: 'cors', // Explicite
-                    credentials: 'omit', // IMPORTANT: pas de cookies en cross-origin
                     cache: 'no-cache'
                 });
                 console.log("✅ Fetch returned successfully");
