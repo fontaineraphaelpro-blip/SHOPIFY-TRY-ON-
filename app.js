@@ -200,7 +200,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
     // --- INIT CLIENT MODE ---
     function initClientMode() {
-        console.log("🌐 Mode CLIENT activé");
+        console.log("🌍 Mode CLIENT activé");
         document.body.classList.add('client-mode');
         const adminZone = document.getElementById('admin-only-zone');
         if(adminZone) adminZone.style.display = 'none';
@@ -249,13 +249,11 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
 
-    // --- GENERATE (VERSION AVEC MODE RELATIF) ---
+    // --- GENERATE (VERSION CORRIGÉE CORS) ---
     window.generate = async function() {
         console.log("🚀 ========== DÉBUT GÉNÉRATION ==========");
         console.log("   📍 Shop:", shop);
         console.log("   📍 Mode:", mode);
-        console.log("   📍 window.location.origin:", window.location.origin);
-        console.log("   📍 window.location.href:", window.location.href);
         
         // VALIDATION SHOP
         if (!shop) {
@@ -344,32 +342,41 @@ document.addEventListener("DOMContentLoaded", function() {
                 category: payload.category
             });
 
-            const apiUrl = '/api/generate';
+            // URL ABSOLUE pour éviter les problèmes iframe
+            const apiUrl = `${window.location.origin}/api/generate`;
             
             console.log("🎯 URL cible:", apiUrl);
-            console.log("🎯 URL complète résolu:", new URL(apiUrl, window.location.origin).href);
             console.log("📤 Envoi de la requête POST (JSON)...");
             
             const fetchStartTime = Date.now();
-            console.log("⏱️ Timestamp avant fetch:", fetchStartTime);
             
-            // FETCH avec JSON au lieu de FormData
+            // FETCH avec configuration CORS explicite
             let res;
             try {
                 res = await fetch(apiUrl, {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
                     },
                     body: JSON.stringify(payload),
-                    mode: 'cors',
-                    credentials: 'same-origin'
+                    mode: 'cors', // Explicite
+                    cache: 'no-cache' // Éviter cache problématique
                 });
                 console.log("✅ Fetch returned successfully");
             } catch (fetchError) {
                 console.error("❌ Fetch exception:", fetchError);
                 console.error("   - Name:", fetchError.name);
                 console.error("   - Message:", fetchError.message);
+                
+                // Diagnostic supplémentaire
+                if (fetchError.name === 'TypeError' && fetchError.message.includes('Failed to fetch')) {
+                    console.error("⚠️ PROBABLE: Blocage CORS ou réseau");
+                    alert("Network error: Unable to reach server. Please check your connection or contact support.");
+                } else {
+                    alert(`Network error: ${fetchError.message}`);
+                }
+                
                 throw fetchError;
             }
             
@@ -377,7 +384,6 @@ document.addEventListener("DOMContentLoaded", function() {
             console.log(`📡 Réponse reçue en ${fetchDuration}ms`);
             console.log("   - Status:", res.status);
             console.log("   - Status Text:", res.statusText);
-            console.log("   - Headers:", Object.fromEntries(res.headers.entries()));
 
             clearInterval(interval);
 
