@@ -305,49 +305,63 @@ document.addEventListener("DOMContentLoaded", function() {
         }, 2500);
 
         try {
-            const formData = new FormData();
+            console.log("📦 Conversion des images en Base64...");
             
-            console.log("📦 Construction FormData...");
-            formData.append("shop", shop);
-            formData.append("person_image", uFile);
-            formData.append("category", "upper_body");
+            // Convertir l'image utilisateur en Base64
+            const personBase64 = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result.split(',')[1]);
+                reader.onerror = reject;
+                reader.readAsDataURL(uFile);
+            });
+            console.log("   ✅ Photo utilisateur convertie:", personBase64.substring(0, 50) + "...");
+            
+            // Préparer le payload JSON
+            const payload = {
+                shop: shop,
+                person_image_base64: personBase64,
+                category: "upper_body"
+            };
             
             if(cFile) {
-                formData.append("clothing_file", cFile);
-                console.log("   ✅ Fichier vêtement ajouté");
+                const clothingBase64 = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result.split(',')[1]);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(cFile);
+                });
+                payload.clothing_file_base64 = clothingBase64;
+                console.log("   ✅ Fichier vêtement converti");
             } else if (autoProductImage) {
-                formData.append("clothing_url", autoProductImage);
+                payload.clothing_url = autoProductImage;
                 console.log("   ✅ URL vêtement ajoutée:", autoProductImage);
             }
             
-            // DEBUG: Afficher le contenu du FormData
-            console.log("📋 Contenu FormData:");
-            for (let pair of formData.entries()) {
-                if (pair[1] instanceof File) {
-                    console.log(`   - ${pair[0]}: [File] ${pair[1].name} (${pair[1].size} bytes)`);
-                } else {
-                    console.log(`   - ${pair[0]}: ${pair[1]}`);
-                }
-            }
+            console.log("📋 Payload prêt:", {
+                shop: payload.shop,
+                person_image_length: payload.person_image_base64?.length || 0,
+                clothing_url: payload.clothing_url || 'fichier',
+                category: payload.category
+            });
 
-            // ⚡ CHANGEMENT CRITIQUE : Toujours utiliser une URL relative
-            // Cela force la requête à passer par le même domaine (stylelab-vtonn.onrender.com)
             const apiUrl = '/api/generate';
             
             console.log("🎯 URL cible:", apiUrl);
             console.log("🎯 URL complète résolu:", new URL(apiUrl, window.location.origin).href);
-            console.log("📤 Envoi de la requête POST...");
+            console.log("📤 Envoi de la requête POST (JSON)...");
             
             const fetchStartTime = Date.now();
-            
             console.log("⏱️ Timestamp avant fetch:", fetchStartTime);
             
-            // FETCH avec mode et credentials
+            // FETCH avec JSON au lieu de FormData
             let res;
             try {
                 res = await fetch(apiUrl, {
                     method: 'POST',
-                    body: formData,
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload),
                     mode: 'cors',
                     credentials: 'same-origin'
                 });
