@@ -87,11 +87,45 @@
 
         <div class="main-content">
             <div class="studio-grid">
-                <label for="uImg" class="studio-box"><div class="step-number">01</div><img id="prevU" src="" style="display:none;"><div class="empty-state"><div class="icon-circle"><i class="fa-solid fa-camera"></i></div><span class="fashion-font">Your Photo</span></div><input type="file" id="uImg" accept="image/*" onchange="preview('uImg', 'prevU')"></label>
-                <label for="cImg" class="studio-box"><div class="step-number">02</div><img id="prevC" src="" style="display:none;"><div class="empty-state"><div class="icon-circle"><i class="fa-solid fa-shirt"></i></div><span class="fashion-font">The Look</span></div><input type="file" id="cImg" accept="image/*" onchange="preview('cImg', 'prevC')"></label>
+                <label for="uImg" class="studio-box">
+                    <div class="step-number">01</div>
+                    <img id="prevU" src="" style="display:none;">
+                    <div class="empty-state">
+                        <div class="icon-circle"><i class="fa-solid fa-camera"></i></div>
+                        <span class="fashion-font">Your Photo</span>
+                    </div>
+                    <input type="file" id="uImg" accept="image/*" onchange="preview('uImg', 'prevU')">
+                </label>
+                
+                <label for="cImg" class="studio-box">
+                    <div class="step-number">02</div>
+                    <img id="prevC" src="" style="display:none;">
+                    <div class="empty-state">
+                        <div class="icon-circle"><i class="fa-solid fa-shirt"></i></div>
+                        <span class="fashion-font">The Look</span>
+                    </div>
+                    <input type="file" id="cImg" accept="image/*" onchange="preview('cImg', 'prevC')">
+                </label>
             </div>
-            <div class="action-area"><button id="btnGo" onclick="generate()" class="btn-magic"><span class="btn-content">Try It On Now <i class="fa-solid fa-wand-magic-sparkles"></i></span><div class="btn-glow"></div></button></div>
-            <div id="resZone" style="display:none;" class="result-display"><div id="loader" style="display:none;"><div class="spinner-modern"></div><p id="loader-text" class="fashion-loader-text">Analyzing silhouette...</p></div><img id="resImg" src="" style="display:none;"><div id="post-actions" style="display:none;" class="post-result-actions"><button id="shopBtn" class="btn-shop-now" onclick="trackATC()">Shop This Look <i class="fa-solid fa-bag-shopping"></i></button></div></div>
+            
+            <!-- BOUTON SORTI DU LABEL -->
+            <div class="action-area">
+                <button type="button" id="btnGo" onclick="generate()" class="btn-magic">
+                    <span class="btn-content">Try It On Now <i class="fa-solid fa-wand-magic-sparkles"></i></span>
+                    <div class="btn-glow"></div>
+                </button>
+            </div>
+            
+            <div id="resZone" style="display:none;" class="result-display">
+                <div id="loader" style="display:none;">
+                    <div class="spinner-modern"></div>
+                    <p id="loader-text" class="fashion-loader-text">Analyzing silhouette...</p>
+                </div>
+                <img id="resImg" src="" style="display:none;">
+                <div id="post-actions" style="display:none;" class="post-result-actions">
+                    <button id="shopBtn" class="btn-shop-now" onclick="trackATC()">Shop This Look <i class="fa-solid fa-bag-shopping"></i></button>
+                </div>
+            </div>
         </div>
     </div>
     <script src="/app.js"></script>
