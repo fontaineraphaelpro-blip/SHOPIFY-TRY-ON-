@@ -340,13 +340,24 @@ document.addEventListener("DOMContentLoaded", function() {
             
             const fetchStartTime = Date.now();
             
+            console.log("⏱️ Timestamp avant fetch:", fetchStartTime);
+            
             // FETCH avec mode et credentials
-            const res = await fetch(apiUrl, {
-                method: 'POST',
-                body: formData,
-                mode: 'cors',
-                credentials: 'same-origin'
-            });
+            let res;
+            try {
+                res = await fetch(apiUrl, {
+                    method: 'POST',
+                    body: formData,
+                    mode: 'cors',
+                    credentials: 'same-origin'
+                });
+                console.log("✅ Fetch returned successfully");
+            } catch (fetchError) {
+                console.error("❌ Fetch exception:", fetchError);
+                console.error("   - Name:", fetchError.name);
+                console.error("   - Message:", fetchError.message);
+                throw fetchError;
+            }
             
             const fetchDuration = Date.now() - fetchStartTime;
             console.log(`📡 Réponse reçue en ${fetchDuration}ms`);
