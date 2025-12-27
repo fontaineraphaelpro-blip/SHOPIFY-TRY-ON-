@@ -327,10 +327,19 @@ document.addEventListener("DOMContentLoaded", function() {
             console.log("   - Mode actuel:", mode);
             console.log("   - Shop dans FormData:", shop);
             
-            // ROUTE UNIFIÉE
-            const res = await fetch('/api/generate', { 
+            // IMPORTANT : Utiliser l'URL ABSOLUE en mode client
+            const apiUrl = mode === 'client' 
+                ? 'https://stylelab-vtonn.onrender.com/api/generate'
+                : '/api/generate';
+            
+            console.log("📍 URL cible:", apiUrl);
+            
+            // ROUTE UNIFIÉE avec headers CORS explicites
+            const res = await fetch(apiUrl, { 
                 method: 'POST', 
-                body: formData 
+                body: formData,
+                mode: 'cors',
+                credentials: 'omit'
             });
             
             console.log("📡 Réponse reçue, status:", res.status);
