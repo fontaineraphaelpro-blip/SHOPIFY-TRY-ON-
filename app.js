@@ -249,11 +249,13 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
 
-    // --- GENERATE (VERSION CORRIGÉE) ---
+    // --- GENERATE (VERSION AVEC MODE RELATIF) ---
     window.generate = async function() {
         console.log("🚀 ========== DÉBUT GÉNÉRATION ==========");
         console.log("   📍 Shop:", shop);
         console.log("   📍 Mode:", mode);
+        console.log("   📍 window.location.origin:", window.location.origin);
+        console.log("   📍 window.location.href:", window.location.href);
         
         // VALIDATION SHOP
         if (!shop) {
@@ -328,21 +330,22 @@ document.addEventListener("DOMContentLoaded", function() {
                 }
             }
 
-            // URL selon le mode
-            const apiUrl = mode === 'client' 
-                ? 'https://stylelab-vtonn.onrender.com/api/generate'
-                : '/api/generate';
+            // ⚡ CHANGEMENT CRITIQUE : Toujours utiliser une URL relative
+            // Cela force la requête à passer par le même domaine (stylelab-vtonn.onrender.com)
+            const apiUrl = '/api/generate';
             
             console.log("🎯 URL cible:", apiUrl);
+            console.log("🎯 URL complète résolu:", new URL(apiUrl, window.location.origin).href);
             console.log("📤 Envoi de la requête POST...");
             
             const fetchStartTime = Date.now();
             
-            // FETCH STANDARD
+            // FETCH avec mode et credentials
             const res = await fetch(apiUrl, {
                 method: 'POST',
-                body: formData
-                // Pas de headers, laisse le navigateur gérer Content-Type
+                body: formData,
+                mode: 'cors',
+                credentials: 'same-origin'
             });
             
             const fetchDuration = Date.now() - fetchStartTime;
