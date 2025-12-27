@@ -428,3 +428,119 @@ def w2(): return {"ok": True}
 def w3(): return {"ok": True}
 @app.post("/webhooks/gdpr")
 def w4(): return {"ok": True}
+
+# ========================================
+# APP PROXY ROUTES (Pour mode client)
+# ========================================
+# Ces routes sont accessibles via: https://SHOP.myshopify.com/apps/tryon/*
+# au lieu de directement depuis votre serveur
+
+@app.post("/apps/tryon/generate")
+async def generate_proxy(request: Request):
+    """
+    Route proxy pour le mode client
+    Accessible via: https://SHOP.myshopify.com/apps/tryon/generate
+    """
+    print("🔄 [PROXY] Requête reçue via App Proxy")
+    
+    # Récupérer le body
+    try:
+        body = await request.json()
+    except:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+    
+    # Créer l'objet GenerateRequest
+    try:
+        req = GenerateRequest(**body)
+    except Exception as e:
+        print(f"❌ Validation error: {e}")
+        return JSONResponse({"error": str(e)}, status_code=400)
+    
+    # Réutiliser la logique de generate()
+    shop = clean_shop_url(req.shop)
+    
+    if not shop:
+        return JSONResponse({"error": "Shop parameter missing"}, status_code=400)
+    
+    token = get_token_db(shop)
+    if not token:
+        return JSONResponse({"error": "Shop not authenticated"}, status_code=401)
+    
+    try:
+        get_shopify_session(shop, token)
+        current_credits = get_metafield("virtual_try_on", "wallet", 0)
+        max_tries = get_metafield("vton_security", "max_tries_per_user", 5)
+        
+        print(f"💰 Crédits: {current_credits}")
+        
+        if current_credits < 1:
+            return JSONResponse({"error": "Insufficient credits"}, status_code=402)
+        
+        # Rate Limiting
+        client_ip = request.client.host
+        rate_key = f"{shop}_{client_ip}"
+        today = time.strftime("%Y-%m-%d")
+        
+        if rate_key not in RATE_LIMIT_DB:
+            RATE_LIMIT_DB[rate_key] = {"date": today, "count": 0}
+        
+        if RATE_LIMIT_DB[rate_key]["date"] != today:
+            RATE_LIMIT_DB[rate_key] = {"date": today, "count": 0}
+        
+        if RATE_LIMIT_DB[rate_key]["count"] >= max_tries:
+            return JSONResponse({"error": "Daily limit reached"}, status_code=429)
+        
+        # Conversion Base64 → Bytes
+        import base64
+        
+        person_bytes = base64.b64decode(req.person_image_base64)
+        person_file = io.BytesIO(person_bytes)
+        
+        garment_input = None
+        if req.clothing_file_base64:
+            garment_bytes = base64.b64decode(req.clothing_file_base64)
+            garment_input = io.BytesIO(garment_bytes)
+        elif req.clothing_url:
+            garment_input = req.clothing_url
+            if garment_input.startswith("//"):
+                garment_input = "https:" + garment_input
+        else:
+            return JSONResponse({"error": "No garment provided"}, status_code=400)
+        
+        print("🤖 Appel Replicate via Proxy...")
+        
+        # Appel Replicate
+        output = replicate.run(
+            MODEL_ID,
+            input={
+                "human_img": person_file,
+                "garm_img": garment_input,
+                "garment_des": req.category,
+                "category": "upper_body"
+            }
+        )
+        
+        result_url = str(output[0]) if isinstance(output, list) else str(output)
+        
+        print(f"✅ Résultat: {result_url}")
+        
+        # Mise à jour Stats
+        set_metafield("virtual_try_on", "wallet", current_credits - 1, "integer")
+        total_tryons = get_metafield("virtual_try_on", "total_tryons", 0)
+        set_metafield("virtual_try_on", "total_tryons", total_tryons + 1, "integer")
+        
+        RATE_LIMIT_DB[rate_key]["count"] += 1
+        
+        return JSONResponse({"result_image_url": result_url})
+        
+    except Exception as e:
+        print(f"🔥 [PROXY ERROR]: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.post("/apps/tryon/test")
+async def test_proxy():
+    """Route de test pour vérifier que le proxy fonctionne"""
+    print("✅ [PROXY TEST] Route proxy accessible!")
+    return JSONResponse({"status": "ok", "message": "App Proxy works!"})
