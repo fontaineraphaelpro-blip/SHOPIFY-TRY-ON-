@@ -16,7 +16,7 @@ from pydantic import BaseModel
 SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
 SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
 REPLICATE_TOKEN_CHECK = os.getenv("REPLICATE_API_TOKEN")
-HOST = os.getenv("HOST", "https://ton-app.onrender.com").rstrip('/')
+HOST = os.getenv("HOST", "https://stylelab-vtonn.onrender.com").rstrip('/')
 SCOPES = ['read_products', 'write_products', 'read_themes', 'write_themes']
 API_VERSION = "2024-10"
 MODEL_ID = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985"
@@ -24,6 +24,16 @@ MODEL_ID = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b4852855943
 app = FastAPI()
 templates = Jinja2Templates(directory=".")
 RATE_LIMIT_DB: Dict[str, Dict] = {}
+
+# --- CORS MIDDLEWARE (PRIORITAIRE) ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # En production, spécifier les domaines Shopify
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"]
+)
 
 # --- 1. COFFRE-FORT LOCAL (SQLite) ---
 def init_db():
@@ -79,49 +89,22 @@ def set_metafield(namespace, key, value, type_val):
 def clean_shop_url(url):
     return url.replace("https://", "").replace("http://", "").strip("/") if url else ""
 
-# --- MIDDLEWARE CORS ULTRA-PERMISSIF ---
+# --- MIDDLEWARE CSP ---
 @app.middleware("http")
-async def cors_and_csp_middleware(request: Request, call_next):
-    # Log de toutes les requêtes entrantes
-    print(f"📥 [{request.method}] {request.url.path}")
+async def csp_middleware(request: Request, call_next):
+    print(f"🔥 [{request.method}] {request.url.path}")
     print(f"   Origin: {request.headers.get('origin', 'N/A')}")
-    print(f"   Referer: {request.headers.get('referer', 'N/A')}")
-    
-    # Récupérer l'origin de la requête
-    origin = request.headers.get("origin", "*")
     
     response = await call_next(request)
-    
-    # CORS très permissif pour TOUTES les routes (temporaire pour debug)
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Credentials"] = "true"
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "*"
-    response.headers["Access-Control-Max-Age"] = "3600"
     
     # CSP pour permettre l'embedding Shopify
     shop = request.query_params.get("shop", "")
     if shop:
         response.headers["Content-Security-Policy"] = f"frame-ancestors https://{shop} https://admin.shopify.com https://*.myshopify.com;"
     else:
-        # Permissif si pas de shop spécifié
         response.headers["Content-Security-Policy"] = "frame-ancestors https://*.myshopify.com https://admin.shopify.com;"
     
     return response
-
-# Gérer les requêtes OPTIONS (preflight) pour TOUTES les routes API
-@app.options("/api/{path:path}")
-async def options_handler(request: Request, path: str):
-    print(f"🔄 OPTIONS preflight pour /api/{path}")
-    return JSONResponse(
-        content={"ok": True},
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-            "Access-Control-Allow-Headers": "*",
-            "Access-Control-Max-Age": "3600"
-        }
-    )
 
 # --- ROUTES ---
 @app.get("/", response_class=HTMLResponse)
@@ -263,15 +246,11 @@ def billing_callback(shop: str, amt: int, charge_id: str):
     except: 
         return HTMLResponse("Billing Error")
 
-# --- ROUTE UNIFIÉE /api/generate ---
-@app.get("/api/generate")
-async def generate_get_debug():
-    """Route GET pour debug - ne devrait jamais être appelée"""
-    print("⚠️ [WARNING] GET request received on /api/generate - should be POST!")
-    return JSONResponse(
-        {"error": "Method Not Allowed - Use POST"},
-        status_code=405
-    )
+# --- ROUTE GENERATE (CRITIQUE) ---
+@app.options("/api/generate")
+async def generate_options():
+    """Preflight CORS"""
+    return JSONResponse({"ok": True})
 
 @app.post("/api/generate")
 async def generate(
@@ -282,38 +261,36 @@ async def generate(
     clothing_url: Optional[str] = Form(None),
     category: str = Form("upper_body")
 ):
-    """Route unifiée pour admin ET clients (widget)"""
+    """Route unifiée pour admin ET clients"""
     print(f"🚀 [GENERATE] Requête reçue")
     print(f"   - Shop: {shop}")
     print(f"   - Client IP: {request.client.host}")
     print(f"   - Origin: {request.headers.get('origin', 'N/A')}")
-    print(f"   - Referer: {request.headers.get('referer', 'N/A')}")
     
     shop = clean_shop_url(shop)
     
     if not shop:
-        print("❌ [ERROR] Shop manquant dans le formulaire")
+        print("❌ [ERROR] Shop manquant")
         return JSONResponse({"error": "Shop parameter missing"}, status_code=400)
     
     # 1. Vérification Token
     token = get_token_db(shop)
     if not token:
-        print(f"❌ [ERROR] Aucun token pour le shop: {shop}")
-        return JSONResponse({"error": "Shop not connected"}, status_code=401)
+        print(f"❌ [ERROR] Pas de token pour {shop}")
+        return JSONResponse({"error": "Shop not authenticated"}, status_code=401)
     
     try:
-        # 2. Vérification Crédits + Limite Rate
+        # 2. Vérification Crédits
         get_shopify_session(shop, token)
         current_credits = get_metafield("virtual_try_on", "wallet", 0)
         max_tries = get_metafield("vton_security", "max_tries_per_user", 5)
         
-        print(f"💰 Crédits disponibles: {current_credits}")
+        print(f"💰 Crédits: {current_credits}")
         
         if current_credits < 1:
-            print("❌ [ERROR] Pas de crédits")
-            return JSONResponse({"error": "No credits available"}, status_code=402)
+            return JSONResponse({"error": "Insufficient credits"}, status_code=402)
         
-        # Vérification limite par IP (anti-abus)
+        # 3. Rate Limiting
         client_ip = request.client.host
         rate_key = f"{shop}_{client_ip}"
         today = time.strftime("%Y-%m-%d")
@@ -325,31 +302,30 @@ async def generate(
             RATE_LIMIT_DB[rate_key] = {"date": today, "count": 0}
         
         if RATE_LIMIT_DB[rate_key]["count"] >= max_tries:
-            print(f"⚠️ [RATE LIMIT] IP {client_ip} a atteint la limite")
+            print(f"⚠️ [RATE LIMIT] IP {client_ip}")
             return JSONResponse({"error": "Daily limit reached"}, status_code=429)
         
-        # 3. Traitement des images
-        print("📸 Lecture de l'image personne...")
+        # 4. Traitement Images
+        print("📸 Lecture images...")
         person_bytes = await person_image.read()
         person_file = io.BytesIO(person_bytes)
         
         garment_input = None
         if clothing_file:
-            print("👕 Lecture fichier vêtement...")
             garment_bytes = await clothing_file.read()
             garment_input = io.BytesIO(garment_bytes)
+            print("👕 Fichier vêtement chargé")
         elif clothing_url:
-            print(f"🔗 URL vêtement: {clothing_url}")
             garment_input = clothing_url
             if garment_input.startswith("//"):
                 garment_input = "https:" + garment_input
+            print(f"🔗 URL vêtement: {garment_input}")
         else:
-            print("❌ [ERROR] Aucun vêtement fourni")
             return JSONResponse({"error": "No garment provided"}, status_code=400)
         
         print("🤖 Appel Replicate...")
         
-        # 4. Appel Replicate
+        # 5. Appel Replicate
         output = replicate.run(
             MODEL_ID,
             input={
@@ -362,26 +338,26 @@ async def generate(
         
         result_url = str(output[0]) if isinstance(output, list) else str(output)
         
-        print(f"✅ Résultat généré: {result_url}")
+        print(f"✅ Résultat: {result_url}")
         
-        # 5. Mise à jour des stats
+        # 6. Mise à jour Stats
         set_metafield("virtual_try_on", "wallet", current_credits - 1, "integer")
         total_tryons = get_metafield("virtual_try_on", "total_tryons", 0)
         set_metafield("virtual_try_on", "total_tryons", total_tryons + 1, "integer")
         
         RATE_LIMIT_DB[rate_key]["count"] += 1
         
-        print(f"📊 Stats mises à jour - Crédits restants: {current_credits - 1}")
+        print(f"📊 Crédits restants: {current_credits - 1}")
         
-        return {"result_image_url": result_url}
+        return JSONResponse({"result_image_url": result_url})
         
     except Exception as e:
-        print(f"🔥 [CRITICAL ERROR] : {str(e)}")
+        print(f"🔥 [ERROR]: {str(e)}")
         import traceback
         traceback.print_exc()
         return JSONResponse({"error": str(e)}, status_code=500)
 
-# --- WEBHOOKS GDPR (dummy) ---
+# --- WEBHOOKS GDPR ---
 @app.post("/webhooks/customers/data_request")
 def w1(): return {"ok": True}
 @app.post("/webhooks/customers/redact")
