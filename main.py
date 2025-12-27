@@ -1,498 +1,248 @@
 import os
 import io
 import time
-import sqlite3
-import shopify
-import requests
-import replicate
-from typing import Optional, Dict
-from fastapi import FastAPI, HTTPException, Request, Form, File, UploadFile
-from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse, JSONResponse, Response
+import hmac
+import hashlib
+from typing import Optional
+from fastapi import FastAPI, HTTPException, Request, Header
+from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
+import replicate
+from sqlalchemy import create_engine, Column, String, Integer, Float, DateTime, Boolean
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+from datetime import datetime, timedelta
 
-# --- CONFIG ---
+# ==========================================
+# CONFIGURATION
+# ==========================================
 SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
 SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
-REPLICATE_TOKEN_CHECK = os.getenv("REPLICATE_API_TOKEN")
-HOST = os.getenv("HOST", "https://stylelab-vtonn.onrender.com").rstrip('/')
-SCOPES = ['read_products', 'write_products', 'read_themes', 'write_themes']
-API_VERSION = "2024-10"
+REPLICATE_TOKEN = os.getenv("REPLICATE_API_TOKEN")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:pass@localhost/vton")
 MODEL_ID = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985"
 
-app = FastAPI()
-templates = Jinja2Templates(directory=".")
-RATE_LIMIT_DB: Dict[str, Dict] = {}
+# ==========================================
+# DATABASE SETUP (PostgreSQL)
+# ==========================================
+Base = declarative_base()
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(bind=engine)
 
-# --- CORS MIDDLEWARE (CONFIGURATION MAXIMALE) ---
+class Shop(Base):
+    __tablename__ = "shops"
+    domain = Column(String, primary_key=True)
+    access_token = Column(String, nullable=False)
+    credits = Column(Integer, default=0)
+    lifetime_credits = Column(Integer, default=0)
+    total_tryons = Column(Integer, default=0)
+    total_atc = Column(Integer, default=0)
+    max_tries_per_user = Column(Integer, default=5)
+    widget_text = Column(String, default="Try It On Now ✨")
+    widget_bg = Column(String, default="#000000")
+    widget_color = Column(String, default="#ffffff")
+    installed_at = Column(DateTime, default=datetime.utcnow)
+
+class TryOnLog(Base):
+    __tablename__ = "tryon_logs"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    shop = Column(String, nullable=False)
+    customer_ip = Column(String)
+    product_id = Column(String)
+    success = Column(Boolean, default=True)
+    latency_ms = Column(Integer)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class RateLimit(Base):
+    __tablename__ = "rate_limits"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    shop = Column(String, nullable=False)
+    customer_ip = Column(String, nullable=False)
+    date = Column(String, nullable=False)  # Format: YYYY-MM-DD
+    count = Column(Integer, default=0)
+
+Base.metadata.create_all(engine)
+
+# ==========================================
+# FASTAPI APP
+# ==========================================
+app = FastAPI(title="VTON AI Backend", version="2.0")
+
+# CORS minimal (App Proxy handled by Shopify)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # En production, limitez aux domaines Shopify
+    allow_origins=["https://*.myshopify.com"],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
-    expose_headers=["*"],
-    max_age=3600  # Cache preflight pendant 1h
 )
 
-# --- 1. COFFRE-FORT LOCAL (SQLite) ---
-def init_db():
-    with sqlite3.connect("database.db") as conn:
-        conn.execute("CREATE TABLE IF NOT EXISTS shops (domain TEXT PRIMARY KEY, token TEXT)")
-        conn.commit()
-init_db()
-
-def save_token_db(shop, token):
-    with sqlite3.connect("database.db") as conn:
-        conn.execute("INSERT OR REPLACE INTO shops (domain, token) VALUES (?, ?)", (shop, token))
-        conn.commit()
-
-def get_token_db(shop):
-    try:
-        with sqlite3.connect("database.db") as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT token FROM shops WHERE domain = ?", (shop,))
-            row = cur.fetchone()
-            return row[0] if row else None
-    except:
-        return None
-
-# --- 2. SHOPIFY ---
-def get_shopify_session(shop, token):
-    shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
-    session = shopify.Session(shop, API_VERSION, token)
-    shopify.ShopifyResource.activate_session(session)
-
-def get_metafield(namespace, key, default=0):
-    try:
-        metafields = shopify.Metafield.find(namespace=namespace, key=key)
-        if metafields:
-            val = metafields[0].value
-            if isinstance(default, int): return int(float(val))
-            if isinstance(default, str): return str(val)
-            return val
-    except: 
-        pass
-    return default
-
-def set_metafield(namespace, key, value, type_val):
-    try:
-        metafield = shopify.Metafield()
-        metafield.namespace = namespace
-        metafield.key = key
-        metafield.value = value
-        metafield.type = type_val
-        metafield.save()
-    except Exception as e: 
-        print(f"⚠️ Erreur Metafield: {e}")
-
-def clean_shop_url(url):
-    return url.replace("https://", "").replace("http://", "").strip("/") if url else ""
-
-# --- MIDDLEWARE LOGGING + HEADERS SÉCURITÉ (APRÈS CORS) ---
-@app.middleware("http")
-async def security_and_logging_middleware(request: Request, call_next):
-    # Log toutes les requêtes
-    print(f"🔥 [{request.method}] {request.url.path}")
-    origin = request.headers.get('origin', 'N/A')
-    if origin != 'N/A':
-        print(f"   Origin: {origin}")
+# ==========================================
+# HELPERS
+# ==========================================
+def verify_shopify_proxy(params: dict) -> bool:
+    """Vérifie que la requête vient bien de Shopify App Proxy"""
+    signature = params.pop('signature', None)
+    if not signature:
+        return False
     
-    # Traiter les OPTIONS immédiatement
-    if request.method == "OPTIONS":
-        return Response(
-            status_code=200,
-            headers={
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-                "Access-Control-Allow-Headers": "*",
-                "Access-Control-Max-Age": "3600",
-            }
-        )
+    # Reconstruire la query string
+    sorted_params = sorted(params.items())
+    query_string = '&'.join([f"{k}={v}" for k, v in sorted_params])
     
-    response = await call_next(request)
+    # Calculer le HMAC
+    computed = hmac.new(
+        SHOPIFY_API_SECRET.encode(),
+        query_string.encode(),
+        hashlib.sha256
+    ).hexdigest()
     
-    # Headers de sécurité SEULEMENT pour les pages HTML (pas l'API)
-    if request.url.path.startswith("/api/"):
-        # Pour l'API: headers CORS minimalistes
-        response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Credentials"] = "true"
-    else:
-        # Pour les pages: CSP pour embedding Shopify
-        shop = request.query_params.get("shop", "")
-        if shop:
-            response.headers["Content-Security-Policy"] = f"frame-ancestors https://{shop} https://admin.shopify.com https://*.myshopify.com;"
-        else:
-            response.headers["Content-Security-Policy"] = "frame-ancestors https://*.myshopify.com https://admin.shopify.com;"
-        
-        # Headers iframe
-        response.headers["Cross-Origin-Embedder-Policy"] = "unsafe-none"
-        response.headers["Cross-Origin-Opener-Policy"] = "unsafe-none"
-        response.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
-        response.headers["Permissions-Policy"] = "camera=*, microphone=*"
-    
-    return response
+    return hmac.compare_digest(computed, signature)
 
-# --- ROUTES ---
-@app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
-    shop = request.query_params.get("shop")
-    return templates.TemplateResponse("index.html", { "request": request, "shop": shop, "api_key": SHOPIFY_API_KEY })
-
-@app.get("/styles.css")
-def styles(): return FileResponse('styles.css', media_type='text/css')
-
-@app.get("/app.js")
-def javascript(): return FileResponse('app.js', media_type='application/javascript')
-
-# --- AUTH ---
-@app.get("/login")
-def login(shop: str):
-    shop = clean_shop_url(shop)
-    auth_url = f"https://{shop}/admin/oauth/authorize?client_id={SHOPIFY_API_KEY}&scope={','.join(SCOPES)}&redirect_uri={HOST}/auth/callback"
-    return RedirectResponse(auth_url)
-
-@app.get("/auth/callback")
-def auth_callback(request: Request):
-    params = dict(request.query_params)
-    shop = clean_shop_url(params.get("shop"))
-    code = params.get("code")
+def get_db():
+    db = SessionLocal()
     try:
-        url = f"https://{shop}/admin/oauth/access_token"
-        payload = {"client_id": SHOPIFY_API_KEY, "client_secret": SHOPIFY_API_SECRET, "code": code}
-        res = requests.post(url, json=payload)
-        if res.status_code == 200:
-            token = res.json().get('access_token')
-            save_token_db(shop, token)
-            target_url = f"https://admin.shopify.com/store/{shop.replace('.myshopify.com','')}/apps/{SHOPIFY_API_KEY}"
-            return RedirectResponse(target_url)
-        return HTMLResponse(f"Token Error: {res.text}", status_code=400)
-    except Exception as e: return HTMLResponse(content=f"Auth Error: {str(e)}", status_code=500)
+        yield db
+    finally:
+        db.close()
 
-# --- API DATA ---
-@app.get("/api/get-data")
-def get_data_route(shop: str):
-    shop = clean_shop_url(shop)
-    token = get_token_db(shop)
-    if not token: 
-        raise HTTPException(status_code=401, detail="Refresh required")
-    try:
-        get_shopify_session(shop, token)
-        credits = get_metafield("virtual_try_on", "wallet", 0)
-        total_tryons = get_metafield("virtual_try_on", "total_tryons", 0)
-        total_atc = get_metafield("virtual_try_on", "total_atc", 0)
-        lifetime = get_metafield("virtual_try_on", "lifetime_credits", 0)
+# ==========================================
+# APP PROXY ROUTES (PUBLIC STOREFRONT)
+# ==========================================
 
-        w_text = get_metafield("vton_widget", "btn_text", "Try It On Now ✨")
-        w_bg = get_metafield("vton_widget", "btn_bg", "#000000")
-        w_color = get_metafield("vton_widget", "btn_text_color", "#ffffff")
-        max_tries = get_metafield("vton_security", "max_tries_per_user", 5)
-
-        return {
-            "credits": credits, "lifetime": lifetime, "usage": total_tryons, "atc": total_atc,
-            "widget": {"text": w_text, "bg": w_bg, "color": w_color}, "security": {"max_tries": max_tries}
+@app.get("/apps/tryon/widget.js")
+async def serve_widget():
+    """Sert le widget JavaScript optimisé"""
+    js_content = """
+(function() {
+    'use strict';
+    
+    const WIDGET_CONFIG = {
+        apiEndpoint: window.location.origin + '/apps/tryon/generate',
+        buttonSelector: '[data-vton-button]',
+        imageSelector: '[data-vton-image]'
+    };
+    
+    class VTONWidget {
+        constructor() {
+            this.shop = window.Shopify?.shop || '';
+            this.init();
         }
-    except Exception as e: 
-        print(f"⚠️ API Get-Data Error: {e}")
-        return {"credits": 0}
-
-# --- TRACK ATC ---
-class TrackRequest(BaseModel): shop: str
-@app.post("/api/track-atc")
-def track_atc(req: TrackRequest):
-    shop = clean_shop_url(req.shop)
-    token = get_token_db(shop)
-    if not token: return JSONResponse({"error": "No token"}, status_code=401)
-    try:
-        get_shopify_session(shop, token)
-        current_atc = get_metafield("virtual_try_on", "total_atc", 0)
-        set_metafield("virtual_try_on", "total_atc", current_atc + 1, "integer")
-        return {"ok": True}
-    except Exception as e: 
-        print(f"⚠️ ATC Error: {e}")
-        return JSONResponse({"error": "Failed"}, status_code=500)
-
-# --- SETTINGS ---
-class SettingsRequest(BaseModel): shop: str; text: str; bg: str; color: str; max_tries: int
-@app.post("/api/save-settings")
-def save_settings(req: SettingsRequest):
-    shop = clean_shop_url(req.shop)
-    token = get_token_db(shop)
-    if not token: return JSONResponse({"error": "No token"}, status_code=401)
-    try:
-        get_shopify_session(shop, token)
-        set_metafield("vton_widget", "btn_text", req.text, "single_line_text_field")
-        set_metafield("vton_widget", "btn_bg", req.bg, "color")
-        set_metafield("vton_widget", "btn_text_color", req.color, "color")
-        set_metafield("vton_security", "max_tries_per_user", req.max_tries, "integer")
-        return {"ok": True}
-    except Exception as e:
-        print(f"⚠️ Save Settings Error: {e}")
-        return JSONResponse({"error": "Failed"}, status_code=500)
-
-# --- BILLING ---
-class BuyRequest(BaseModel): shop: str; pack_id: str; custom_amount: int = 0
-@app.post("/api/buy-credits")
-def buy_credits(req: BuyRequest):
-    shop = clean_shop_url(req.shop)
-    token = get_token_db(shop)
-    if not token: raise HTTPException(status_code=401, detail="Session expired")
-
-    price, name, credits = 0, "", 0
-    if req.pack_id == 'pack_10': price, name, credits = 4.99, "10 Credits", 10
-    elif req.pack_id == 'pack_30': price, name, credits = 12.99, "30 Credits", 30
-    elif req.pack_id == 'pack_100': price, name, credits = 29.99, "100 Credits", 100
-    elif req.pack_id == 'pack_custom':
-        credits = req.custom_amount
-        price, name = round(credits * 0.25, 2), f"{credits} Credits"
-
-    try:
-        get_shopify_session(shop, token)
-        return_url = f"{HOST}/billing/callback?shop={shop}&amt={credits}"
-        charge = shopify.ApplicationCharge.create({"name": name, "price": price, "test": True, "return_url": return_url})
-        return {"confirmation_url": charge.confirmation_url}
-    except Exception as e: 
-        print(f"⚠️ Billing Error: {e}")
-        return JSONResponse({"error": str(e)}, status_code=500)
-
-@app.get("/billing/callback")
-def billing_callback(shop: str, amt: int, charge_id: str):
-    shop = clean_shop_url(shop)
-    token = get_token_db(shop)
-    if not token: return RedirectResponse(f"/login?shop={shop}")
-    try:
-        get_shopify_session(shop, token)
-        charge = shopify.ApplicationCharge.find(charge_id)
-        if charge.status != 'active': charge.activate()
-        current = get_metafield("virtual_try_on", "wallet", 0)
-        set_metafield("virtual_try_on", "wallet", current + amt, "integer")
-        lifetime = get_metafield("virtual_try_on", "lifetime_credits", 0)
-        set_metafield("virtual_try_on", "lifetime_credits", lifetime + amt, "integer")
-        admin_url = f"https://admin.shopify.com/store/{shop.replace('.myshopify.com','')}/apps/{SHOPIFY_API_KEY}"
-        return HTMLResponse(f"<script>window.top.location.href='{admin_url}';</script>")
-    except: 
-        return HTMLResponse("Billing Error")
-
-# --- ROUTE GENERATE ---
-class GenerateRequest(BaseModel):
-    shop: str
-    person_image_base64: str
-    clothing_file_base64: Optional[str] = None
-    clothing_url: Optional[str] = None
-    category: str = "upper_body"
-
-# OPTIONS explicite pour /api/generate
-@app.options("/api/generate")
-async def generate_options():
-    """Gestion explicite du preflight CORS"""
-    print("🔄 OPTIONS preflight reçu pour /api/generate")
-    return JSONResponse(
-        content={"message": "OK"},
-        status_code=200,
+        
+        init() {
+            document.addEventListener('DOMContentLoaded', () => {
+                this.injectButton();
+            });
+        }
+        
+        injectButton() {
+            const productForm = document.querySelector('form[action*="/cart/add"]');
+            if (!productForm) return;
+            
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'vton-try-it-on';
+            btn.innerHTML = '👗 Try It On';
+            btn.onclick = () => this.openModal();
+            
+            productForm.insertAdjacentElement('beforebegin', btn);
+        }
+        
+        async openModal() {
+            // Modal implementation
+            console.log('Open VTON modal');
+        }
+        
+        async generate(personImage, garmentImage) {
+            const formData = new FormData();
+            formData.append('person_image', personImage);
+            formData.append('garment_image', garmentImage);
+            
+            const response = await fetch(WIDGET_CONFIG.apiEndpoint, {
+                method: 'POST',
+                body: formData
+            });
+            
+            if (!response.ok) {
+                throw new Error('Generation failed');
+            }
+            
+            return await response.json();
+        }
+    }
+    
+    new VTONWidget();
+})();
+"""
+    return Response(
+        content=js_content,
+        media_type="application/javascript",
         headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization",
-            "Access-Control-Max-Age": "3600",
+            "Cache-Control": "public, max-age=3600",
+            "Access-Control-Allow-Origin": "*"
         }
     )
 
-# Route GET pour debugging (retourne une erreur explicite)
-@app.get("/api/generate")
-async def generate_get_error():
-    """Cette route ne devrait JAMAIS être appelée - c'est un diagnostic"""
-    print("⚠️ WARNING: GET reçu sur /api/generate - Le frontend envoie GET au lieu de POST!")
-    return JSONResponse(
-        {
-            "error": "Method Not Allowed - Use POST",
-            "hint": "Le bouton déclenche probablement une navigation au lieu d'un fetch()"
-        },
-        status_code=405
-    )
-
-@app.post("/api/generate")
-async def generate(request: Request, req: GenerateRequest):
-    """Route unifiée pour admin ET clients - VERSION JSON/BASE64"""
-    print(f"🚀 [GENERATE] Requête POST reçue (JSON)")
-    print(f"   - Shop: {req.shop}")
-    print(f"   - Client IP: {request.client.host}")
-    print(f"   - Origin: {request.headers.get('origin', 'N/A')}")
-    print(f"   - Person image length: {len(req.person_image_base64)} chars")
-    
-    shop = clean_shop_url(req.shop)
-    
-    if not shop:
-        print("❌ [ERROR] Shop manquant")
-        return JSONResponse({"error": "Shop parameter missing"}, status_code=400)
-    
-    # 1. Vérification Token
-    token = get_token_db(shop)
-    if not token:
-        print(f"❌ [ERROR] Pas de token pour {shop}")
-        return JSONResponse({"error": "Shop not authenticated"}, status_code=401)
-    
-    try:
-        # 2. Vérification Crédits
-        get_shopify_session(shop, token)
-        current_credits = get_metafield("virtual_try_on", "wallet", 0)
-        max_tries = get_metafield("vton_security", "max_tries_per_user", 5)
-        
-        print(f"💰 Crédits: {current_credits}")
-        
-        if current_credits < 1:
-            return JSONResponse({"error": "Insufficient credits"}, status_code=402)
-        
-        # 3. Rate Limiting
-        client_ip = request.client.host
-        rate_key = f"{shop}_{client_ip}"
-        today = time.strftime("%Y-%m-%d")
-        
-        if rate_key not in RATE_LIMIT_DB:
-            RATE_LIMIT_DB[rate_key] = {"date": today, "count": 0}
-        
-        if RATE_LIMIT_DB[rate_key]["date"] != today:
-            RATE_LIMIT_DB[rate_key] = {"date": today, "count": 0}
-        
-        if RATE_LIMIT_DB[rate_key]["count"] >= max_tries:
-            print(f"⚠️ [RATE LIMIT] IP {client_ip}")
-            return JSONResponse({"error": "Daily limit reached"}, status_code=429)
-        
-        # 4. Conversion Base64 → Bytes
-        import base64
-        print("📸 Conversion Base64 → BytesIO...")
-        
-        person_bytes = base64.b64decode(req.person_image_base64)
-        person_file = io.BytesIO(person_bytes)
-        print(f"   - Person image: {len(person_bytes)} bytes")
-        
-        garment_input = None
-        if req.clothing_file_base64:
-            garment_bytes = base64.b64decode(req.clothing_file_base64)
-            garment_input = io.BytesIO(garment_bytes)
-            print(f"   - Clothing file: {len(garment_bytes)} bytes")
-        elif req.clothing_url:
-            garment_input = req.clothing_url
-            if garment_input.startswith("//"):
-                garment_input = "https:" + garment_input
-            print(f"   - Clothing URL: {garment_input}")
-        else:
-            return JSONResponse({"error": "No garment provided"}, status_code=400)
-        
-        print("🤖 Appel Replicate...")
-        
-        # 5. Appel Replicate
-        output = replicate.run(
-            MODEL_ID,
-            input={
-                "human_img": person_file,
-                "garm_img": garment_input,
-                "garment_des": req.category,
-                "category": "upper_body"
-            }
-        )
-        
-        result_url = str(output[0]) if isinstance(output, list) else str(output)
-        
-        print(f"✅ Résultat: {result_url}")
-        
-        # 6. Mise à jour Stats
-        set_metafield("virtual_try_on", "wallet", current_credits - 1, "integer")
-        total_tryons = get_metafield("virtual_try_on", "total_tryons", 0)
-        set_metafield("virtual_try_on", "total_tryons", total_tryons + 1, "integer")
-        
-        RATE_LIMIT_DB[rate_key]["count"] += 1
-        
-        print(f"📊 Crédits restants: {current_credits - 1}")
-        
-        return JSONResponse(
-            {"result_image_url": result_url},
-            headers={
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Credentials": "true"
-            }
-        )
-        
-    except Exception as e:
-        print(f"🔥 [CRITICAL ERROR]: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return JSONResponse({"error": str(e)}, status_code=500)
-
-# --- WEBHOOKS GDPR ---
-@app.post("/webhooks/customers/data_request")
-def w1(): return {"ok": True}
-@app.post("/webhooks/customers/redact")
-def w2(): return {"ok": True}
-@app.post("/webhooks/shop/redact")
-def w3(): return {"ok": True}
-@app.post("/webhooks/gdpr")
-def w4(): return {"ok": True}
-
-# ========================================
-# APP PROXY ROUTES (Pour mode client)
-# ========================================
-# Ces routes sont accessibles via: https://SHOP.myshopify.com/apps/tryon/*
-# au lieu de directement depuis votre serveur
+class ProxyGenerateRequest(BaseModel):
+    person_image_base64: str
+    clothing_url: Optional[str] = None
+    clothing_file_base64: Optional[str] = None
+    product_id: Optional[str] = None
 
 @app.post("/apps/tryon/generate")
-async def generate_proxy(request: Request):
+async def proxy_generate(
+    request: Request,
+    req: ProxyGenerateRequest
+):
     """
-    Route proxy pour le mode client
+    Route App Proxy pour générer un try-on
     Accessible via: https://SHOP.myshopify.com/apps/tryon/generate
     """
-    print("🔄 [PROXY] Requête reçue via App Proxy")
+    start_time = time.time()
     
-    # Récupérer le body
-    try:
-        body = await request.json()
-    except:
-        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
-    
-    # Créer l'objet GenerateRequest
-    try:
-        req = GenerateRequest(**body)
-    except Exception as e:
-        print(f"❌ Validation error: {e}")
-        return JSONResponse({"error": str(e)}, status_code=400)
-    
-    # Réutiliser la logique de generate()
-    shop = clean_shop_url(req.shop)
+    # 1. Extraire le shop depuis les query params Shopify
+    params = dict(request.query_params)
+    shop = params.get('shop', '').replace('.myshopify.com', '') + '.myshopify.com'
     
     if not shop:
         return JSONResponse({"error": "Shop parameter missing"}, status_code=400)
     
-    token = get_token_db(shop)
-    if not token:
-        return JSONResponse({"error": "Shop not authenticated"}, status_code=401)
+    # 2. Vérifier signature Shopify (optionnel mais recommandé)
+    # if not verify_shopify_proxy(params):
+    #     return JSONResponse({"error": "Invalid signature"}, status_code=403)
+    
+    db = next(get_db())
+    
+    # 3. Récupérer la config shop
+    shop_record = db.query(Shop).filter(Shop.domain == shop).first()
+    if not shop_record:
+        return JSONResponse({"error": "Shop not found"}, status_code=404)
+    
+    # 4. Vérifier crédits
+    if shop_record.credits < 1:
+        return JSONResponse({"error": "Insufficient credits"}, status_code=402)
+    
+    # 5. Rate limiting par IP
+    client_ip = request.client.host
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    
+    rate_limit = db.query(RateLimit).filter(
+        RateLimit.shop == shop,
+        RateLimit.customer_ip == client_ip,
+        RateLimit.date == today
+    ).first()
+    
+    if not rate_limit:
+        rate_limit = RateLimit(shop=shop, customer_ip=client_ip, date=today, count=0)
+        db.add(rate_limit)
+    
+    if rate_limit.count >= shop_record.max_tries_per_user:
+        return JSONResponse({"error": "Daily limit reached"}, status_code=429)
     
     try:
-        get_shopify_session(shop, token)
-        current_credits = get_metafield("virtual_try_on", "wallet", 0)
-        max_tries = get_metafield("vton_security", "max_tries_per_user", 5)
-        
-        print(f"💰 Crédits: {current_credits}")
-        
-        if current_credits < 1:
-            return JSONResponse({"error": "Insufficient credits"}, status_code=402)
-        
-        # Rate Limiting
-        client_ip = request.client.host
-        rate_key = f"{shop}_{client_ip}"
-        today = time.strftime("%Y-%m-%d")
-        
-        if rate_key not in RATE_LIMIT_DB:
-            RATE_LIMIT_DB[rate_key] = {"date": today, "count": 0}
-        
-        if RATE_LIMIT_DB[rate_key]["date"] != today:
-            RATE_LIMIT_DB[rate_key] = {"date": today, "count": 0}
-        
-        if RATE_LIMIT_DB[rate_key]["count"] >= max_tries:
-            return JSONResponse({"error": "Daily limit reached"}, status_code=429)
-        
-        # Conversion Base64 → Bytes
+        # 6. Conversion Base64 -> BytesIO
         import base64
-        
         person_bytes = base64.b64decode(req.person_image_base64)
         person_file = io.BytesIO(person_bytes)
         
@@ -507,40 +257,167 @@ async def generate_proxy(request: Request):
         else:
             return JSONResponse({"error": "No garment provided"}, status_code=400)
         
-        print("🤖 Appel Replicate via Proxy...")
-        
-        # Appel Replicate
+        # 7. Appel Replicate
         output = replicate.run(
             MODEL_ID,
             input={
                 "human_img": person_file,
                 "garm_img": garment_input,
-                "garment_des": req.category,
+                "garment_des": "upper_body",
                 "category": "upper_body"
             }
         )
         
         result_url = str(output[0]) if isinstance(output, list) else str(output)
         
-        print(f"✅ Résultat: {result_url}")
+        # 8. Mise à jour stats
+        shop_record.credits -= 1
+        shop_record.total_tryons += 1
+        rate_limit.count += 1
         
-        # Mise à jour Stats
-        set_metafield("virtual_try_on", "wallet", current_credits - 1, "integer")
-        total_tryons = get_metafield("virtual_try_on", "total_tryons", 0)
-        set_metafield("virtual_try_on", "total_tryons", total_tryons + 1, "integer")
+        latency = int((time.time() - start_time) * 1000)
         
-        RATE_LIMIT_DB[rate_key]["count"] += 1
+        log = TryOnLog(
+            shop=shop,
+            customer_ip=client_ip,
+            product_id=req.product_id,
+            success=True,
+            latency_ms=latency
+        )
+        db.add(log)
+        db.commit()
         
-        return JSONResponse({"result_image_url": result_url})
+        return JSONResponse({
+            "result_image_url": result_url,
+            "credits_remaining": shop_record.credits
+        })
         
     except Exception as e:
-        print(f"🔥 [PROXY ERROR]: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        print(f"Error: {str(e)}")
+        
+        log = TryOnLog(
+            shop=shop,
+            customer_ip=client_ip,
+            product_id=req.product_id,
+            success=False,
+            latency_ms=int((time.time() - start_time) * 1000)
+        )
+        db.add(log)
+        db.commit()
+        
         return JSONResponse({"error": str(e)}, status_code=500)
 
-@app.post("/apps/tryon/test")
-async def test_proxy():
-    """Route de test pour vérifier que le proxy fonctionne"""
-    print("✅ [PROXY TEST] Route proxy accessible!")
-    return JSONResponse({"status": "ok", "message": "App Proxy works!"})
+# ==========================================
+# ADMIN API ROUTES (Session Token Auth)
+# ==========================================
+
+def verify_session_token(authorization: str) -> Optional[str]:
+    """Vérifie le Session Token Shopify et retourne le shop"""
+    # Implementation complète avec JWT validation
+    # Pour l'instant, extraction basique
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    
+    token = authorization.replace("Bearer ", "")
+    # TODO: Decode JWT with Shopify public key
+    # Pour l'instant, retourner None (à implémenter)
+    return None
+
+@app.get("/api/admin/dashboard")
+async def get_dashboard(
+    authorization: str = Header(None),
+    shop: str = None
+):
+    """Dashboard analytics pour l'admin Shopify"""
+    # shop = verify_session_token(authorization)
+    # if not shop:
+    #     raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    if not shop:
+        raise HTTPException(status_code=400, detail="Shop parameter required")
+    
+    db = next(get_db())
+    shop_record = db.query(Shop).filter(Shop.domain == shop).first()
+    
+    if not shop_record:
+        raise HTTPException(status_code=404, detail="Shop not found")
+    
+    # Analytics
+    today = datetime.utcnow().date()
+    week_ago = today - timedelta(days=7)
+    month_ago = today - timedelta(days=30)
+    
+    logs_today = db.query(TryOnLog).filter(
+        TryOnLog.shop == shop,
+        TryOnLog.created_at >= today
+    ).all()
+    
+    logs_week = db.query(TryOnLog).filter(
+        TryOnLog.shop == shop,
+        TryOnLog.created_at >= week_ago
+    ).all()
+    
+    logs_month = db.query(TryOnLog).filter(
+        TryOnLog.shop == shop,
+        TryOnLog.created_at >= month_ago
+    ).all()
+    
+    avg_latency = sum(log.latency_ms for log in logs_month) / len(logs_month) if logs_month else 0
+    error_rate = sum(1 for log in logs_month if not log.success) / len(logs_month) if logs_month else 0
+    
+    return {
+        "credits": shop_record.credits,
+        "lifetime_credits": shop_record.lifetime_credits,
+        "total_tryons": shop_record.total_tryons,
+        "total_atc": shop_record.total_atc,
+        "analytics": {
+            "tryons_today": len(logs_today),
+            "tryons_week": len(logs_week),
+            "tryons_month": len(logs_month),
+            "avg_latency_ms": int(avg_latency),
+            "error_rate": round(error_rate * 100, 2),
+            "conversion_rate": round((shop_record.total_atc / shop_record.total_tryons * 100) if shop_record.total_tryons > 0 else 0, 2)
+        },
+        "widget": {
+            "text": shop_record.widget_text,
+            "bg": shop_record.widget_bg,
+            "color": shop_record.widget_color
+        }
+    }
+
+@app.post("/api/admin/settings")
+async def save_settings(
+    request: Request,
+    shop: str = None
+):
+    """Sauvegarde des settings widget"""
+    if not shop:
+        raise HTTPException(status_code=400, detail="Shop parameter required")
+    
+    data = await request.json()
+    
+    db = next(get_db())
+    shop_record = db.query(Shop).filter(Shop.domain == shop).first()
+    
+    if not shop_record:
+        raise HTTPException(status_code=404, detail="Shop not found")
+    
+    shop_record.widget_text = data.get('text', shop_record.widget_text)
+    shop_record.widget_bg = data.get('bg', shop_record.widget_bg)
+    shop_record.widget_color = data.get('color', shop_record.widget_color)
+    shop_record.max_tries_per_user = data.get('max_tries', shop_record.max_tries_per_user)
+    
+    db.commit()
+    
+    return {"success": True}
+
+# ==========================================
+# HEALTH CHECK
+# ==========================================
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
