@@ -1,5 +1,5 @@
 # ======================================
-# shopify.app.toml - Version Prête pour Déploiement
+# shopify.app.toml - Avec App Proxy
 # ======================================
 
 client_id = "85e1a9dba888450e33b84fbb067bc3a5"
@@ -8,7 +8,6 @@ application_url = "https://stylelab-vtonn.onrender.com"
 embedded = true
 
 [access_scopes]
-# Note: J'ai aussi retiré 'read_orders' ici pour éviter tout conflit de validation
 scopes = "write_products,read_products"
 
 [auth]
@@ -18,11 +17,15 @@ redirect_urls = [
   "https://stylelab-vtonn.onrender.com/api/auth/callback"
 ]
 
+# === APP PROXY (ESSENTIEL POUR MODE CLIENT) ===
+[app_proxy]
+url = "https://stylelab-vtonn.onrender.com"
+subpath = "tryon"
+prefix = "apps"
+
 [webhooks]
 api_version = "2025-01"
 
-# --- Webhooks Standards ---
-# Retrait de orders/create pour éviter le blocage "Protected Customer Data"
 [[webhooks.subscriptions]]
 topics = [
   "app/uninstalled",
@@ -30,7 +33,6 @@ topics = [
 ]
 uri = "/webhooks/gdpr"
 
-# --- Webhooks RGPD (Obligatoires) ---
 [[webhooks.subscriptions]]
 compliance_topics = [
   "customers/data_request",
