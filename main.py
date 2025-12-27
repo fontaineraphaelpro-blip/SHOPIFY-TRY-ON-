@@ -25,10 +25,10 @@ app = FastAPI()
 templates = Jinja2Templates(directory=".")
 RATE_LIMIT_DB: Dict[str, Dict] = {}
 
-# --- CORS MIDDLEWARE (PRIORITAIRE) ---
+# --- CORS MIDDLEWARE (DOIT ÊTRE EN PREMIER) ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # En production, spécifier les domaines Shopify
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -89,15 +89,19 @@ def set_metafield(namespace, key, value, type_val):
 def clean_shop_url(url):
     return url.replace("https://", "").replace("http://", "").strip("/") if url else ""
 
-# --- MIDDLEWARE CSP ---
+# --- MIDDLEWARE LOGGING + CSP (APRÈS CORS) ---
 @app.middleware("http")
-async def csp_middleware(request: Request, call_next):
-    print(f"🔥 [{request.method}] {request.url.path}")
-    print(f"   Origin: {request.headers.get('origin', 'N/A')}")
+async def logging_and_csp_middleware(request: Request, call_next):
+    # Log uniquement les requêtes non-OPTIONS
+    if request.method != "OPTIONS":
+        print(f"🔥 [{request.method}] {request.url.path}")
+        origin = request.headers.get('origin', 'N/A')
+        if origin != 'N/A':
+            print(f"   Origin: {origin}")
     
     response = await call_next(request)
     
-    # CSP pour permettre l'embedding Shopify
+    # CSP pour embedding Shopify
     shop = request.query_params.get("shop", "")
     if shop:
         response.headers["Content-Security-Policy"] = f"frame-ancestors https://{shop} https://admin.shopify.com https://*.myshopify.com;"
@@ -246,11 +250,20 @@ def billing_callback(shop: str, amt: int, charge_id: str):
     except: 
         return HTMLResponse("Billing Error")
 
-# --- ROUTE GENERATE (CRITIQUE) ---
+# --- ROUTE GENERATE ---
 @app.options("/api/generate")
 async def generate_options():
-    """Preflight CORS"""
-    return JSONResponse({"ok": True})
+    """Gestion explicite du preflight CORS"""
+    print("🔄 OPTIONS preflight reçu pour /api/generate")
+    return JSONResponse(
+        {"ok": True},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Max-Age": "3600"
+        }
+    )
 
 @app.post("/api/generate")
 async def generate(
@@ -262,10 +275,11 @@ async def generate(
     category: str = Form("upper_body")
 ):
     """Route unifiée pour admin ET clients"""
-    print(f"🚀 [GENERATE] Requête reçue")
+    print(f"🚀 [GENERATE] Requête POST reçue")
     print(f"   - Shop: {shop}")
     print(f"   - Client IP: {request.client.host}")
     print(f"   - Origin: {request.headers.get('origin', 'N/A')}")
+    print(f"   - User-Agent: {request.headers.get('user-agent', 'N/A')[:50]}")
     
     shop = clean_shop_url(shop)
     
@@ -309,17 +323,18 @@ async def generate(
         print("📸 Lecture images...")
         person_bytes = await person_image.read()
         person_file = io.BytesIO(person_bytes)
+        print(f"   - Person image: {len(person_bytes)} bytes")
         
         garment_input = None
         if clothing_file:
             garment_bytes = await clothing_file.read()
             garment_input = io.BytesIO(garment_bytes)
-            print("👕 Fichier vêtement chargé")
+            print(f"   - Clothing file: {len(garment_bytes)} bytes")
         elif clothing_url:
             garment_input = clothing_url
             if garment_input.startswith("//"):
                 garment_input = "https:" + garment_input
-            print(f"🔗 URL vêtement: {garment_input}")
+            print(f"   - Clothing URL: {garment_input}")
         else:
             return JSONResponse({"error": "No garment provided"}, status_code=400)
         
@@ -352,7 +367,7 @@ async def generate(
         return JSONResponse({"result_image_url": result_url})
         
     except Exception as e:
-        print(f"🔥 [ERROR]: {str(e)}")
+        print(f"🔥 [CRITICAL ERROR]: {str(e)}")
         import traceback
         traceback.print_exc()
         return JSONResponse({"error": str(e)}, status_code=500)
