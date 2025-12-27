@@ -250,7 +250,13 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // --- GENERATE (VERSION CORRIGÉE CORS) ---
-    window.generate = async function() {
+    window.generate = async function(event) {
+        // EMPÊCHER toute navigation par défaut
+        if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+        
         console.log("🚀 ========== DÉBUT GÉNÉRATION ==========");
         console.log("   📍 Shop:", shop);
         console.log("   📍 Mode:", mode);
