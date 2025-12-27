@@ -25,14 +25,15 @@ app = FastAPI()
 templates = Jinja2Templates(directory=".")
 RATE_LIMIT_DB: Dict[str, Dict] = {}
 
-# --- CORS MIDDLEWARE (DOIT ÊTRE EN PREMIER) ---
+# --- CORS MIDDLEWARE (CONFIGURATION MAXIMALE) ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # En production, limitez aux domaines Shopify
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["*"]
+    expose_headers=["*"],
+    max_age=3600  # Cache preflight pendant 1h
 )
 
 # --- 1. COFFRE-FORT LOCAL (SQLite) ---
@@ -92,32 +93,44 @@ def clean_shop_url(url):
 # --- MIDDLEWARE LOGGING + HEADERS SÉCURITÉ (APRÈS CORS) ---
 @app.middleware("http")
 async def security_and_logging_middleware(request: Request, call_next):
-    # Log uniquement les requêtes non-OPTIONS
-    if request.method != "OPTIONS":
-        print(f"🔥 [{request.method}] {request.url.path}")
-        origin = request.headers.get('origin', 'N/A')
-        if origin != 'N/A':
-            print(f"   Origin: {origin}")
+    # Log toutes les requêtes
+    print(f"🔥 [{request.method}] {request.url.path}")
+    origin = request.headers.get('origin', 'N/A')
+    if origin != 'N/A':
+        print(f"   Origin: {origin}")
+    
+    # Traiter les OPTIONS immédiatement
+    if request.method == "OPTIONS":
+        return Response(
+            status_code=200,
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+                "Access-Control-Allow-Headers": "*",
+                "Access-Control-Max-Age": "3600",
+            }
+        )
     
     response = await call_next(request)
     
-    # Headers de sécurité pour iframe et cookies tiers
-    origin = request.headers.get("origin", "*")
-    
-    # CSP pour embedding Shopify
-    shop = request.query_params.get("shop", "")
-    if shop:
-        response.headers["Content-Security-Policy"] = f"frame-ancestors https://{shop} https://admin.shopify.com https://*.myshopify.com;"
+    # Headers de sécurité SEULEMENT pour les pages HTML (pas l'API)
+    if request.url.path.startswith("/api/"):
+        # Pour l'API: headers CORS minimalistes
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
     else:
-        response.headers["Content-Security-Policy"] = "frame-ancestors https://*.myshopify.com https://admin.shopify.com;"
-    
-    # Headers critiques pour iframe cross-origin
-    response.headers["Cross-Origin-Embedder-Policy"] = "unsafe-none"
-    response.headers["Cross-Origin-Opener-Policy"] = "unsafe-none"
-    response.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
-    
-    # Permissions iframe
-    response.headers["Permissions-Policy"] = "camera=*, microphone=*, cross-origin-isolated=()"
+        # Pour les pages: CSP pour embedding Shopify
+        shop = request.query_params.get("shop", "")
+        if shop:
+            response.headers["Content-Security-Policy"] = f"frame-ancestors https://{shop} https://admin.shopify.com https://*.myshopify.com;"
+        else:
+            response.headers["Content-Security-Policy"] = "frame-ancestors https://*.myshopify.com https://admin.shopify.com;"
+        
+        # Headers iframe
+        response.headers["Cross-Origin-Embedder-Policy"] = "unsafe-none"
+        response.headers["Cross-Origin-Opener-Policy"] = "unsafe-none"
+        response.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
+        response.headers["Permissions-Policy"] = "camera=*, microphone=*"
     
     return response
 
@@ -269,20 +282,19 @@ class GenerateRequest(BaseModel):
     clothing_url: Optional[str] = None
     category: str = "upper_body"
 
+# OPTIONS explicite pour /api/generate
 @app.options("/api/generate")
-async def generate_options(request: Request):
-    """Preflight CORS explicite"""
+async def generate_options():
+    """Gestion explicite du preflight CORS"""
     print("🔄 OPTIONS preflight reçu pour /api/generate")
-    print(f"   - Origin: {request.headers.get('origin', 'N/A')}")
-    
-    return Response(
+    return JSONResponse(
+        content={"message": "OK"},
         status_code=200,
         headers={
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Methods": "POST, OPTIONS",
-            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
             "Access-Control-Max-Age": "3600",
-            "Access-Control-Allow-Credentials": "true"
         }
     )
 
